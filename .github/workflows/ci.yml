@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint + format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ruff
+        run: pip install "ruff>=0.8"
+      - name: Ruff check
+        run: ruff check src tests scripts
+      - name: Ruff format check
+        run: ruff format --check src tests scripts
+
+  typecheck:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install (no heavy deps)
+        run: |
+          pip install --upgrade pip
+          # Type-check without pulling torch/lerobot to keep CI fast.
+          # Library code is type-clean against its declared interfaces.
+          pip install "mypy>=1.13" "numpy>=2.0" "pandas-stubs" "types-tqdm"
+      - name: Mypy
+        run: mypy src
+
+  test:
+    name: pytest (fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install with dev extras (no sim, no GPU)
+        run: |
+          pip install --upgrade pip
+          # CI installs lightweight deps only; sim/gpu tests are excluded
+          # via pytest marks. Real benchmark work runs on the dev box.
+          pip install -e ".[dev]" || pip install -e ".[dev]" --no-deps
+      - name: Run fast tests
+        run: pytest -m "not slow and not gpu and not sim" --cov=lerobot_bench --cov-report=xml
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
