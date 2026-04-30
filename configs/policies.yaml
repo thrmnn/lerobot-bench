@@ -1,0 +1,39 @@
+# Policy registry. Loaded by lerobot_bench.policies.PolicyRegistry.from_yaml.
+#
+# A policy is "runnable" when it is a baseline (no weights) OR has both
+# repo_id and revision_sha filled in. Pre-Day-0a entries can ship with
+# revision_sha: null — those load fine but the eval loop refuses to run
+# them. See docs/MODEL_CARDS.md for the human-readable companion.
+#
+# SmolVLA and Pi0 are intentionally NOT yet listed — locked at Day 0a
+# alongside their HF Hub repo IDs and pinned revisions. Libero-only
+# policies are gated on the Day 1 Libero install spike anyway.
+
+policies:
+  - name: no_op
+    is_baseline: true
+    env_compat: [pusht, aloha_transfer_cube]
+    license: MIT
+    notes: "Emits a zero action every step. Floor on the leaderboard."
+
+  - name: random
+    is_baseline: true
+    env_compat: [pusht, aloha_transfer_cube]
+    license: MIT
+    notes: "Uniformly samples from the action space each step."
+
+  - name: diffusion_policy
+    is_baseline: false
+    env_compat: [pusht, aloha_transfer_cube]
+    repo_id: lerobot/diffusion_pusht
+    revision_sha: null  # TODO Day 0a: lock SHA from HF Hub model card
+    fp_precision: fp32
+    license: null  # TODO Day 0a: read from upstream model card
+
+  - name: act
+    is_baseline: false
+    env_compat: [pusht, aloha_transfer_cube]
+    repo_id: lerobot/act_aloha_sim_transfer_cube_human
+    revision_sha: null  # TODO Day 0a
+    fp_precision: fp32
+    license: null  # TODO Day 0a
