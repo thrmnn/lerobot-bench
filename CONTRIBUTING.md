@@ -7,7 +7,7 @@ This is a personal portfolio project, but PRs and issues are welcome.
 Requires Python 3.12 and a recent CUDA-capable GPU for sim runs (CPU works for the leaderboard reader only).
 
 ```bash
-git clone https://github.com/theoh-io/lerobot-bench.git
+git clone https://github.com/thrmnn/lerobot-bench.git
 cd lerobot-bench
 conda activate lerobot          # Python 3.12 env with lerobot 0.5.1
 pip install -e ".[all]"

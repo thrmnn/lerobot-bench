@@ -42,7 +42,7 @@ lerobot-bench/
 
 ```bash
 # Clone and install
-git clone https://github.com/theoh-io/lerobot-bench.git
+git clone https://github.com/thrmnn/lerobot-bench.git
 cd lerobot-bench
 
 # Activate the existing lerobot conda env (Python 3.12, miniforge3)

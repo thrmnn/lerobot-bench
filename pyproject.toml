@@ -64,9 +64,9 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/theoh-io/lerobot-bench"
-Repository = "https://github.com/theoh-io/lerobot-bench"
-Issues = "https://github.com/theoh-io/lerobot-bench/issues"
+Homepage = "https://github.com/thrmnn/lerobot-bench"
+Repository = "https://github.com/thrmnn/lerobot-bench"
+Issues = "https://github.com/thrmnn/lerobot-bench/issues"
 
 [project.scripts]
 lerobot-bench = "lerobot_bench.cli:main"

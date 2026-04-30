@@ -16,7 +16,7 @@ Owner: human (these are decisions and credential steps Claude cannot make).
 - [ ] Lock the **5 policy repo IDs + revision SHAs** and write them into `docs/MODEL_CARDS.md`. The fields currently marked `TBD` block the sweep config.
 - [ ] Verify `lerobot.envs.<env>.config.SUCCESS_REWARD` exists in 0.5.1; otherwise pin the hardcoded thresholds (PushT 0.95, Aloha 1.0, Libero 1.0) in `envs.py` with a docstring stating the verification source.
 - [ ] **10-min novelty search** on HF Hub + Google Scholar for "lerobot benchmark" / "multi-policy lerobot eval". If something close exists, reposition before any code lands.
-- [ ] Decide: GitHub repo owner — `theoh-io` (per README) or `thrmnn` (per current `gh auth`)? This affects the remote URL in `pyproject.toml` and badges in `README.md`. **Currently blocking the first PR push.**
+- [x] **Resolved 2026-04-30**: GitHub repo owner is `thrmnn`. Repo created at `git@github.com:thrmnn/lerobot-bench.git`. All `theoh-io` references rebranded across pyproject.toml, README, CONTRIBUTING, CHANGELOG, and docs.
 
 ## Day 0b — calibration spike (Claude can scaffold, human runs)
 
@@ -73,7 +73,9 @@ day's work is a separate PR; that table is authoritative.
 
 ## Open questions / explicit blockers
 
-1. **GitHub remote**: owner choice (`theoh-io` vs `thrmnn`) is blocking the first push of `chore/claude-team-and-infra`. Resolve before Day 0a closes.
-2. **HF Hub dataset name**: design doc says `theoh-io/lerobot-bench-results-v1`. If the GH owner changes, mirror it here so attribution lines up.
-3. **HF Space URL**: same — owner alignment matters. The Space's git remote is set once and rarely changed.
-4. **lerobot env Python tooling**: dev extras (`mypy`, `pytest`, `ruff`) not yet installed in the `lerobot` conda env. `make all` will fail until they are. Day 0a item.
+1. ~~**GitHub remote** — resolved, owner is `thrmnn`.~~
+2. ~~**lerobot env Python tooling** — resolved 2026-04-30: ruff/mypy/pytest/pre-commit/pytest-cov installed in the `lerobot` conda env; `make all` green.~~
+3. **HF username confirmation**: rebrand assumed HF Hub username = `thrmnn` (matches GH). If HF account is different, run `huggingface-cli whoami` after login and submit a follow-up rebrand PR — only `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md` reference HF paths (dataset + Space).
+4. **`lerobot==0.5.1` not on PyPI**: the local lerobot install at `/home/theo/projects/lerobot/` is editable from a tag, not a PyPI release. `pip install -e ".[all]"` from a clean machine will fail until `lerobot==0.5.1` ships to PyPI. Track upstream; for now the local repo + manual `pip install -e /home/theo/projects/lerobot` is the install path on the dev box.
+5. **Auth not yet performed**: `huggingface-cli login` (write scope, needed for publish step) and `wandb login` (optional). User has accounts; tokens not yet on disk.
+6. **Sim extras not yet installed** in the lerobot env (`gym-pusht`, `gym-aloha`, `mujoco`). Pulled by `[sim]` extra. Day 1 item.

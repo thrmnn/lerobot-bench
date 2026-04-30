@@ -135,13 +135,13 @@ video_path         str        # relative path in results/videos/
 sweep_timestamp    str        # ISO 8601, manifest.json key
 ```
 
-**Spaces deploy mechanics (corrected from review).** HF Spaces is itself a git repo at `huggingface.co/spaces/theoh-io/lerobot-bench`. We push directly to it from `space/` via a lightweight `make deploy-space` target that runs `git push hf-space main` to a remote pointing at the Space. No GitHub Actions, no `space-deploy` branch. The Space's `requirements.txt` pins `lerobot==0.5.1` and `gradio`; the app reads results from the published Hub dataset.
+**Spaces deploy mechanics (corrected from review).** HF Spaces is itself a git repo at `huggingface.co/spaces/thrmnn/lerobot-bench`. We push directly to it from `space/` via a lightweight `make deploy-space` target that runs `git push hf-space main` to a remote pointing at the Space. No GitHub Actions, no `space-deploy` branch. The Space's `requirements.txt` pins `lerobot==0.5.1` and `gradio`; the app reads results from the published Hub dataset.
 
 ### Spaces UI sketch (Gradio)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  LeRobot Multi-Policy Benchmark — by @theoh-io                  │
+│  LeRobot Multi-Policy Benchmark — by @thrmnn                  │
 ├─────────────────────────────────────────────────────────────────┤
 │  [Leaderboard]  [Browse Rollouts]  [Methodology]                │
 ├─────────────────────────────────────────────────────────────────┤
@@ -196,11 +196,11 @@ If neither finding is supported by 5 seeds × 50 episodes, the artifact graceful
 ## Success Criteria
 
 The artifact is "done" when:
-- ✅ Public HF Space at `theoh-io/lerobot-bench` is live and not broken
+- ✅ Public HF Space at `thrmnn/lerobot-bench` is live and not broken
 - ✅ Leaderboard table renders with ≥4 policies × ≥2 envs × full 5 seeds × 50 episodes (or downscoped to 25 episodes per Q4, documented), with bootstrap CIs
 - ✅ Video grid shows ≥1 success and ≥1 failure rollout per populated cell, served from HF Hub dataset
 - ✅ Browse-rollouts tab works end-to-end on free CPU Spaces (just video fetch + metadata, no live inference)
-- ✅ Independent repo `theoh-io/lerobot-bench` lists exact repro steps; reproducing **a single cell** end-to-end is < 1 hour wall time on equivalent hardware (full sweep is documented as overnight)
+- ✅ Independent repo `thrmnn/lerobot-bench` lists exact repro steps; reproducing **a single cell** end-to-end is < 1 hour wall time on equivalent hardware (full sweep is documented as overnight)
 - ✅ One headline finding written up in `notebooks/01-write-finding.ipynb` with plots, OR explicit "no headline finding emerged — see methodology" note if data didn't support one
 - ✅ Link to the Space is in Théo's HF application materials
 
@@ -208,9 +208,9 @@ Stretch (not gating, all author-controlled): HF blog submission, Reddit r/Machin
 
 ## Distribution Plan
 
-- **Code**: GitHub repo `theoh-io/lerobot-bench`, MIT license
-- **Results data**: HF Hub dataset `theoh-io/lerobot-bench-results-v1` (parquet + videos)
-- **Public surface**: HF Space `theoh-io/lerobot-bench` — its own git repo at `huggingface.co/spaces/theoh-io/lerobot-bench`, deployed via `git push hf-space main` from `space/` directory
+- **Code**: GitHub repo `thrmnn/lerobot-bench`, MIT license
+- **Results data**: HF Hub dataset `thrmnn/lerobot-bench-results-v1` (parquet + videos)
+- **Public surface**: HF Space `thrmnn/lerobot-bench` — its own git repo at `huggingface.co/spaces/thrmnn/lerobot-bench`, deployed via `git push hf-space main` from `space/` directory
 - **Application surface**: link added to HF Robotics application materials + Théo's portfolio site
 - **CI/CD**: deferred — adds overhead disproportionate to v1 needs. Manual repro is the spec.
 

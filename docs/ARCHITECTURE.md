@@ -42,7 +42,7 @@
                           ▼                              ▼
                   ┌──────────────────┐          ┌────────────────────┐
                   │ HF Hub dataset   │          │ space/app.py       │
-                  │ theoh-io/        │ <─reads─ │ Gradio UI          │
+                  │ thrmnn/          │ <─reads─ │ Gradio UI          │
                   │ lerobot-bench-   │          │ (leaderboard +     │
                   │ results-v1       │          │  browse-rollouts)  │
                   └──────────────────┘          └────────────────────┘
@@ -77,9 +77,9 @@ Full seeding contract in `docs/DESIGN.md` § Methodology.
 
 ## Deploy
 
-- **GitHub repo**: `theoh-io/lerobot-bench` — code, this repo.
-- **HF Hub dataset**: `theoh-io/lerobot-bench-results-v1` — parquet + videos.
-- **HF Space**: `huggingface.co/spaces/theoh-io/lerobot-bench` — its own git remote.
+- **GitHub repo**: `thrmnn/lerobot-bench` — code, this repo.
+- **HF Hub dataset**: `thrmnn/lerobot-bench-results-v1` — parquet + videos.
+- **HF Space**: `huggingface.co/spaces/thrmnn/lerobot-bench` — its own git remote.
   `space/` ships via `make space-deploy` which runs `git push hf-space main`.
 
 No GitHub Actions deploy workflow in v1 — the bench itself runs on the dev box,
