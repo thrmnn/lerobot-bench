@@ -1,0 +1,63 @@
+name: space-smoke
+
+# Boots space/app.py headless and curls / on every change to the Space.
+# Free-CPU compatibility check before pushing to huggingface.co/spaces.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "space/**"
+      - ".github/workflows/space-smoke.yml"
+  pull_request:
+    paths:
+      - "space/**"
+      - ".github/workflows/space-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    name: gradio boot
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: hashFiles('space/app.py') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Space deps
+        working-directory: space
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Boot app.py in background
+        working-directory: space
+        run: |
+          GRADIO_SERVER_PORT=7860 python app.py &
+          echo $! > /tmp/space.pid
+          # Wait up to 60s for the port to come up.
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:7860/ >/dev/null 2>&1; then
+              echo "Space booted in ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Gradio Space did not respond on :7860 within 60s"
+          exit 1
+
+      - name: Curl smoke
+        run: |
+          curl -fsS -o /dev/null -w "status=%{http_code} size=%{size_download} time=%{time_total}s\n" http://127.0.0.1:7860/
+
+      - name: Stop app
+        if: always()
+        run: |
+          if [ -f /tmp/space.pid ]; then kill "$(cat /tmp/space.pid)" 2>/dev/null || true; fi

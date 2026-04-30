@@ -1,0 +1,53 @@
+name: smoke
+
+# Daily fresh-install smoke test. Catches upstream breakage of `lerobot==0.5.1`
+# (deleted PyPI release, transitive dep yank, etc.) before it bites a sweep.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"  # 06:17 UTC daily
+  workflow_dispatch:
+  push:
+    paths:
+      - "pyproject.toml"
+      - ".github/workflows/smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fresh-install:
+    name: fresh install + import
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (no extras — same lerobot pin path real users hit)
+        run: |
+          python -m venv /tmp/smoke-venv
+          . /tmp/smoke-venv/bin/activate
+          pip install --upgrade pip
+          pip install -e .
+
+      - name: Import smoke
+        run: |
+          . /tmp/smoke-venv/bin/activate
+          python -c "import lerobot_bench; print('lerobot-bench', lerobot_bench.__version__)"
+
+      - name: CLI smoke (--version)
+        run: |
+          . /tmp/smoke-venv/bin/activate
+          # The CLI module may not exist yet during pre-alpha; tolerate that
+          # gracefully and surface the failure mode in the log.
+          python -c "
+          try:
+              from lerobot_bench.cli import main
+              main(['--version'])
+          except ImportError as e:
+              print(f'::warning::cli module not implemented yet: {e}')
+          "

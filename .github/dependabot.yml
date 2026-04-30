@@ -1,0 +1,25 @@
+version: 2
+
+# Python deps are intentionally NOT bumped automatically.
+# `lerobot==0.5.1` is the reproducibility anchor; a sweep was run against
+# this exact pin. Bumping it requires a re-run of the sweep matrix and a
+# manifest version bump. Dependabot only watches GitHub Actions versions.
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
