@@ -5,20 +5,58 @@ Live execution checklist. Updated as work lands. Source of truth for
 `docs/CEO-PLAN.md`; the technical spec is in `docs/DESIGN.md`; this is
 the runway between them.
 
-## Day 0a — auth, lockin, novelty (next 1-2 hours of focused work)
+## Status as of 2026-04-30 EOD
 
-Owner: human (these are decisions and credential steps Claude cannot make).
+**Merged to main (4 PRs):**
+- PR #1 — agent team, hooks, CI evolution, runbook.
+- PR #2 — dependabot batch (5 GitHub Actions major bumps, all green).
+- PR #3 — `stats.py`: `bootstrap_ci`, `paired_delta_bootstrap`, `paired_wilcoxon`, `cohens_h`, `wilson_ci`. 20 tests against analytical references.
+- PR #4 — `envs.py` + `policies.py` with strict YAML loaders. `configs/envs.yaml` ships PushT + Aloha; `configs/policies.yaml` ships baselines + DiffPolicy/ACT (with `revision_sha: null` until Day 0a lockin).
+
+**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML` installed. `make all` green. 48 tests passing. lerobot itself is NOT yet installed — Day 0a item.
+
+**Next PR (paused, ready to resume):** `feat/render-pipeline` — `src/lerobot_bench/render.py` for episode→MP4 (256px / 10fps / H.264 / ≤2MB). imageio+ffmpeg pipeline verified end-to-end on synthetic frames (3.5 KB clip, h264, yuv420p, 30 frames round-trip via ffprobe). Owned by `render-pipeline-engineer` agent.
+
+## Resume tomorrow
+
+The very first thing to do tomorrow:
+
+```bash
+cd /home/theo/projects/lerobot-bench
+git checkout main && git pull --ff-only
+git status  # should be clean
+gh pr list --state open  # confirm nothing in flight
+```
+
+Then pick one of two resume paths:
+
+**Path A (Claude continues autonomously, no human input needed):**
+- PR #5: `render.py` — pure imageio pipeline, fully testable in CI with synthetic frames. ~1 hour of Claude work.
+- PR #6: `checkpointing.py` — parquet skip-logic for cell-boundary resume. Pure pandas, fully testable.
+- PR #7: `scripts/calibrate.py` (skeleton only — actual run blocks on Day 0a auth).
+
+**Path B (Human unblocks Day 0a in parallel):**
+- Run the Day 0a checklist below (auth + lockin + novelty search). 1-2 hours.
+- Once `revision_sha` values land in `configs/policies.yaml`, Claude can wire up `eval.py` end-to-end with locked policies, not just baselines.
+
+Path A and Path B are independent — they can both run tomorrow.
+
+---
+
+## Day 0a — auth, lockin, novelty (HUMAN — blocks live policy evaluation)
+
+Owner: human (decisions and credential steps Claude cannot make).
 
 - [ ] `huggingface-cli login` (write scope) — token saved to `~/.cache/huggingface/token`.
-- [ ] `wandb login` (optional; only if W&B will track runs).
-- [ ] Resume the paused `pip install -e ".[all]"` in the `lerobot` conda env. Confirm `pip show lerobot-bench` resolves and `lerobot-bench --version` prints.
-- [ ] Install dev tools in the same env: `pip install -e ".[dev]"`. `make typecheck` must work locally.
-- [ ] Lock the **5 policy repo IDs + revision SHAs** and write them into `docs/MODEL_CARDS.md`. The fields currently marked `TBD` block the sweep config.
-- [ ] Verify `lerobot.envs.<env>.config.SUCCESS_REWARD` exists in 0.5.1; otherwise pin the hardcoded thresholds (PushT 0.95, Aloha 1.0, Libero 1.0) in `envs.py` with a docstring stating the verification source.
+- [ ] `wandb login` (optional; only if W&B will track runs). **Reminder:** rotate the API key shared in chat on 2026-04-30 before logging in.
+- [ ] Resume the lerobot install: `pip install -e /home/theo/projects/lerobot` in the `lerobot` conda env (until `lerobot==0.5.1` lands on PyPI). Confirm `python -c "import lerobot; print(lerobot.__version__)"` prints `0.5.1`.
+- [ ] Lock the **5 policy repo IDs + revision SHAs** into `docs/MODEL_CARDS.md` AND `configs/policies.yaml`. The `revision_sha: null` entries in the YAML block `PolicySpec.assert_runnable()`.
+- [ ] Add SmolVLA + Pi0 entries to `configs/policies.yaml` once their HF Hub repo IDs are picked.
+- [ ] Verify `lerobot.envs.<env>.config.SUCCESS_REWARD` exists in 0.5.1; if it does, switch `envs.py` to read from there instead of the hardcoded YAML thresholds (or document the choice to keep the YAML authoritative).
 - [ ] **10-min novelty search** on HF Hub + Google Scholar for "lerobot benchmark" / "multi-policy lerobot eval". If something close exists, reposition before any code lands.
-- [x] **Resolved 2026-04-30**: GitHub repo owner is `thrmnn`. Repo created at `git@github.com:thrmnn/lerobot-bench.git`. All `theoh-io` references rebranded across pyproject.toml, README, CONTRIBUTING, CHANGELOG, and docs.
+- [x] **Resolved 2026-04-30**: GitHub repo owner is `thrmnn`; SSH alias `github-thrmnn` configured.
 
-## Day 0b — calibration spike (Claude can scaffold, human runs)
+## Day 0b — calibration spike (Claude scaffolds, human runs)
 
 Owner: `sweep-sre` agent for the script; human runs it on the dev box.
 
@@ -32,19 +70,19 @@ Owner: `sweep-sre` agent for the script; human runs it on the dev box.
 
 Owner: `bench-eval-engineer` agent, human-supervised.
 
-- [ ] **4-hour cap** on Libero install on WSL2. If `pip install -e ".[libero]"` plus a single rollout fails inside 4 hours, drop Libero from v1 and proceed with PushT + Aloha. No exceptions.
-- [ ] Scaffold `src/lerobot_bench/{envs,policies}.py` registries.
-- [ ] Verify each locked policy can `policy.act(obs)` against a fresh env reset for each (policy, env) cell. Output a single action tensor; assert shape against env action space.
+- [ ] **4-hour cap** on Libero install on WSL2. If `pip install gym-libero` (or upstream equivalent) plus a single rollout fails inside 4 hours, drop Libero from v1 and proceed with PushT + Aloha. No exceptions.
+- [ ] If Libero in: extend `configs/envs.yaml` with the locked Libero task variant(s).
+- [ ] Verify each locked policy can produce one action tensor against a fresh env reset for each (policy, env) cell. Assert shape against env action space.
 
-**Exit criterion:** every locked (policy, env) cell produces a valid action; Libero in/out decision committed to `docs/MODEL_CARDS.md`.
+**Exit criterion:** every locked (policy, env) cell produces a valid action; Libero in/out decision committed to `docs/MODEL_CARDS.md` and `configs/envs.yaml`.
 
 ## Days 2-3 — core eval + mini sweep
 
 Owner: `bench-eval-engineer` (lib), `sweep-sre` (orchestration), `render-pipeline-engineer` (videos), `stats-rigor-reviewer` (CI math).
 
 - [ ] `src/lerobot_bench/eval.py`: the `(policy, env, seed, n_eps) → CellResult` core. Seeding contract from DESIGN.md § Methodology.
-- [ ] `src/lerobot_bench/stats.py`: `bootstrap_ci`, `paired_wilcoxon`, `cohens_h`. Unit-tested with synthetic data.
-- [ ] `src/lerobot_bench/render.py`: episode → MP4 (256 px / 10 fps / H.264 / ≤2MB).
+- [x] ~~`src/lerobot_bench/stats.py`~~ — landed in PR #3 (2026-04-30).
+- [ ] `src/lerobot_bench/render.py`: episode → MP4 (256 px / 10 fps / H.264 / ≤2MB). **Next PR.**
 - [ ] `src/lerobot_bench/checkpointing.py`: cell-boundary skip on resume.
 - [ ] One full cell — 1 policy × 1 env × 1 seed × 5 episodes — produces a row in `results.parquet` and one MP4 ≤ 2MB.
 - [ ] Mini sweep: 3 policies × 2 envs × 2 seeds × 25 episodes. Push to HF Hub dataset. Verify Hub read.
@@ -71,11 +109,11 @@ day's work is a separate PR; that table is authoritative.
 - [ ] Tests added for new code paths. Sim/GPU tests carry the right pytest mark.
 - [ ] No writes to `results/`, `*.parquet`, `*.mp4` from library code (the hook will block; but library code shouldn't try anyway).
 
-## Open questions / explicit blockers
+## Open questions / blockers
 
 1. ~~**GitHub remote** — resolved, owner is `thrmnn`.~~
-2. ~~**lerobot env Python tooling** — resolved 2026-04-30: ruff/mypy/pytest/pre-commit/pytest-cov installed in the `lerobot` conda env; `make all` green.~~
+2. ~~**lerobot env Python tooling** — resolved.~~
 3. **HF username confirmation**: rebrand assumed HF Hub username = `thrmnn` (matches GH). If HF account is different, run `huggingface-cli whoami` after login and submit a follow-up rebrand PR — only `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md` reference HF paths (dataset + Space).
-4. **`lerobot==0.5.1` not on PyPI**: the local lerobot install at `/home/theo/projects/lerobot/` is editable from a tag, not a PyPI release. `pip install -e ".[all]"` from a clean machine will fail until `lerobot==0.5.1` ships to PyPI. Track upstream; for now the local repo + manual `pip install -e /home/theo/projects/lerobot` is the install path on the dev box.
-5. **Auth not yet performed**: `huggingface-cli login` (write scope, needed for publish step) and `wandb login` (optional). User has accounts; tokens not yet on disk.
-6. **Sim extras not yet installed** in the lerobot env (`gym-pusht`, `gym-aloha`, `mujoco`). Pulled by `[sim]` extra. Day 1 item.
+4. **`lerobot==0.5.1` not on PyPI**: install path on the dev box is `pip install -e /home/theo/projects/lerobot`. CI `smoke.yml` will fail until upstream PyPI release lands; logged as `::warning::` for now. Day 0a unblocks local install.
+5. **Auth not yet performed**: `huggingface-cli login` (write scope, needed for publish) and `wandb login` (optional). Day 0a item. **Wandb API key from chat on 2026-04-30 must be rotated before login.**
+6. **Sim extras not yet installed** in the lerobot env (`gym-pusht`, `gym-aloha`, optional Libero). Day 1 item.
