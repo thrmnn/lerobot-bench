@@ -1,0 +1,79 @@
+# Model cards
+
+One entry per policy in the v1 leaderboard. Filled at Day 0a (repo IDs +
+revision SHAs locked) and again at Day 7 (failure-mode column populated
+from the failure taxonomy labeling pass).
+
+> Anything not yet locked is marked **TBD**. Do not silently fill —
+> if a value is unknown at lockin, that's a sweep blocker per
+> `docs/CEO-PLAN.md`.
+
+---
+
+## Diffusion Policy
+
+- **Repo ID**: `lerobot/diffusion_pusht` (Aloha variant: TBD)
+- **Revision SHA**: TBD (locked Day 0a)
+- **License**: TBD (read from Hub model card)
+- **Envs supported**: PushT, Aloha
+- **Inference precision**: fp32
+- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
+- **Mean ms/step (calibrated)**: TBD
+- **Known failure modes**: TBD (Day 7 taxonomy)
+- **Source paper**: Chi et al., "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion", RSS 2023
+
+## ACT (Action Chunking Transformer)
+
+- **Repo ID**: `lerobot/act_aloha_sim_transfer_cube_human` (PushT variant: TBD)
+- **Revision SHA**: TBD
+- **License**: TBD
+- **Envs supported**: PushT, Aloha
+- **Inference precision**: fp32
+- **VRAM @ inference**: TBD
+- **Mean ms/step**: TBD
+- **Known failure modes**: TBD
+- **Source paper**: Zhao et al., "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware", RSS 2023
+
+## SmolVLA
+
+- **Repo ID**: `HuggingFaceTB/SmolVLA-...` (exact ID locked Day 0a)
+- **Revision SHA**: TBD
+- **License**: TBD
+- **Envs supported**: Aloha, Libero
+- **Inference precision**: fp16
+- **VRAM @ inference**: TBD
+- **Mean ms/step**: TBD (likely 0.5-2 s/step on RTX 4060 — see DESIGN.md § Open Questions Q2)
+- **Known failure modes**: TBD
+- **Source**: HuggingFace TB
+
+## Pi0
+
+- **Repo ID**: `lerobot/pi0_...` (exact ID locked Day 0a)
+- **Revision SHA**: TBD
+- **License**: TBD
+- **Envs supported**: Aloha, Libero
+- **Inference precision**: fp16
+- **VRAM @ inference**: ~6 GB target (3B params @ fp16, plus activations + KV cache). **Drop policy if OOM at fp16** — no quantization in v1.
+- **Mean ms/step**: TBD
+- **Known failure modes**: TBD
+- **Source**: Physical Intelligence
+
+## no-op (baseline)
+
+- **Repo ID**: n/a — emits zero action every step
+- **Revision SHA**: n/a
+- **License**: n/a
+- **Envs supported**: PushT, Aloha, Libero
+- **Inference precision**: n/a
+- **VRAM @ inference**: 0
+- **Mean ms/step**: ~0.1 ms (Python overhead only)
+- **Purpose**: floor on the leaderboard. A policy that fails to beat no-op on a given env has not learned that env.
+
+## random (baseline, optional)
+
+- **Repo ID**: n/a — uniform-sampled action per step
+- **Revision SHA**: n/a
+- **License**: n/a
+- **Envs supported**: PushT, Aloha, Libero
+- **Inference precision**: n/a
+- **Purpose**: cheap stochastic baseline. Included only if calibration leaves headroom.
