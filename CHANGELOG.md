@@ -33,5 +33,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 - No implementation code yet. Day 0 of the build per `docs/CEO-PLAN.md`.
 
-[Unreleased]: https://github.com/theoh-io/lerobot-bench/compare/v0.0.1...HEAD
-[0.0.1]: https://github.com/theoh-io/lerobot-bench/releases/tag/v0.0.1
+[Unreleased]: https://github.com/thrmnn/lerobot-bench/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/thrmnn/lerobot-bench/releases/tag/v0.0.1
