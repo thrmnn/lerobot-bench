@@ -26,6 +26,7 @@ dependencies = [
     "lerobot==0.5.1",
     "torch>=2.7,<3.0",
     "numpy>=2.0,<3.0",
+    "scipy>=1.13,<2.0",
     "pandas>=2.2,<3.0",
     "pyarrow>=18.0",
     "huggingface-hub>=0.30",
@@ -101,8 +102,11 @@ select = [
     "RUF", # ruff-specific
 ]
 ignore = [
-    "E501",  # line length handled by formatter
-    "N812",  # lowercase imported as uppercase (torch.nn.functional as F)
+    "E501",   # line length handled by formatter
+    "N812",   # lowercase imported as uppercase (torch.nn.functional as F)
+    "RUF001", # ambiguous Unicode in strings — we use ×, √, ≥ in math docstrings
+    "RUF002", # same, in docstrings
+    "RUF003", # same, in comments
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -160,5 +164,6 @@ module = [
     "gym_aloha.*",
     "mujoco.*",
     "imageio.*",
+    "scipy.*",
 ]
 ignore_missing_imports = true
