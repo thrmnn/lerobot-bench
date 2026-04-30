@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `src/lerobot_bench/stats.py` — `bootstrap_ci`, `paired_delta_bootstrap`, `paired_wilcoxon`, `cohens_h`, `wilson_ci`. Frozen dataclasses for results, RNG required as kwarg (no hidden global state). 20 unit tests against analytical references (Wilson convergence, identity-pairs Wilcoxon, closed-form Cohen's h, textbook Wilson CI value).
+- `scipy>=1.13,<2.0` runtime dependency for Wilcoxon and Wilson interval z-quantile.
 - Project-scoped Claude Code agent team under `.claude/agents/`: `bench-eval-engineer`, `stats-rigor-reviewer`, `render-pipeline-engineer`, `sweep-sre`, `spaces-frontend-engineer`, `researcher-writeup`, `upstream-contributor`, `devx-toolsmith`.
 - Hooks (`.claude/settings.json`): auto-format Python files on edit, gate `git push` on `make all`, block writes to generated artifacts (`results/`, `*.parquet`, `*.mp4`, weight files), branch+dirty status on Stop.
 - CI: tag-driven release workflow (`release.yml`), daily fresh-install smoke (`smoke.yml`), Gradio Space boot test (`space-smoke.yml`).
