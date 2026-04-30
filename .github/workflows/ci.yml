@@ -44,7 +44,7 @@ jobs:
           pip install --upgrade pip
           # Type-check without pulling torch/lerobot to keep CI fast.
           # Library code is type-clean against its declared interfaces.
-          pip install "mypy>=1.13" "numpy>=2.0" "pandas-stubs" "types-tqdm"
+          pip install "mypy>=1.13" "numpy>=2.0" "scipy>=1.13" "pandas-stubs" "types-tqdm" "types-PyYAML"
       - name: Mypy
         run: mypy src
 
