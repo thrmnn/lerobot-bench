@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Project-scoped Claude Code agent team under `.claude/agents/`: `bench-eval-engineer`, `stats-rigor-reviewer`, `render-pipeline-engineer`, `sweep-sre`, `spaces-frontend-engineer`, `researcher-writeup`, `upstream-contributor`, `devx-toolsmith`.
+- Hooks (`.claude/settings.json`): auto-format Python files on edit, gate `git push` on `make all`, block writes to generated artifacts (`results/`, `*.parquet`, `*.mp4`, weight files), branch+dirty status on Stop.
+- CI: tag-driven release workflow (`release.yml`), daily fresh-install smoke (`smoke.yml`), Gradio Space boot test (`space-smoke.yml`).
+- `dependabot.yml` for GitHub Actions (Python deps intentionally pinned — `lerobot==0.5.1` is the reproducibility anchor).
+- `docs/RUNBOOK.md` — sweep ops, resume drill, OOM playbook, publish + Space rollback.
+- `docs/MODEL_CARDS.md` — per-policy template populated at Day 0a (revision SHAs) and Day 7 (failure taxonomy).
+
 ## [0.0.1] - 2026-04-29
 
 ### Added
