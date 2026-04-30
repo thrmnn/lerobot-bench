@@ -59,6 +59,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "pre-commit>=4.0",
+    "types-PyYAML>=6.0",
 ]
 all = [
     "lerobot-bench[sim,viz,space,dev]",
