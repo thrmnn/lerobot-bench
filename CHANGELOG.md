@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dependabot.yml` for GitHub Actions (Python deps intentionally pinned — `lerobot==0.5.1` is the reproducibility anchor).
 - `docs/RUNBOOK.md` — sweep ops, resume drill, OOM playbook, publish + Space rollback.
 - `docs/MODEL_CARDS.md` — per-policy template populated at Day 0a (revision SHAs) and Day 7 (failure taxonomy).
+- `docs/NEXT_STEPS.md` — live execution checklist between CEO plan (strategy) and DESIGN (spec). PR-shaped chunks, Day 0a → ship.
+- `src/lerobot_bench/cli.py` — CLI entrypoint stub (currently `--version` only); subcommands grow with `scripts/`.
+
+### Changed
+- `docs/CEO-PLAN.md` — appended an "Infrastructure (added 2026-04-30)" section noting the agent team, hooks, CI evolution, and operational docs. Strategy unchanged.
 
 ## [0.0.1] - 2026-04-29
 
