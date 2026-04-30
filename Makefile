@@ -13,23 +13,23 @@ install-dev:  ## Editable install with dev extras only
 	$(PIP) install -e ".[dev]"
 
 lint:  ## Run ruff check
-	ruff check src tests scripts
+	$(PYTHON) -m ruff check src tests scripts
 
 format:  ## Run ruff format
-	ruff format src tests scripts
-	ruff check --fix src tests scripts
+	$(PYTHON) -m ruff format src tests scripts
+	$(PYTHON) -m ruff check --fix src tests scripts
 
 typecheck:  ## Run mypy
-	mypy src
+	$(PYTHON) -m mypy src
 
 test:  ## Run all tests
-	pytest
+	$(PYTHON) -m pytest
 
 test-fast:  ## Run only fast tests (skip sim and gpu marks)
-	pytest -m "not slow and not gpu and not sim"
+	$(PYTHON) -m pytest -m "not slow and not gpu and not sim"
 
 test-cov:  ## Run tests with coverage report
-	pytest --cov=lerobot_bench --cov-report=term-missing --cov-report=html
+	$(PYTHON) -m pytest --cov=lerobot_bench --cov-report=term-missing --cov-report=html
 
 clean:  ## Remove build artifacts and caches
 	rm -rf build/ dist/ *.egg-info src/*.egg-info
@@ -38,10 +38,10 @@ clean:  ## Remove build artifacts and caches
 	find . -type f -name "*.py[cod]" -delete 2>/dev/null || true
 
 hooks:  ## Install pre-commit hooks
-	pre-commit install
+	$(PYTHON) -m pre_commit install
 
 pre-commit:  ## Run pre-commit on all files
-	pre-commit run --all-files
+	$(PYTHON) -m pre_commit run --all-files
 
 all: lint typecheck test  ## Lint + typecheck + test
 
