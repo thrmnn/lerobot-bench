@@ -1,0 +1,25 @@
+# Sim env registry. Loaded by lerobot_bench.envs.EnvRegistry.from_yaml.
+#
+# success_threshold values are the per-env reward at/above which an
+# episode is considered successful. Source-of-truth verification:
+# `lerobot.envs.<lerobot_module>.config.SUCCESS_REWARD` if it exists in
+# lerobot 0.5.1, otherwise locked here per docs/DESIGN.md § Methodology.
+#
+# Libero entries are intentionally NOT yet listed — gated on the Day 1
+# install spike (4-hr cap). They will be added once the spike confirms
+# Libero works on this WSL2 box.
+
+envs:
+  - name: pusht
+    family: pusht
+    gym_id: gym_pusht/PushT-v0
+    max_steps: 300
+    success_threshold: 0.95
+    lerobot_module: lerobot.envs.pusht
+
+  - name: aloha_transfer_cube
+    family: aloha
+    gym_id: gym_aloha/AlohaTransferCube-v0
+    max_steps: 400
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.aloha
