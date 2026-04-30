@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `src/lerobot_bench/envs.py` — `EnvSpec` (frozen dataclass) and `EnvRegistry` with strict YAML loader. Default registry at `configs/envs.yaml` ships with PushT and Aloha; Libero is gated on the Day 1 install spike.
+- `src/lerobot_bench/policies.py` — `PolicySpec` and `PolicyRegistry`. Pre-Day-0a entries with `revision_sha: null` load fine but fail `assert_runnable()` (explicit-not-silent substitution). Default registry at `configs/policies.yaml` ships with `no_op`, `random` (baselines, runnable), `diffusion_policy`, `act` (TODO Day 0a: lock revision SHAs).
+- `types-PyYAML` to `[dev]` extras and pre-commit's mypy `additional_dependencies` so type-check passes against the YAML loaders.
 - `src/lerobot_bench/stats.py` — `bootstrap_ci`, `paired_delta_bootstrap`, `paired_wilcoxon`, `cohens_h`, `wilson_ci`. Frozen dataclasses for results, RNG required as kwarg (no hidden global state). 20 unit tests against analytical references (Wilson convergence, identity-pairs Wilcoxon, closed-form Cohen's h, textbook Wilson CI value).
 - `scipy>=1.13,<2.0` runtime dependency for Wilcoxon and Wilson interval z-quantile.
 - Project-scoped Claude Code agent team under `.claude/agents/`: `bench-eval-engineer`, `stats-rigor-reviewer`, `render-pipeline-engineer`, `sweep-sre`, `spaces-frontend-engineer`, `researcher-writeup`, `upstream-contributor`, `devx-toolsmith`.
