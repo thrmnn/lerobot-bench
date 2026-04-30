@@ -1,0 +1,95 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      publish_testpypi:
+        description: "Publish to TestPyPI (else: build artifacts only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: pip install --upgrade pip build twine
+
+      - name: Verify VERSION matches package + tag
+        run: |
+          file_v=$(cat VERSION)
+          pkg_v=$(grep -oP '__version__ = "\K[^"]+' src/lerobot_bench/__version__.py)
+          toml_v=$(grep -oP '^version = "\K[^"]+' pyproject.toml | head -1)
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag_v="${GITHUB_REF_NAME#v}"
+          else
+            tag_v="$file_v"
+          fi
+          echo "VERSION=$file_v  __version__=$pkg_v  pyproject=$toml_v  tag=$tag_v"
+          test "$file_v" = "$pkg_v" -a "$file_v" = "$toml_v" -a "$file_v" = "$tag_v" \
+            || { echo "::error::version mismatch — VERSION/__version__/pyproject.toml/tag must agree"; exit 1; }
+
+      - name: Build
+        run: python -m build
+
+      - name: Twine check
+        run: twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  github-release:
+    name: attach to GitHub release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  testpypi:
+    name: publish to TestPyPI
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_testpypi
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/lerobot-bench
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
