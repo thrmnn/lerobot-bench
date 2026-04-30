@@ -122,6 +122,34 @@ The 11-section review template is calibrated for production codebase plans. For 
 
 No CRITICAL GAPs. The expansion adds one new failure mode (fine-tune OOM) which is mitigated.
 
+## Infrastructure (added 2026-04-30)
+
+The strategy above is unchanged. What was added below it is execution
+scaffolding so that Day 1 onward is about benchmark code, not tooling:
+
+- **8 project-scoped Claude Code agents** under `.claude/agents/` — one
+  per role on the build path (eval, stats, render, sweep ops, Spaces,
+  writeup, upstream PR, devx). Each encodes the project's hard
+  constraints (lerobot==0.5.1 pin, 8GB VRAM, 5×50 episode contract,
+  cell-boundary resume) so they don't have to be re-stated per dispatch.
+- **Hooks** (`.claude/settings.json`): auto-format Python files on edit,
+  block `git push` unless `make all` passes, refuse writes to generated
+  artifacts (`results/`, `*.parquet`, `*.mp4`, weight files).
+- **CI evolution**: `release.yml` (tag → build + GH release with
+  version triple-check), `smoke.yml` (daily fresh-install — catches
+  `lerobot==0.5.1` upstream rot), `space-smoke.yml` (Gradio boot test
+  on every `space/**` change), `dependabot.yml` (gh-actions weekly;
+  Python deps deliberately not auto-bumped).
+- **Operational docs**: `docs/RUNBOOK.md` (sweep ops, resume drill,
+  OOM playbook, publish + Space rollback, single-cell repro verify)
+  and `docs/MODEL_CARDS.md` (per-policy template — fields locked
+  Day 0a, failure modes Day 7).
+- **CLI stub**: `src/lerobot_bench/cli.py` with `--version`, wired to
+  the `lerobot-bench` script entrypoint declared in `pyproject.toml`.
+  Subcommands grow incrementally as scripts/ land.
+
+The next live execution checklist is tracked in `docs/NEXT_STEPS.md`.
+
 ## Next reviews
 
 Recommend `/plan-eng-review` once the project skeleton exists (i.e., end of Day 2 after the core eval lib is sketched out). Skip `/plan-design-review` — Spaces UI scope is light and the design doc's ASCII sketch is enough.
