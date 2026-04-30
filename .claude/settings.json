@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_doc": "Project-scoped Claude Code settings for lerobot-bench. See .claude/agents/ for the team. Hooks below: (1) auto-format Python files after Edit/Write, (2) gate `git push` behind `make all`, (3) block writes to generated artifacts, (4) print branch + uncommitted-files status on Stop.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.py) ruff format \"$f\" >/dev/null 2>&1 && ruff check --fix --quiet \"$f\" >/dev/null 2>&1 || true ;; esac"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // empty'); if printf '%s' \"$cmd\" | grep -qE '(^|;|&&|\\|\\|)[[:space:]]*git[[:space:]]+push'; then make -C \"${CLAUDE_PROJECT_DIR:-.}\" all >&2 || { echo 'Refusing git push: \"make all\" failed. Fix the cause; do not bypass.' >&2; exit 2; }; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in */results/*|*.parquet|*.mp4|*.webm|*.mov|*.safetensors|*.ckpt|*.pt|*.pth) echo \"Refusing to write $f: generated artifact (results/ goes to HF Hub, weights are inputs).\" >&2; exit 2 ;; esac"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" 2>/dev/null && { branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); dirty=$(git status --porcelain 2>/dev/null | wc -l); echo \"[lerobot-bench] branch=$branch  uncommitted=$dirty\"; } || true"
+          }
+        ]
+      }
+    ]
+  }
+}
