@@ -31,4 +31,5 @@ repos:
           - numpy
           - pandas-stubs
           - types-tqdm
+          - types-PyYAML
         args: [--config-file=pyproject.toml]
