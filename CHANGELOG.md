@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `src/lerobot_bench/render.py` — `render_episode` (frames -> 256x256 / 10 fps / H.264 MP4, ≤ 2 MiB cap) and `render_thumbnail_strip` (PNG preview) with frozen `RenderResult` carrying `bytes_written`, `frame_count`, `encoder_settings`, and `content_sha256`. Pure imageio.v3 + libx264 at fixed crf=23 (byte-identical reproducible in spike); oversize clips raise `RenderSizeError` after deleting the file. Resize is a small numpy bilinear sampler — no PIL/scipy dep added.
 - `src/lerobot_bench/envs.py` — `EnvSpec` (frozen dataclass) and `EnvRegistry` with strict YAML loader. Default registry at `configs/envs.yaml` ships with PushT and Aloha; Libero is gated on the Day 1 install spike.
 - `src/lerobot_bench/policies.py` — `PolicySpec` and `PolicyRegistry`. Pre-Day-0a entries with `revision_sha: null` load fine but fail `assert_runnable()` (explicit-not-silent substitution). Default registry at `configs/policies.yaml` ships with `no_op`, `random` (baselines, runnable), `diffusion_policy`, `act` (TODO Day 0a: lock revision SHAs).
 - `types-PyYAML` to `[dev]` extras and pre-commit's mypy `additional_dependencies` so type-check passes against the YAML loaders.
