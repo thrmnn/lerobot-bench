@@ -162,6 +162,7 @@ no_implicit_reexport = true
 [[tool.mypy.overrides]]
 module = [
     "lerobot.*",
+    "gymnasium.*",
     "gym_pusht.*",
     "gym_aloha.*",
     "mujoco.*",
