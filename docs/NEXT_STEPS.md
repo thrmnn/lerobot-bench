@@ -25,8 +25,8 @@ These ship without lerobot installed. Everything tests against synthetic data.
 
 | PR | File(s) | Status |
 |---|---|---|
-| #9 | `src/lerobot_bench/eval.py` — orchestration core | **this PR** |
-| #10 | `scripts/run_one.py` — single-cell CLI | pending |
+| #9 | `src/lerobot_bench/eval.py` — orchestration core | done |
+| #10 | `scripts/run_one.py` — single-cell CLI | **this PR** |
 | #11 | `scripts/run_sweep.py` — matrix orchestrator | pending |
 | #12 | `scripts/publish_results.py` — HF Hub upload | pending |
 | #13 | `space/app.py` + `space/requirements.txt` — Gradio Space | pending |

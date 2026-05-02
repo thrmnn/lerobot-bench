@@ -52,6 +52,9 @@ all: lint typecheck test  ## Lint + typecheck + test
 calibrate:  ## Day 0b: per-policy step latency probe
 	$(PYTHON) scripts/calibrate.py
 
+run-one:  ## Single-cell debug: pass `ARGS="--policy ... --env ... --seed N"`
+	$(PYTHON) scripts/run_one.py $(ARGS)
+
 sweep-mini:  ## Smoke sweep: 3 policies x 2 envs x 2 seeds x 25 episodes
 	$(PYTHON) scripts/run_sweep.py --config configs/sweep_mini.yaml
 
