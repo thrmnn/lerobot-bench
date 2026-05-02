@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `src/lerobot_bench/checkpointing.py` — cell-boundary parquet resume layer. `CellKey` + `ResumePlan` dataclasses; `load_results`, `plan_resume`, `append_cell_rows`, `drop_partial_cells`. Atomic append via `<path>.tmp.parquet` + `os.replace`; classifies cells as completed (exact `set(range(n_episodes))` match), partial (any other non-zero count, including missing/extra indices), or pending. Duplicate-key guard rejects double-writes before touching disk. 20 unit tests, pure pandas + pyarrow (no torch/env/GPU).
+- `pandas-stubs>=2.2` to `[dev]` extras (mypy stubs for the new module).
 - `src/lerobot_bench/render.py` — `render_episode` (frames -> 256x256 / 10 fps / H.264 MP4, ≤ 2 MiB cap) and `render_thumbnail_strip` (PNG preview) with frozen `RenderResult` carrying `bytes_written`, `frame_count`, `encoder_settings`, and `content_sha256`. Pure imageio.v3 + libx264 at fixed crf=23 (byte-identical reproducible in spike); oversize clips raise `RenderSizeError` after deleting the file. Resize is a small numpy bilinear sampler — no PIL/scipy dep added.
 - `src/lerobot_bench/envs.py` — `EnvSpec` (frozen dataclass) and `EnvRegistry` with strict YAML loader. Default registry at `configs/envs.yaml` ships with PushT and Aloha; Libero is gated on the Day 1 install spike.
 - `src/lerobot_bench/policies.py` — `PolicySpec` and `PolicyRegistry`. Pre-Day-0a entries with `revision_sha: null` load fine but fail `assert_runnable()` (explicit-not-silent substitution). Default registry at `configs/policies.yaml` ships with `no_op`, `random` (baselines, runnable), `diffusion_policy`, `act` (TODO Day 0a: lock revision SHAs).
