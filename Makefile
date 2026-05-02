@@ -50,7 +50,7 @@ all: lint typecheck test  ## Lint + typecheck + test
 .PHONY: calibrate sweep-mini sweep-full publish space-deploy
 
 calibrate:  ## Day 0b: per-policy step latency probe
-	$(PYTHON) scripts/calibrate.py --output results/calibration-$(shell date +%Y%m%d).json
+	$(PYTHON) scripts/calibrate.py
 
 sweep-mini:  ## Smoke sweep: 3 policies x 2 envs x 2 seeds x 25 episodes
 	$(PYTHON) scripts/run_sweep.py --config configs/sweep_mini.yaml

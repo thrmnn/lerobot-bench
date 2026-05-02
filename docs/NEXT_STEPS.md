@@ -60,9 +60,9 @@ Owner: human (decisions and credential steps Claude cannot make).
 
 Owner: `sweep-sre` agent for the script; human runs it on the dev box.
 
-- [ ] Scaffold `scripts/calibrate.py` that loads each locked policy, runs 20 steps × 1 episode per (policy, available_env), writes `results/calibration-YYYYMMDD.json` with `{policy, env, mean_ms_per_step, p95_ms, vram_peak_mb}`. Fail loudly on OOM with a one-line resume command.
+- [x] Scaffold `scripts/calibrate.py` that loads each locked policy, runs 20 steps × 1 episode per (policy, available_env), writes `results/calibration-YYYYMMDD.json` with `{policy, env, mean_ms_per_step, p95_ms, vram_peak_mb}`. Fail loudly on OOM with a one-line resume command. **Done in PR #7 — scaffold only; inner measurement loop is a TODO that completes after Day 0a lerobot install.**
 - [ ] Scaffold `configs/sweep_full.yaml` — empty matrix, populated from calibration output via the auto-downscope rule.
-- [ ] Run `make calibrate` on the dev box. Inspect output. Lock matrix shape.
+- [ ] Run `make calibrate` on the dev box. Inspect output. Lock matrix shape. **(Path B / Day-0a-blocked: requires `lerobot==0.5.1` installed and pretrained `revision_sha` values locked in `configs/policies.yaml`.)**
 
 **Exit criterion:** `results/calibration-YYYYMMDD.json` on disk, final matrix shape committed under `configs/`.
 
