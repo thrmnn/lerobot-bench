@@ -1,0 +1,31 @@
+# Smoke sweep matrix. Used by `make sweep-mini` and the Day 2-3 mini
+# rehearsal. Smaller than sweep_full.yaml so a full pass fits inside a
+# coffee break. Same schema -- see sweep_full.yaml for field docs.
+#
+# Two baselines x two envs x two seeds x 25 episodes = 8 cells, ~5
+# minutes on a fresh laptop. Pretrained policies are intentionally
+# excluded so this config exercises the orchestrator end-to-end without
+# requiring Day 0a revision_sha lockin.
+
+policies:
+  - no_op
+  - random
+
+envs:
+  - pusht
+  - aloha_transfer_cube
+
+seeds: [0, 1]
+
+episodes_per_seed: 25
+
+results_path: results/sweep-mini/results.parquet
+videos_dir: results/sweep-mini/videos
+record_video: true
+device: cuda
+
+# No timeout for the mini sweep -- cells run in seconds.
+cell_timeout_s: null
+max_parallel: 1
+
+overrides: {}

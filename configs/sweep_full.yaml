@@ -1,0 +1,56 @@
+# Full benchmark sweep matrix. Loaded by scripts/run_sweep.py.
+#
+# Schema (validated by scripts.run_sweep.SweepConfig.from_dict):
+#   policies: list[str]              # names from configs/policies.yaml
+#   envs: list[str]                  # names from configs/envs.yaml
+#   seeds: list[int]                 # seed indices (0..N-1 conventionally)
+#   episodes_per_seed: int           # default per-cell episode count
+#   results_path: str                # path to results.parquet
+#   videos_dir: str | null           # optional MP4 destination
+#   record_video: bool               # default true
+#   device: str                      # torch device for the dispatched cells
+#   policies_yaml: str | null        # override default configs/policies.yaml
+#   envs_yaml: str | null            # override default configs/envs.yaml
+#   cell_timeout_s: int | null       # soft per-cell wall-clock budget
+#   max_parallel: int                # v1: must be 1
+#   overrides:                       # optional per-(policy, env) episode counts
+#     <policy>:
+#       <env>: { n_episodes: int }
+#
+# The cartesian product policies x envs x seeds produces the planned
+# cell list. Cells whose (policy, env) is not declared compatible
+# (PolicySpec.env_compat) are dropped from the plan with a log line --
+# the YAML can over-state coverage without breaking the sweep.
+#
+# Day 0a / 0b status: pretrained policies (diffusion_policy, act, and
+# the eventual pi0 / smolvla entries) are listed but not yet runnable
+# (revision_sha=null in configs/policies.yaml). run_sweep skips them
+# at dispatch with a "not runnable" log line; recover by locking SHAs
+# at Day 0a. Baselines (no_op, random) ship runnable today.
+
+policies:
+  - no_op
+  - random
+  - diffusion_policy
+  - act
+
+envs:
+  - pusht
+  - aloha_transfer_cube
+
+seeds: [0, 1, 2, 3, 4]
+
+episodes_per_seed: 50
+
+results_path: results/sweep-full/results.parquet
+videos_dir: results/sweep-full/videos
+record_video: true
+device: cuda
+
+cell_timeout_s: 14400  # 4h soft cap per cell (warn + let finish)
+max_parallel: 1
+
+# Per-(policy, env) overrides. Source them from
+# `results/calibration-YYYYMMDD.json` after Day 0b. Empty by default
+# so the matrix runs at base shape until calibration tightens it.
+overrides: {}

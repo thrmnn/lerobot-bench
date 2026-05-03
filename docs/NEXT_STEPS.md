@@ -7,7 +7,7 @@ the runway between them.
 
 ## Status as of 2026-05-03
 
-**Merged to main (10 PRs):**
+**Merged to main (11 PRs):**
 - PR #1 — agent team, hooks, CI evolution, runbook.
 - PR #2 — dependabot batch (5 GitHub Actions major bumps, all green).
 - PR #3 — `stats.py`: `bootstrap_ci`, `paired_delta_bootstrap`, `paired_wilcoxon`, `cohens_h`, `wilson_ci`. 20 tests against analytical references.
@@ -18,8 +18,12 @@ the runway between them.
 - PR #8 — `scripts/calibrate.py` Day 0b calibration spike scaffold (inner measurement loop is a TODO until lerobot install).
 - PR #9 — `eval.py` orchestration core. Seeding contract enforced; baselines fully runnable; pretrained loading is a Day 0b TODO.
 - PR #10 — `scripts/run_one.py` single-cell CLI shell with atomic parquet append, lazy render import, AST-guarded dry-run.
+- PR #11 — `docs/PATH_B_INTEGRATION_SMOKE.md` + NEXT_STEPS sync (Path B integration smoke checklist).
 
-**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML`, `pandas-stubs` installed. `make all` green. **150 tests passing.** Current commit: `800c362`. lerobot itself is NOT yet installed — Day 0a item.
+**In flight:**
+- PR #12 — `scripts/run_sweep.py` matrix orchestrator + `tests/test_resume_drill.py` resume drill (this PR).
+
+**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML`, `pandas-stubs` installed. `make all` green. **199 tests passing** with PR #12 in. lerobot itself is NOT yet installed — Day 0a item.
 
 ## Path A queue (committed plan, no human input needed)
 
@@ -29,22 +33,28 @@ These ship without lerobot installed. Everything tests against synthetic data.
 |---|---|---|---|
 | #9  | `src/lerobot_bench/eval.py` | bench-eval-engineer | merged |
 | #10 | `scripts/run_one.py` | sweep-sre | merged |
-| #11 | `scripts/run_sweep.py` — matrix orchestrator | sweep-sre | **next** (design pending user confirm) |
-| #12 | `scripts/publish_results.py` — HF Hub upload | sweep-sre | pending |
-| #13 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | pending |
-| #14 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | pending |
-| #15 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | pending |
-| #16 | `docs/FAILURE_TAXONOMY.md` — labeling template | researcher-writeup | pending |
+| #12 | `scripts/run_sweep.py` — matrix orchestrator + resume drill | sweep-sre | **this PR** |
+| #13 | `scripts/publish_results.py` — HF Hub upload | sweep-sre | pending |
+| #14 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | pending |
+| #15 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | pending |
+| #16 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | pending |
+| #17 | `docs/FAILURE_TAXONOMY.md` — labeling template | researcher-writeup | pending |
 
-After #16: Path A is exhausted; Path B (lerobot install + revision_sha lockin)
+After #17: Path A is exhausted; Path B (lerobot install + revision_sha lockin)
 becomes critical for any further progress.
 
 ## Resume now
 
-PR #11 (`scripts/run_sweep.py`) is paused at a design check-in (six bolded
-recommendations from the prior session: subprocess dispatch, skip-on-OOM,
-sorted ordering, soft timeout, sweep YAML schema, incremental manifest).
-Confirm or flip those decisions, then `sweep-sre` ships the spec.
+PR #12 (`scripts/run_sweep.py`) lands the matrix orchestrator end of the
+sweep stack: subprocess dispatch per cell (VRAM resets between runs),
+atomic `sweep_manifest.json` updated after each cell so `kill -9` is
+recoverable, OOM cells recorded as `failed` with stderr tail and the
+sweep continues, all five locked design choices from the prior session
+implemented. Next: PR #13 (`scripts/publish_results.py`) — idempotent HF
+Hub uploader for `results/<sweep>/`. The sweep orchestrator writes
+`sweep_manifest.json` next to `results.parquet`; publish_results consumes
+both. Path B (Day 0a auth + revision_sha lockin) is independent and
+unblocks pretrained policies for `eval.load_policy`.
 
 ---
 
@@ -66,7 +76,7 @@ Owner: human (decisions and credential steps Claude cannot make).
 Owner: `sweep-sre` agent for the script; human runs it on the dev box.
 
 - [x] Scaffold `scripts/calibrate.py` that loads each locked policy, runs 20 steps × 1 episode per (policy, available_env), writes `results/calibration-YYYYMMDD.json` with `{policy, env, mean_ms_per_step, p95_ms, vram_peak_mb}`. Fail loudly on OOM with a one-line resume command. **Done in PR #7 — scaffold only; inner measurement loop is a TODO that completes after Day 0a lerobot install.**
-- [ ] Scaffold `configs/sweep_full.yaml` — empty matrix, populated from calibration output via the auto-downscope rule.
+- [x] Scaffold `configs/sweep_full.yaml` — empty matrix, populated from calibration output via the auto-downscope rule. **Done in PR #12 — ships with baselines + pretrained policies enumerated; `overrides: {}` waits for calibration JSON.**
 - [ ] Run `make calibrate` on the dev box. Inspect output. Lock matrix shape. **(Path B / Day-0a-blocked: requires `lerobot==0.5.1` installed and pretrained `revision_sha` values locked in `configs/policies.yaml`.)**
 
 **Exit criterion:** `results/calibration-YYYYMMDD.json` on disk, final matrix shape committed under `configs/`.
@@ -99,7 +109,7 @@ Owner: `spaces-frontend-engineer`, with `sweep-sre` for the resume test.
 - [ ] `space/app.py` with three tabs: Leaderboard, Browse Rollouts, Methodology. Direct Hub URLs on `gr.Video`.
 - [ ] `space/requirements.txt` pinning `lerobot==0.5.1`, `gradio>=5`.
 - [ ] `make space-deploy` targets the HF Spaces git remote.
-- [ ] Resume drill: kill `run_sweep.py` mid-cell, restart, confirm the killed cell restarts from episode 0 cleanly.
+- [x] Resume drill: kill `run_sweep.py` mid-cell, restart, confirm the killed cell restarts from episode 0 cleanly. **Done in PR #12 — `tests/test_resume_drill.py` covers cold start, mid-sweep `KeyboardInterrupt` + clean resume, partial-cell drop-and-rerun, OOM continue, dry-run, idempotent re-resume; the live `kill -9` rehearsal still wants a wet run on the dev box.**
 
 ## Days 5-10 — full sweep, fine-tune track, writeup, ship
 
