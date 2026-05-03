@@ -21,9 +21,9 @@ the runway between them.
 - PR #11 — `docs/PATH_B_INTEGRATION_SMOKE.md` + NEXT_STEPS sync (Path B integration smoke checklist).
 
 **In flight:**
-- PR #12 — `scripts/run_sweep.py` matrix orchestrator + `tests/test_resume_drill.py` resume drill (this PR).
+- PR #13 — `scripts/publish_results.py` HF Hub uploader + `tests/test_publish_results.py` (this PR).
 
-**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML`, `pandas-stubs` installed. `make all` green. **199 tests passing** with PR #12 in. lerobot itself is NOT yet installed — Day 0a item.
+**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML`, `pandas-stubs` installed. `make all` green. **219 tests passing** with PR #13 in. lerobot itself is NOT yet installed — Day 0a item.
 
 ## Path A queue (committed plan, no human input needed)
 
@@ -33,8 +33,8 @@ These ship without lerobot installed. Everything tests against synthetic data.
 |---|---|---|---|
 | #9  | `src/lerobot_bench/eval.py` | bench-eval-engineer | merged |
 | #10 | `scripts/run_one.py` | sweep-sre | merged |
-| #12 | `scripts/run_sweep.py` — matrix orchestrator + resume drill | sweep-sre | **this PR** |
-| #13 | `scripts/publish_results.py` — HF Hub upload | sweep-sre | pending |
+| #12 | `scripts/run_sweep.py` — matrix orchestrator + resume drill | sweep-sre | merged |
+| #13 | `scripts/publish_results.py` — HF Hub upload | sweep-sre | **this PR** |
 | #14 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | pending |
 | #15 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | pending |
 | #16 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | pending |
@@ -45,16 +45,16 @@ becomes critical for any further progress.
 
 ## Resume now
 
-PR #12 (`scripts/run_sweep.py`) lands the matrix orchestrator end of the
-sweep stack: subprocess dispatch per cell (VRAM resets between runs),
-atomic `sweep_manifest.json` updated after each cell so `kill -9` is
-recoverable, OOM cells recorded as `failed` with stderr tail and the
-sweep continues, all five locked design choices from the prior session
-implemented. Next: PR #13 (`scripts/publish_results.py`) — idempotent HF
-Hub uploader for `results/<sweep>/`. The sweep orchestrator writes
-`sweep_manifest.json` next to `results.parquet`; publish_results consumes
-both. Path B (Day 0a auth + revision_sha lockin) is independent and
-unblocks pretrained policies for `eval.load_policy`.
+PR #13 (`scripts/publish_results.py`) lands the HF Hub uploader at the
+end of the sweep stack: pre-flight (parquet schema, manifest readable,
+MP4 references resolve), mocked `_get_hf_api` injection point, lazy
+import of `huggingface_hub` (AST-guarded), staging dir + `_provenance.json`
+audit trail, last-line-of-defense per-MP4 size cap, idempotent re-runs
+via Hub content-addressed dedup. `make publish ARGS=...` wired up.
+Next: PR #14 (`space/app.py` + `space/requirements.txt`) — the Gradio
+Space that reads from `thrmnn/lerobot-bench-results-v1`. Path B
+(Day 0a auth + revision_sha lockin) is independent and unblocks
+pretrained policies for `eval.load_policy`.
 
 ---
 

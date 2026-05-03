@@ -64,8 +64,8 @@ sweep-mini:  ## Smoke sweep: 2 baselines x 2 envs x 2 seeds x 25 episodes
 sweep-full:  ## Full benchmark sweep (overnight)
 	$(PYTHON) scripts/run_sweep.py --config configs/sweep_full.yaml
 
-publish:  ## Push results to HF Hub dataset
-	$(PYTHON) scripts/publish_results.py --sweep $(SWEEP)
+publish:  ## Push results to HF Hub dataset: pass `ARGS="--results-path ... --manifest-path ... --videos-dir ..."`
+	$(PYTHON) scripts/publish_results.py $(ARGS)
 
 space-deploy:  ## Push the Spaces app to HF Spaces git remote
 	cd space && git push hf-space main
