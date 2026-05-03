@@ -4,7 +4,7 @@ Runs on the **free CPU tier** at ``huggingface.co/spaces/thrmnn/lerobot-bench``.
 No policy inference, no GPU. Three tabs:
 
 1. **Leaderboard** — pre-aggregated success-rate table with Wilson CIs,
-   read from ``thrmnn/lerobot-bench-results-v1/results.parquet`` on Hub.
+   read from ``Theozinh0/lerobot-bench-results-v1/results.parquet`` on Hub.
 2. **Browse Rollouts** — three dropdowns ``(policy, env, seed)`` →
    side-by-side ``gr.Video`` players. Each video URL is a direct Hub
    ``resolve/main`` link; the Space never proxies bytes.

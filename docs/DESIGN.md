@@ -209,7 +209,7 @@ Stretch (not gating, all author-controlled): HF blog submission, Reddit r/Machin
 ## Distribution Plan
 
 - **Code**: GitHub repo `thrmnn/lerobot-bench`, MIT license
-- **Results data**: HF Hub dataset `thrmnn/lerobot-bench-results-v1` (parquet + videos)
+- **Results data**: HF Hub dataset `Theozinh0/lerobot-bench-results-v1` (parquet + videos)
 - **Public surface**: HF Space `thrmnn/lerobot-bench` — its own git repo at `huggingface.co/spaces/thrmnn/lerobot-bench`, deployed via `git push hf-space main` from `space/` directory
 - **Application surface**: link added to HF Robotics application materials + Théo's portfolio site
 - **CI/CD**: deferred — adds overhead disproportionate to v1 needs. Manual repro is the spec.

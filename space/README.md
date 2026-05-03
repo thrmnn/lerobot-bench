@@ -20,7 +20,7 @@ Public surface of the **lerobot-bench** project. Three tabs:
    pre-recorded MP4s stream straight from the Hub dataset.
 3. **Methodology** — seeding contract, CI math, sparse-matrix policy.
 
-Data: [`thrmnn/lerobot-bench-results-v1`](https://huggingface.co/datasets/thrmnn/lerobot-bench-results-v1).
+Data: [`Theozinh0/lerobot-bench-results-v1`](https://huggingface.co/datasets/Theozinh0/lerobot-bench-results-v1).
 
 Code: <https://github.com/thrmnn/lerobot-bench>.
 
