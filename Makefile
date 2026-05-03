@@ -55,7 +55,10 @@ calibrate:  ## Day 0b: per-policy step latency probe
 run-one:  ## Single-cell debug: pass `ARGS="--policy ... --env ... --seed N"`
 	$(PYTHON) scripts/run_one.py $(ARGS)
 
-sweep-mini:  ## Smoke sweep: 3 policies x 2 envs x 2 seeds x 25 episodes
+sweep:  ## Generic sweep dispatch: pass `ARGS="--config ... [--max-cells N] [--shuffle SEED]"`
+	$(PYTHON) scripts/run_sweep.py $(ARGS)
+
+sweep-mini:  ## Smoke sweep: 2 baselines x 2 envs x 2 seeds x 25 episodes
 	$(PYTHON) scripts/run_sweep.py --config configs/sweep_mini.yaml
 
 sweep-full:  ## Full benchmark sweep (overnight)
