@@ -310,6 +310,12 @@ def load_env(spec: EnvSpec) -> GymLikeEnv:
     raises :class:`ImportError` at runtime -- intentional: Day 0b is a
     one-line install away from working without scaffolding more
     indirection here.
+
+    Also import-resolves the gym_id namespace (e.g. ``gym_pusht`` from
+    ``gym_pusht/PushT-v0``) so the env's registration side-effect fires
+    before ``gym.make``. Without this, freshly-installed gym-pusht /
+    gym-aloha packages register lazily and ``gym.make`` raises
+    :class:`gymnasium.error.NamespaceNotFound`.
     """
     try:
         import gymnasium as gym
@@ -319,6 +325,20 @@ def load_env(spec: EnvSpec) -> GymLikeEnv:
             "`pip install -e '.[sim]'` (and ensure gym-pusht / gym-aloha "
             "are pulled in for the env you are loading)."
         ) from exc
+
+    # Trigger namespace registration (side-effect import).
+    namespace = spec.gym_id.split("/", 1)[0] if "/" in spec.gym_id else None
+    if namespace and namespace.startswith("gym_"):
+        try:
+            import importlib
+
+            importlib.import_module(namespace)
+        except ImportError as exc:
+            raise ImportError(
+                f"namespace package '{namespace}' is not installed; required to "
+                f"register gym_id '{spec.gym_id}'. Install sim extras: "
+                f"`pip install '{namespace.replace('_', '-')}'`."
+            ) from exc
 
     env = gym.make(spec.gym_id, max_episode_steps=spec.max_steps)
     # gym.make returns a generic Env; we know our protocol is a slice
