@@ -46,6 +46,16 @@ revision_sha lockin) is now the critical path — pretrained
 The benchmark sweep + writeup now wait for the human-driven Day 0a
 + Day 0b items below.
 
+### Premortem mitigations status
+
+Tracked individually because each one is a "thing that ships before
+the sweep so the sweep does not produce a wrong number nobody catches".
+
+| # | Mitigation | Status | Artifact |
+|---|---|---|---|
+| 4 | Pre-sweep MDE table at N=250 + auto-downscope variants + per-cell inconclusive gate in the notebook + paper Methods precise-value update | **done** | `docs/MDE_TABLE.md`, `scripts/calibrate_mde.py`, `tests/test_mde_consistency.py`, `notebooks/01-write-finding.ipynb` cell 5b, `paper/main.tex` § Methods MDE-bound paragraph |
+| 5 | Render ladder for oversized Aloha episodes | **done** | `src/lerobot_bench/render.py` `RENDER_LADDER` (PR earlier) |
+
 ## Resume now
 
 PR #18 (`paper/main.tex` + `paper/references.bib` + `paper/Makefile` +
