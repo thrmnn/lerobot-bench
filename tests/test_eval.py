@@ -21,6 +21,7 @@ from lerobot_bench.eval import (
     EpisodeResult,
     _NoOpPolicy,
     _RandomPolicy,
+    load_env,
     load_policy,
     run_cell,
     seed_everything,
@@ -486,6 +487,61 @@ def test_load_policy_pretrained_runnable_not_implemented_yet() -> None:
     )
     with pytest.raises(NotImplementedError, match="Day 0b"):
         load_policy(spec, action_shape=(2,))
+
+
+# --------------------------------------------------------------------- #
+# load_env: namespace-import side-effect                                #
+# --------------------------------------------------------------------- #
+
+
+def test_load_env_raises_clear_error_for_missing_namespace_package() -> None:
+    """gym_X/EnvName style ids require the gym_X package installed.
+
+    Without the namespace import side-effect, gymnasium raises
+    NamespaceNotFound which is opaque. ``load_env`` resolves the namespace
+    eagerly so the user gets a one-line install hint.
+
+    Skipped if gymnasium itself is not importable (CI fast job).
+    """
+    pytest.importorskip("gymnasium")
+    spec = EnvSpec(
+        name="fake",
+        family="fake",
+        gym_id="gym_does_not_exist_xyz/Fake-v0",
+        max_steps=10,
+        success_threshold=0.5,
+        lerobot_module="lerobot.envs.fake",
+    )
+    with pytest.raises(ImportError, match=r"gym_does_not_exist_xyz.*pip install"):
+        load_env(spec)
+
+
+def test_load_env_skips_namespace_import_for_non_gym_prefixed_ids() -> None:
+    """Built-in gym envs like CartPole-v1 have no gym_X/ namespace and
+    should not trigger an import-resolve attempt. We do not actually
+    instantiate CartPole here (avoid mujoco / classic-control dep
+    surprise in CI); we only assert the function does not raise
+    our namespace-resolve ImportError before getting to gym.make.
+
+    Skipped if gymnasium itself is not importable.
+    """
+    pytest.importorskip("gymnasium")
+    spec = EnvSpec(
+        name="cartpole",
+        family="classic",
+        gym_id="CartPole-v1",
+        max_steps=10,
+        success_threshold=0.5,
+        lerobot_module="n/a",
+    )
+    try:
+        env = load_env(spec)
+        env.close()  # type: ignore[attr-defined]
+    except ImportError as exc:
+        # Our namespace-resolve error message must NOT appear since the id
+        # has no gym_ prefix; any other ImportError (missing classic-control,
+        # etc.) is acceptable since CI fast doesn't install full sim extras.
+        assert "namespace package" not in str(exc)
 
 
 # --------------------------------------------------------------------- #
