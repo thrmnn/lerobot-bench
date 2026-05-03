@@ -308,18 +308,35 @@ def test_expand_cells_marks_incompat() -> None:
     pass  # covered in test_resume_drill::test_drill10
 
 
-def test_expand_cells_marks_unrunnable() -> None:
-    """diffusion_policy ships not-runnable -> runnable=False on every cell."""
+def test_expand_cells_marks_unrunnable(tmp_path: Path) -> None:
+    """A pretrained policy with revision_sha=null -> runnable=False on every cell.
+
+    Uses a tmp policies.yaml since the shipped diffusion_policy/act now ship
+    with locked revision SHAs (Day 0a).
+    """
+    policies_yaml = tmp_path / "policies.yaml"
+    policies_yaml.write_text(
+        """
+policies:
+  - name: not_yet_locked
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: lerobot/some_future_policy
+    revision_sha: null
+    fp_precision: fp32
+"""
+    )
     cfg = rs.SweepConfig.from_dict(
         {
-            "policies": ["diffusion_policy"],
+            "policies": ["not_yet_locked"],
             "envs": ["pusht"],
             "seeds": [0],
             "episodes_per_seed": 5,
             "results_path": "x.parquet",
+            "policies_yaml": str(policies_yaml),
         }
     )
-    policies = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    policies = PolicyRegistry.from_yaml(policies_yaml)
     envs = EnvRegistry.from_yaml(DEFAULT_ENVS_YAML)
     cells = rs.expand_cells(cfg, policy_registry=policies, env_registry=envs)
     assert len(cells) == 1
@@ -585,12 +602,18 @@ def test_bundled_sweep_mini_yaml_loads() -> None:
 
 
 def test_bundled_sweep_full_expands_cleanly() -> None:
-    """Cells expand without error against the shipped registries."""
+    """Cells expand without error against the shipped registries.
+
+    Some cells are env-incompat (e.g., diffusion_policy on aloha after the
+    Day 0a env_compat correction): the expander still emits them with
+    compatible=False so the sweep can mark them skipped explicitly.
+    """
     cfg = rs.load_sweep_config(SWEEP_FULL_YAML)
     policies = PolicyRegistry.from_yaml(cfg.policies_yaml)
     envs = EnvRegistry.from_yaml(cfg.envs_yaml)
     cells = rs.expand_cells(cfg, policy_registry=policies, env_registry=envs)
-    # 4 policies x 2 envs x 5 seeds = 40 cells (some skipped at runtime).
+    # All policy x env x seed combinations are emitted; env_compat filtering
+    # happens at dispatch time via cell.compatible.
     assert len(cells) == len(cfg.policies) * len(cfg.envs) * len(cfg.seeds)
 
 

@@ -649,14 +649,41 @@ policies:
 def test_drill11_unrunnable_policy_appears_skipped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """diffusion_policy ships with revision_sha=null -> manifest shows skipped."""
+    """A pretrained policy with revision_sha=null -> manifest shows skipped.
+
+    Uses a tmp policies.yaml since the shipped diffusion_policy/act now have
+    locked revision SHAs (Day 0a, 2026-05-03).
+    """
+    policies_yaml = tmp_path / "policies.yaml"
+    policies_yaml.write_text(
+        """
+policies:
+  - name: no_op
+    is_baseline: true
+    env_compat: [pusht]
+  - name: not_yet_locked
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: lerobot/some_future_policy
+    revision_sha: null
+    fp_precision: fp32
+"""
+    )
     parquet_path = tmp_path / "results.parquet"
-    config = _build_config(
-        results_path=parquet_path,
-        policies=("no_op", "diffusion_policy"),
+    config = rs.SweepConfig(
+        policies=("no_op", "not_yet_locked"),
         envs=("pusht",),
         seeds=(0,),
-        n_episodes=2,
+        episodes_per_seed=2,
+        results_path=parquet_path,
+        videos_dir=None,
+        record_video=False,
+        device="cpu",
+        policies_yaml=policies_yaml,
+        envs_yaml=DEFAULT_ENVS_YAML,
+        cell_timeout_s=None,
+        max_parallel=1,
+        overrides={},
     )
 
     call_log: list[tuple[str, str, int]] = []
@@ -668,14 +695,14 @@ def test_drill11_unrunnable_policy_appears_skipped(
     assert outcome.exit_code == 0
     assert outcome.n_planned == 2
     assert outcome.n_completed == 1  # no_op runs
-    assert outcome.n_skipped == 1  # diffusion_policy skipped
+    assert outcome.n_skipped == 1  # not_yet_locked skipped
 
-    # diffusion_policy was never dispatched.
-    assert ("diffusion_policy", "pusht", 0) not in call_log
+    # The unrunnable policy was never dispatched.
+    assert ("not_yet_locked", "pusht", 0) not in call_log
     assert ("no_op", "pusht", 0) in call_log
 
     manifest = _read_manifest(outcome.manifest_path)
-    diff = next(c for c in manifest["cells"] if c["policy"] == "diffusion_policy")
+    diff = next(c for c in manifest["cells"] if c["policy"] == "not_yet_locked")
     assert diff["status"] == "skipped"
     assert "not runnable" in diff["skip_reason"]
 

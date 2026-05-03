@@ -126,18 +126,39 @@ def test_auto_downscope_respects_custom_base() -> None:
 # --------------------------------------------------------------------- #
 
 
-def test_plan_cells_marks_unrunnable_skipped() -> None:
-    """Shipped diffusion_policy / act have revision_sha=None pre-Day-0a."""
-    policies = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+def test_plan_cells_marks_unrunnable_skipped(tmp_path: Path) -> None:
+    """A policy with revision_sha=None is marked skipped by the planner.
+
+    Uses a tmp policies.yaml since the shipped diffusion_policy/act now have
+    locked SHAs (Day 0a, 2026-05-03).
+    """
+    policies_yaml = tmp_path / "policies.yaml"
+    policies_yaml.write_text(
+        """
+policies:
+  - name: no_op
+    is_baseline: true
+    env_compat: [pusht]
+  - name: not_yet_locked
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: lerobot/some_future_policy
+    revision_sha: null
+    fp_precision: fp32
+"""
+    )
+    policies = PolicyRegistry.from_yaml(policies_yaml)
     envs = EnvRegistry.from_yaml(DEFAULT_ENVS_YAML)
 
     plan = plan_cells(policies, envs)
 
-    diff_pusht = next(
-        (status for (p, e, status) in plan if p.name == "diffusion_policy" and e.name == "pusht"),
+    not_locked_pusht = next(
+        (status for (p, e, status) in plan if p.name == "not_yet_locked" and e.name == "pusht"),
         None,
     )
-    assert diff_pusht == "skipped", f"expected diffusion_policy x pusht skipped, got {diff_pusht}"
+    assert not_locked_pusht == "skipped", (
+        f"expected not_yet_locked x pusht skipped, got {not_locked_pusht}"
+    )
 
     no_op_pusht = next(
         (status for (p, e, status) in plan if p.name == "no_op" and e.name == "pusht"),
@@ -346,15 +367,32 @@ def test_main_missing_yaml_exits_4(tmp_path: Path, capsys: pytest.CaptureFixture
 # --------------------------------------------------------------------- #
 
 
-def test_measure_cell_skipped_when_not_runnable() -> None:
-    policies = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+def test_measure_cell_skipped_when_not_runnable(tmp_path: Path) -> None:
+    """A policy with revision_sha=None short-circuits in measure_cell.
+
+    Uses a tmp policies.yaml since the shipped diffusion_policy/act now have
+    locked SHAs (Day 0a, 2026-05-03).
+    """
+    policies_yaml = tmp_path / "policies.yaml"
+    policies_yaml.write_text(
+        """
+policies:
+  - name: not_yet_locked
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: lerobot/some_future_policy
+    revision_sha: null
+    fp_precision: fp32
+"""
+    )
+    policies = PolicyRegistry.from_yaml(policies_yaml)
     envs = EnvRegistry.from_yaml(DEFAULT_ENVS_YAML)
-    diff = policies.get("diffusion_policy")
+    spec = policies.get("not_yet_locked")
     pusht = envs.get("pusht")
 
-    timing = measure_cell(diff, pusht, n_steps=1, n_episodes=1)
+    timing = measure_cell(spec, pusht, n_steps=1, n_episodes=1)
     assert timing.status == "skipped"
-    assert timing.policy == "diffusion_policy"
+    assert timing.policy == "not_yet_locked"
     assert timing.env == "pusht"
     assert timing.error is not None
     assert "Day 0a" in timing.error
