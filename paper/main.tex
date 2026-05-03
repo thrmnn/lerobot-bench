@@ -1,0 +1,400 @@
+% lerobot-bench — 4-page arXiv writeup (cs.RO primary, cs.LG secondary).
+% SCAFFOLD. Every \todo{...} is a placeholder for a number that lands
+% from notebooks/01-write-finding.ipynb after the full sweep produces
+% real parquet rows. Methodology text is NOT a placeholder; it stays
+% as-is and is the load-bearing content a HF Robotics reviewer reads.
+
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{url}
+
+% --- \todo{...} renders as a high-visibility marker so future-you sees
+% every unfilled placeholder. The macro is ONE line of red highlighter;
+% no separate todonotes package, no margin clutter.
+\newcommand{\todo}[1]{{\colorbox{red!20}{\textcolor{red!70!black}{\textbf{TODO:} #1}}}}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!50!black,
+    citecolor=blue!50!black,
+    urlcolor=blue!50!black,
+}
+
+\title{lerobot-bench: a multi-policy reproducible evaluation\\
+suite for pretrained LeRobot policies}
+\author{Th\'eo Hermann \\
+\texttt{thrmnn@huggingface.co} \\
+\texttt{https://github.com/thrmnn/lerobot-bench}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% ---------------------------------------------------------------- %
+% Abstract                                                         %
+% ---------------------------------------------------------------- %
+
+\begin{abstract}
+Reported success rates for pretrained LeRobot policies live in
+self-reported tables across heterogeneous evaluation protocols, with
+no shared seed accounting or confidence intervals. We introduce
+\emph{lerobot-bench}, a public reproducible evaluation suite that runs
+a fixed roster of pretrained policies on a fixed roster of LeRobot
+sim envs under a multi-seed contract (5~seeds $\times$ 50~episodes per
+\textit{(policy, env)} cell), reporting bootstrap 95\% confidence
+intervals on every cell and paired comparisons across cells with
+explicit minimum-detectable-effect bounds. The benchmark, accompanying
+interactive HF Space, and the analysis notebook that produced every
+figure in this paper are released as open data.
+\todo{Headline finding sentence, one of: ``VLAs underperform classical
+policies on PushT but dominate on Libero'' / ``no cross-policy delta
+exceeds the MDE band at $N{=}250$, the leaderboard is the result.''
+Choose the version the data supports; do not fabricate.}
+The implication is that single-seed published numbers from individual
+policy papers should not be compared head-to-head without re-running
+under a shared protocol --- and the protocol we ship is one such.
+\end{abstract}
+
+% ---------------------------------------------------------------- %
+% Introduction                                                     %
+% ---------------------------------------------------------------- %
+
+\section{Introduction}
+
+LeRobot~\cite{cadene2024lerobot} ships pretrained checkpoints for
+Diffusion Policy~\cite{chi2023diffusion}, ACT~\cite{zhao2023learning},
+SmolVLA, and Pi0 across simulated manipulation envs (PushT, Aloha,
+Libero~\cite{liu2023libero}). Individual policy papers report
+success rates on these envs, but the protocols differ in seed
+counts, episode budgets, success thresholds, and how confidence
+intervals (if any) are derived. The result is a set of numbers in
+PDFs that nobody trusts head-to-head.
+
+We fill that gap with \emph{lerobot-bench}: an open, reproducible,
+multi-policy benchmark with three artifacts.
+
+\begin{enumerate}
+    \item \textbf{Open data.} A public HF Hub dataset
+    (\texttt{thrmnn/lerobot-bench-results-v1}) of every per-episode
+    outcome (success, return, step count, wall-clock, video SHA-256)
+    plus an MP4 of every rollout, indexed by \textit{(policy, env,
+    seed, episode)}.
+    \item \textbf{Open eval.} A pinned, scriptable evaluation pipeline
+    (\texttt{python scripts/run\_one.py --policy P --env E --seed S}) that
+    re-derives any single parquet row in $<1$~h on commodity hardware,
+    plus the resumable orchestrator that produced the full sweep.
+    \item \textbf{Open analysis.} The notebook
+    (\texttt{notebooks/01-write-finding.ipynb}) that produces every
+    table and figure in this paper, including the bootstrap CIs, the
+    paired-comparison effect sizes, and the failure-mode taxonomy.
+\end{enumerate}
+
+The contribution is methodological as much as empirical. We document
+the seeding contract that makes the per-cell numbers bit-reproducible
+at cell boundaries, the bootstrap protocol that makes the CIs
+defensible at $N{=}250$ binary outcomes per cell, and the
+minimum-detectable-effect bound that prevents over-claiming on
+small deltas. The benchmark itself is the data; this paper is the
+defense.
+
+% ---------------------------------------------------------------- %
+% Methods                                                          %
+% ---------------------------------------------------------------- %
+
+\section{Methods}
+\label{sec:methods}
+
+\subsection{Sweep contract}
+
+The unit of evaluation is a \textit{cell}: a tuple
+$(\text{policy}, \text{env}, \text{seed\_idx})$ with
+$\text{seed\_idx} \in \{0, 1, 2, 3, 4\}$. Each cell runs $n_\text{ep}$
+episodes; the contract is $n_\text{ep} = 50$ unless the auto-downscope
+rule (Section~\ref{sec:downscope}) reduces it for a slow VLA. The
+total per-cell sample size at the contract is
+$N = 5 \times 50 = 250$ binary outcomes.
+
+\paragraph{Episode boundary.} An episode runs from
+\texttt{env.reset(seed=$s$)} until
+\texttt{terminated=True}, \texttt{truncated=True}, or step count
+equals env-specific \texttt{max\_steps} (PushT 300, Aloha 400,
+Libero 600). Success is the per-env standard reward threshold from
+\texttt{lerobot.envs.<env>.config.SUCCESS\_REWARD}; the episode
+succeeds iff its final-step reward meets or exceeds it.
+
+\subsection{Seeding contract}
+\label{sec:seeding}
+
+Per cell, at the start, three RNGs are seeded with the same value:
+\begin{equation}
+    \text{seed}_\text{cell} = \text{seed\_idx} \times 1000.
+\end{equation}
+Concretely: \texttt{numpy.random.seed}, \texttt{torch.manual\_seed},
+and \texttt{torch.cuda.manual\_seed\_all} are all set to
+$\text{seed}_\text{cell}$. Per-episode, the env is reset with
+\begin{equation}
+    \text{seed}_\text{ep}(e) = \text{seed}_\text{cell} + e,
+    \quad e \in \{0, \ldots, n_\text{ep} - 1\}.
+\end{equation}
+Policy stochasticity inherits the torch generator and is \emph{not}
+re-seeded per episode. The torch generator therefore advances across
+episodes within a cell, which means mid-cell resume is \emph{not}
+bit-reproducible: a cell that crashes mid-way must restart from
+$e=0$. The orchestrator (\texttt{checkpointing.plan\_resume}) classifies
+cells as \emph{completed} (full \texttt{set(range($n_\text{ep}$))} of
+episode indices present), \emph{partial} (any other non-empty subset),
+or \emph{pending} (no rows), and re-runs partial cells from scratch.
+
+\subsection{Sample size and confidence intervals}
+
+For each cell we report success rate
+$\hat{p} = (\text{successes})/N$ with a percentile-bootstrap 95\% CI
+over the flat list of $N$ binary outcomes. The bootstrap uses
+$n_\text{resamples} = 10{,}000$ resamples drawn with a seeded
+\texttt{numpy.random.Generator(42)}; this matches the
+\texttt{lerobot\_bench.stats.bootstrap\_ci} implementation, which we
+sanity-check against the closed-form Wilson score
+interval~\cite{wilson1927probable} (the bootstrap interval converges
+to Wilson at the per-cell sample sizes we run).
+
+The unit of resampling is the \emph{episode}, not the seed.
+Bootstrapping over the 5 seeds gives wide CIs and conflates between-seed
+variance with the inferential question; the design explicitly fixes
+the unit at the episode level so the per-cell intervals reflect
+``how confident are we in this $\hat{p}$,'' not ``how often does seed
+choice shift it.''
+
+\subsection{Paired comparisons across cells}
+
+For pairs of cells with identical $(\text{seed\_idx}, e)$ pairings ---
+i.e.\ the same protocol on the same env --- we report a paired
+$\Delta\hat{p}$ via two methods: a paired bootstrap that draws shared
+indices into both arrays
+(\texttt{stats.paired\_delta\_bootstrap}, same $n_\text{resamples}$
+and seed as the marginal CI), and the two-sided Wilcoxon signed-rank
+test on the per-episode outcome differences (\texttt{stats.paired\_wilcoxon},
+\texttt{zero\_method=`wilcox'} drops zero-difference pairs as is
+standard for binary paired data; this is the McNemar limit). Effect
+size is Cohen's $h$~\cite{cohen1988statistical}:
+\begin{equation}
+    h = 2 \arcsin(\sqrt{p_1}) - 2 \arcsin(\sqrt{p_2}),
+\end{equation}
+with the conventional bands $|h| < 0.2$ small, $< 0.5$ medium,
+$\ge 0.8$ large.
+
+\paragraph{MDE bound.} At $N = 250$, the Wilson 95\% half-width at
+the worst case $\hat{p} = 0.5$ is
+$\text{HW} \approx 0.062$. Following~\cite{wilson1927probable}, any
+$|\Delta\hat{p}| < 2 \cdot \text{HW} \approx 0.124$ is inconclusive
+at this $N$ regardless of the bootstrap or Wilcoxon p-value: two
+cells whose marginal CIs each have half-width up to 0.062 can produce
+a sample delta below 0.124 just from sampling noise. Every paired
+comparison in Section~\ref{sec:results} is annotated with whether
+its delta clears this threshold; deltas below it are reported as
+\emph{inconclusive at $N{=}250$} rather than as findings.
+
+\subsection{Auto-downscope rule}
+\label{sec:downscope}
+
+Total per-cell wall-clock budget is 3~hours on a single RTX~4060
+laptop GPU (8\,GB VRAM). After Day~0 calibration produces per-policy
+$\overline{t}$~ms/step, the per-cell episode count is
+\begin{equation}
+    n_\text{ep} = \min\!\left(50, \left\lfloor
+        \frac{3 \times 3600}{5 \cdot \texttt{env.max\_steps} \cdot
+        \overline{t} / 1000} \right\rfloor\right).
+\end{equation}
+If a policy's per-cell minimum (5~episodes/seed $\times$ 5~seeds = 25
+episodes) still exceeds budget, the policy is dropped from v1, not
+silently truncated. Any cell with $n_\text{ep} < 50$ is flagged in the
+leaderboard and in this paper's table caption.
+
+\subsection{Sparse matrix policy}
+
+A \textit{(policy, env)} cell is N/A only when no public HF Hub
+checkpoint exists at lock-in time. Sparsity is reported in
+Section~\ref{sec:results}, not silently skipped. Cross-policy
+comparisons are made only within shared envs.
+
+\subsection{Reproducibility}
+
+Each parquet row carries the code commit SHA, the lerobot version
+pin (\texttt{lerobot==0.5.1}), and the SHA-256 of its rendered MP4.
+A single row is replayable end-to-end with
+\texttt{python scripts/run\_one.py --policy P --env E --seed S}. The
+HF Hub dataset (\texttt{thrmnn/lerobot-bench-results-v1}) is the data
+source for the public Space (\texttt{huggingface.co/spaces/thrmnn/lerobot-bench})
+and for every figure below. The full sweep took
+\todo{N hours} of GPU time on the reference hardware.
+
+% ---------------------------------------------------------------- %
+% Results                                                          %
+% ---------------------------------------------------------------- %
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Leaderboard}
+
+Table~\ref{tab:leaderboard} reports per-cell success rate with the
+Wilson 95\% interval. \todo{Replace TBD entries with the output of
+\texttt{notebooks/01-write-finding.ipynb} cell~3 (function
+\texttt{leaderboard\_table} on the real parquet).}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrrl}
+\toprule
+Policy & Env & $N$ & Successes & $\hat{p}$ & 95\% CI \\
+\midrule
+Diffusion Policy & PushT  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+Diffusion Policy & Aloha  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+ACT              & PushT  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+ACT              & Aloha  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+SmolVLA          & Aloha  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+SmolVLA          & Libero & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+Pi0              & Aloha  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+Pi0              & Libero & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+random (baseline) & PushT & 250 & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+random (baseline) & Aloha & 250 & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+no-op (baseline)  & PushT & 250 & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+no-op (baseline)  & Aloha & 250 & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+\bottomrule
+\end{tabular}
+\caption{Per-cell success rates with Wilson 95\% intervals. $N$ is
+the total binary outcomes per cell ($5 \cdot n_\text{ep}$). Cells
+with $N < 250$ have $n_\text{ep}$ reduced by the auto-downscope rule
+(Section~\ref{sec:downscope}); flagged in the row.}
+\label{tab:leaderboard}
+\end{table}
+
+\subsection{Per-cell forest plot}
+
+Figure~\ref{fig:forest} shows the full per-\textit{(policy, env, seed)}
+breakdown with bootstrap 95\% intervals --- one row per cell, grouped
+visually by policy. \todo{Render with \texttt{notebooks/01-write-finding.ipynb}
+cell~4; export as \texttt{figures/forest.pdf}.}
+
+\begin{figure}[h]
+\centering
+\fbox{\rule{0.7\textwidth}{0pt}\rule{0pt}{2cm}}
+\caption{Per-cell success rates with bootstrap 95\% CIs
+($n_\text{resamples} = 10{,}000$, RNG seed 42). \todo{Insert
+\texttt{figures/forest.pdf}.}}
+\label{fig:forest}
+\end{figure}
+
+\subsection{Paired comparisons}
+
+Table~\ref{tab:paired} reports $\Delta\hat{p}$ for the policy pair
+that shares the most envs in the locked roster, per shared env.
+\todo{Replace TBD with the output of \texttt{notebooks/01-write-finding.ipynb}
+cell~5 (function \texttt{paired\_results}).}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrrrrl}
+\toprule
+Env & $\hat{p}_A$ & $\hat{p}_B$ & $\Delta\hat{p}$ & 95\% CI on $\Delta$ & Wilcoxon $p$ & Cohen's $h$ \\
+\midrule
+\todo{env 1} & \todo{p1} & \todo{p2} & \todo{$\Delta$} & \todo{[lo, hi]} & \todo{p} & \todo{h} \\
+\todo{env 2} & \todo{p1} & \todo{p2} & \todo{$\Delta$} & \todo{[lo, hi]} & \todo{p} & \todo{h} \\
+\bottomrule
+\end{tabular}
+\caption{Paired comparison: policy~A vs.\ policy~B,
+$\Delta\hat{p} = \hat{p}_A - \hat{p}_B$. Pairing is per
+$(\text{seed\_idx}, e)$. Any $|\Delta\hat{p}| < 0.124$ is reported
+as inconclusive at $N{=}250$ (Section~\ref{sec:methods}).}
+\label{tab:paired}
+\end{table}
+
+\subsection{Failure mode taxonomy}
+
+Figure~\ref{fig:taxonomy} reports the per-policy failure-mode
+breakdown across the six modes from \texttt{docs/FAILURE\_TAXONOMY.md}
+(trajectory overshoot, gripper slip, timeout, wrong object,
+premature release, drift). 5--10 failed rollouts per cell were
+hand-labeled by the first-fit-in-chronological-order rule.
+\todo{Render with \texttt{notebooks/01-write-finding.ipynb} cell~6
+once \texttt{docs/failure\_labels.csv} exists; export as
+\texttt{figures/taxonomy.pdf}.}
+
+\begin{figure}[h]
+\centering
+\fbox{\rule{0.7\textwidth}{0pt}\rule{0pt}{2cm}}
+\caption{Failure-mode breakdown per \textit{(policy, env)} cell.
+Stacked bars sum to total labeled failures per cell. \todo{Insert
+\texttt{figures/taxonomy.pdf}.}}
+\label{fig:taxonomy}
+\end{figure}
+
+% ---------------------------------------------------------------- %
+% Discussion                                                       %
+% ---------------------------------------------------------------- %
+
+\section{Discussion}
+
+\subsection{Limitations}
+
+\begin{itemize}
+    \item \textbf{Simulation only.} All numbers are sim. The sim-to-real
+    gap is real and well-documented; lerobot-bench is a screening
+    tool for sim performance, not a substitute for hardware
+    evaluation.
+    \item \textbf{Single-hardware bias on wall-clock.} Per-step latency
+    figures are from a single RTX~4060 laptop; absolute ms/step on
+    different GPUs will differ, although the ranking across policies
+    on the same hardware is what the auto-downscope rule consumes
+    and that ranking is portable.
+    \item \textbf{Sparse matrix coverage.} The
+    \textit{(policy, env)} grid is sparse by design --- a cell is N/A
+    only when no public HF Hub checkpoint exists. Cross-policy
+    comparisons are valid only within shared envs.
+    \item \textbf{Multi-comparison concerns.} Any
+    $(\text{policy}, \text{env})$ pair we did not pre-register as
+    a planned comparison should be read as exploratory; we report
+    them all in Table~\ref{tab:paired} for transparency but the
+    abstract's headline finding cites only the pre-registered pair.
+    \item \textbf{Fine-tune track is single-cell.} The
+    fine-tune comparison (\todo{add if shipped}) lifts (or fails to
+    lift) one worst-case cell with 100~demos and LoRA rank~16. This
+    is a smoke test on data scale, not an end-to-end replication of
+    any one policy's training recipe.
+\end{itemize}
+
+\subsection{Future work}
+
+Three paths. (1)~Drop the 4-hour Libero install cap and add the
+remaining Libero task variants once the install is automated.
+(2)~Onboard new policies as they appear on the Hub --- the
+contribution path is one PR adding a row to
+\texttt{configs/policies.yaml}. (3)~Re-run on hardware with the
+sim-to-real bridge of choice and report the gap as its own table.
+
+\subsection{Upstream PR}
+
+The eval pipeline is structured for upstream adoption as
+\texttt{lerobot.eval.multi\_seed}; a draft PR is in flight at
+\todo{\texttt{huggingface/lerobot}\#TBD}.
+
+% ---------------------------------------------------------------- %
+% References                                                       %
+% ---------------------------------------------------------------- %
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

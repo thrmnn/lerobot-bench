@@ -38,25 +38,37 @@ These ship without lerobot installed. Everything tests against synthetic data.
 | #15 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | merged |
 | #16 | `docs/FAILURE_TAXONOMY.md` — labeling template | researcher-writeup | merged |
 | #17 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | merged |
-| #18 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | pending |
+| #18 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | merged |
 
-After #18: Path A is exhausted; Path B (lerobot install + revision_sha lockin)
-becomes critical for any further progress.
+**Path A is exhausted with PR #18.** Path B (lerobot install +
+revision_sha lockin) is now the critical path — pretrained
+`eval.load_policy` and the live calibration spike both block on it.
+The benchmark sweep + writeup now wait for the human-driven Day 0a
++ Day 0b items below.
 
 ## Resume now
 
-PR #17 (`notebooks/01-write-finding.ipynb`) lands the analysis scaffold
-the researcher-writeup runs on Day 7-8 to produce the headline finding
-+ figures for the paper. Eight cells: imports + load with synthetic
-fallback, schema sanity, Wilson leaderboard table, per-cell bootstrap
-forest plot, paired Δsuccess + Wilcoxon + Cohen's h with an
-`inconclusive_at_N` MDE flag, taxonomy preview bar chart against
-synthetic random labels, hedged finding paragraph, reproducibility
-footer. Verified end-to-end with `nbclient.NotebookClient` against the
-deterministic 3 × 2 × 5 × 50 synthetic parquet (`np.random.default_rng(0)`).
-Next: PR #18 (`paper/main.tex` + `paper/references.bib`) — the 4-page
-arxiv writeup template. Path B (Day 0a auth + revision_sha lockin) is
-independent and unblocks pretrained policies for `eval.load_policy`.
+PR #18 (`paper/main.tex` + `paper/references.bib` + `paper/Makefile` +
+`paper/.gitignore`) lands the 4-page arxiv writeup scaffold (cs.RO
+primary, cs.LG secondary). Standard 11pt article class, no boutique
+template. Five sections: Abstract (headline-finding sentence is a
+`\todo` so the writer cannot ship a fabricated claim), Introduction
+(open data / open eval / open analysis), Methods (full sweep contract
++ seeding equation + bootstrap protocol + MDE bound at $N{=}250$),
+Results (leaderboard / forest / paired / taxonomy placeholders each
+citing the producing notebook cell), Discussion (5-bullet limitations
++ future work + upstream PR pointer). 10-entry references.bib with
+real arxiv IDs / DOIs / ISBNs. Build verified: `make` produces a 6-page
+PDF (4 body + abstract + bibliography), no errors.
+
+**Path A is exhausted with PR #18.** Next live work is human-driven:
+Day 0a (`huggingface-cli login`, `wandb login`, lock 5 policy repo
+IDs + revision SHAs in `configs/policies.yaml` and
+`docs/MODEL_CARDS.md`) unblocks pretrained `eval.load_policy`; Day 0b
+(`make calibrate` on the dev box) locks the matrix shape; Day 1
+(Libero spike) decides the env count; Days 5-6 run the full sweep
+overnight; Days 7-8 fill in the notebook + paper placeholders with
+real numbers.
 
 ---
 
