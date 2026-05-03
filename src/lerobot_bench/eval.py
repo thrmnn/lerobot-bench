@@ -814,18 +814,15 @@ def _materialize_factory_result(result: Any, *, spec: EnvSpec) -> GymLikeEnv:
       the vec_env (size 1) is wrapped via :class:`_DebatchedVecEnvAdapter`.
     * a gymnasium ``VectorEnv`` (size 1) — wrapped via the same adapter.
     * a bare ``gym.Env`` — returned as-is.
+
+    We avoid an explicit ``isinstance(leaf, gymnasium.vector.VectorEnv)``
+    check (which would force a top-level gymnasium import) and instead
+    duck-type on ``num_envs`` + ``step`` — both attrs are unique to
+    vector envs in the gymnasium API surface we care about. This keeps
+    the function importable in the CI fast job (no gymnasium installed)
+    without leaking a sentinel ``Any``-typed gym module into the
+    function body.
     """
-    # Try gymnasium import — needed for isinstance checks. Optional:
-    # if gymnasium is not installed we fall through to the dict branch
-    # below and rely on duck-typing for the leaf.
-    try:
-        import gymnasium as gym
-
-        gym_available = True
-    except ImportError:
-        gym = None  # type: ignore[assignment]
-        gym_available = False
-
     if isinstance(result, dict):
         if len(result) != 1:
             raise RuntimeError(
@@ -838,20 +835,20 @@ def _materialize_factory_result(result: Any, *, spec: EnvSpec) -> GymLikeEnv:
                 f"got {len(task_map) if isinstance(task_map, dict) else 'non-dict'}"
             )
         leaf = next(iter(task_map.values()))
-        return _wrap_leaf(leaf, spec=spec, gym=gym, gym_available=gym_available)
+        return _wrap_leaf(leaf)
 
-    return _wrap_leaf(result, spec=spec, gym=gym, gym_available=gym_available)
+    return _wrap_leaf(result)
 
 
-def _wrap_leaf(leaf: Any, *, spec: EnvSpec, gym: Any, gym_available: bool) -> GymLikeEnv:
-    """Wrap a single leaf env (vec or scalar) into a :class:`GymLikeEnv`."""
-    if gym_available and isinstance(leaf, gym.vector.VectorEnv):
-        return cast(GymLikeEnv, _DebatchedVecEnvAdapter(leaf))
-    # Duck-typed fallback: anything with a `num_envs` attr and a `step` method
-    # is treated as a vec env.
+def _wrap_leaf(leaf: Any) -> GymLikeEnv:
+    """Wrap a single leaf env (vec or scalar) into a :class:`GymLikeEnv`.
+
+    Vec envs are detected by the ``num_envs`` attribute; everything
+    else is assumed to be a single :class:`gymnasium.Env` and returned
+    as-is via the protocol cast.
+    """
     if hasattr(leaf, "num_envs") and hasattr(leaf, "step"):
         return cast(GymLikeEnv, _DebatchedVecEnvAdapter(leaf))
-    # Otherwise assume it's a single env and trust the caller's protocol cast.
     return cast(GymLikeEnv, leaf)
 
 
