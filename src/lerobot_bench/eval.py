@@ -250,6 +250,191 @@ class _RandomPolicy:
 
 
 # --------------------------------------------------------------------- #
+# Pretrained adapter                                                    #
+# --------------------------------------------------------------------- #
+
+
+# Gym observation dict keys we know how to translate to lerobot policy
+# input keys. Keep this table tight -- if a new env shows up with a
+# different shape, fail loudly in :func:`_gym_obs_to_batch` rather than
+# guessing.
+#
+# Mapping rules (matches lerobot's internal feature naming convention):
+#
+# * ``pixels`` (HWC uint8) -> ``observation.image`` (CHW float in [0,1])
+# * ``pixels.<view>`` (HWC uint8) -> ``observation.images.<view>``
+#   (CHW float in [0,1])  -- e.g. Aloha's ``pixels.top`` becomes
+#   ``observation.images.top`` for the ACT policy.
+# * ``agent_pos`` (1D float) -> ``observation.state`` (1D float)
+# * ``environment_state`` (1D float) -> ``observation.environment_state``
+#
+# A bare ``numpy.ndarray`` obs (the default PushT 5-vector with the
+# implicit ``obs_type=state``) is NOT supported here -- pretrained
+# PushT policies expect images. The configs/envs.yaml ships
+# ``obs_type=pixels_agent_pos`` for this reason.
+
+
+class _LerobotPolicyAdapter:
+    """Wraps a lerobot ``PreTrainedPolicy`` to match :class:`PolicyCallable`.
+
+    Translates the gym observation dict into the tensor batch the lerobot
+    model expects, runs ``select_action`` under ``torch.no_grad`` (the
+    decorator is already on most policies' ``select_action`` but we add
+    a belt-and-braces ``no_grad`` context here so a future policy that
+    drops it does not silently leak gradients across episodes), and
+    casts the post-processed action back to ``numpy.float32`` of shape
+    ``action_shape``.
+
+    The pre/post processor pipelines from
+    :func:`lerobot.policies.factory.make_pre_post_processors` are stored
+    as ``Any`` because the ``PolicyProcessorPipeline`` type signature is
+    parametric on the in/out types of each pipeline direction; we don't
+    want to leak that into the adapter's surface.
+    """
+
+    def __init__(
+        self,
+        model: Any,
+        *,
+        preprocessor: Any,
+        postprocessor: Any,
+        action_shape: tuple[int, ...] | None,
+        device: str,
+    ) -> None:
+        self._model = model
+        self._preprocessor = preprocessor
+        self._postprocessor = postprocessor
+        self._action_shape = action_shape
+        self._device = device
+
+    def reset(self) -> None:
+        # Most PreTrainedPolicy subclasses have a reset() that clears the
+        # internal action queue (diffusion/ACT both buffer a horizon of
+        # actions per inference call). Required at episode boundaries to
+        # avoid bleeding actions from the previous episode.
+        if hasattr(self._model, "reset"):
+            self._model.reset()
+
+    def __call__(self, obs: dict[str, Any] | NDArray[np.floating[Any]]) -> NDArray[np.float32]:
+        import torch
+
+        batch = _gym_obs_to_batch(obs)
+
+        with torch.no_grad():
+            batch = self._preprocessor(batch)
+            action = self._model.select_action(batch)
+            action = self._postprocessor(action)
+
+        # action is a torch.Tensor; move to CPU and reshape to the env action.
+        if hasattr(action, "detach"):
+            action_np = action.detach().to("cpu").numpy()
+        else:
+            action_np = np.asarray(action)
+        action_np = np.asarray(action_np, dtype=np.float32).reshape(-1)
+        if self._action_shape is not None:
+            expected = int(np.prod(self._action_shape))
+            if action_np.size != expected:
+                raise RuntimeError(
+                    f"policy emitted action of size {action_np.size}, "
+                    f"expected {expected} for action_shape {self._action_shape}"
+                )
+            action_np = action_np.reshape(self._action_shape)
+        return action_np
+
+
+def _gym_obs_to_batch(obs: dict[str, Any] | NDArray[np.floating[Any]]) -> dict[str, Any]:
+    """Translate a gym observation into a lerobot-style batch dict.
+
+    See the comment block above :class:`_LerobotPolicyAdapter` for the
+    full mapping table. Lazy-imports ``torch`` so this module can be
+    imported in a torch-free environment.
+    """
+    import torch
+
+    if not isinstance(obs, dict):
+        raise RuntimeError(
+            f"pretrained policies require a dict observation (got {type(obs).__name__}); "
+            "ensure configs/envs.yaml sets gym_kwargs.obs_type to a pixels-based mode "
+            "(e.g. 'pixels_agent_pos')"
+        )
+
+    batch: dict[str, Any] = {}
+    for key, value in obs.items():
+        # pixels[.view] -> observation.image[s.view] (HWC uint8 -> CHW float [0,1]).
+        if key == "pixels":
+            tensor = torch.from_numpy(np.asarray(value)).float() / 255.0
+            batch["observation.image"] = tensor.permute(2, 0, 1)
+        elif key.startswith("pixels."):
+            view = key.split(".", 1)[1]
+            tensor = torch.from_numpy(np.asarray(value)).float() / 255.0
+            batch[f"observation.images.{view}"] = tensor.permute(2, 0, 1)
+        elif key == "agent_pos":
+            batch["observation.state"] = torch.from_numpy(np.asarray(value)).float()
+        elif key == "environment_state":
+            batch["observation.environment_state"] = torch.from_numpy(np.asarray(value)).float()
+        else:
+            raise RuntimeError(
+                f"unknown gym observation key '{key}'; "
+                "_gym_obs_to_batch supports {pixels, pixels.<view>, "
+                "agent_pos, environment_state}"
+            )
+    return batch
+
+
+def _recover_dataset_stats_from_safetensors(
+    repo_id: str, revision: str
+) -> dict[str, dict[str, NDArray[np.float32]]]:
+    """Reconstruct ``dataset_stats`` from legacy safetensors normalize buffers.
+
+    Pre-0.5.x lerobot checkpoints (e.g. ``lerobot/diffusion_pusht``)
+    pre-date the processor-pipeline split: their normalization stats
+    live as buffers inside ``model.safetensors`` rather than as
+    ``policy_preprocessor.json`` on the Hub. lerobot 0.5.1 silently
+    drops these buffers when loading the model (only a WARNING is
+    emitted) so the policy's outputs would be in normalized action
+    space, not pixel space — useless on the env.
+
+    This helper reads the safetensors file, picks out the relevant
+    ``normalize_inputs.buffer_*`` and ``normalize_targets.buffer_*``
+    entries, and reshapes them into the dict-of-dicts format
+    :func:`make_pre_post_processors` accepts as ``dataset_stats``. If
+    the safetensors has no normalization buffers (newer checkpoint that
+    ships proper processors), returns an empty dict — caller should
+    fall back to loading the processors directly.
+
+    Lazy-imports ``huggingface_hub`` and ``safetensors``; both are
+    transitive deps of ``lerobot==0.5.1`` so they are always available
+    when this function is called from the pretrained branch.
+
+    The original buffer-name format converts the dot in feature keys
+    to an underscore (``observation.image`` becomes
+    ``buffer_observation_image``); we reverse the first underscore back
+    to a dot to recover the canonical key.
+    """
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
+
+    sf_path = hf_hub_download(repo_id, "model.safetensors", revision=revision)
+    state = load_file(sf_path)
+
+    stats: dict[str, dict[str, NDArray[np.float32]]] = {}
+    prefixes = ("normalize_inputs.buffer_", "normalize_targets.buffer_")
+    for tensor_key, tensor in state.items():
+        for prefix in prefixes:
+            if not tensor_key.startswith(prefix):
+                continue
+            rest = tensor_key[len(prefix) :]
+            # rest looks like 'observation_image.mean' or 'action.max'.
+            feature_buf, _, stat_name = rest.rpartition(".")
+            if not feature_buf or not stat_name:
+                continue
+            feature_key = feature_buf.replace("_", ".", 1)
+            stats.setdefault(feature_key, {})[stat_name] = tensor.cpu().numpy().astype(np.float32)
+            break
+    return stats
+
+
+# --------------------------------------------------------------------- #
 # Loaders                                                               #
 # --------------------------------------------------------------------- #
 
@@ -264,14 +449,24 @@ def load_policy(
 
     For baselines (``no_op``, ``random``) ``action_shape`` is required
     -- the action dim comes from the env, not the policy spec. For
-    pretrained policies ``action_shape`` is ignored.
+    pretrained policies ``action_shape`` is also recommended (used as a
+    final shape sanity check on the post-processed action) but optional.
 
-    Pretrained loading is a Day 0b TODO: it raises
-    :class:`NotImplementedError` until ``revision_sha`` values land in
-    ``configs/policies.yaml`` and the lerobot factory call is wired up.
-    Non-runnable specs (pre-Day-0a entries) raise :class:`RuntimeError`
-    with a Day 0a hint, regardless of whether pretrained loading is
-    implemented yet.
+    The pretrained branch lazy-imports ``torch`` and ``lerobot``; this
+    function must remain importable in a torch-free CI job. Non-runnable
+    specs (pre-Day-0a entries) raise :class:`RuntimeError` with a Day 0a
+    hint before any heavy import is attempted.
+
+    The factory call resolves to lerobot 0.5.1's
+    ``lerobot.policies.pretrained.PreTrainedPolicy.from_pretrained``
+    via :func:`lerobot.policies.factory.get_policy_class`. The
+    historical one-shot ``make_policy(repo_id, ...)`` API in pre-0.5
+    lerobot is GONE — 0.5.1's :func:`make_policy` takes a
+    :class:`PreTrainedConfig` plus ``ds_meta``/``env_cfg`` for shape
+    inference, neither of which we have at eval time. Normalization
+    stats are recovered from the legacy safetensors buffers when the
+    Hub repo predates the processor-pipeline split (the case for
+    ``lerobot/diffusion_pusht``).
     """
     if not spec.is_runnable():
         raise RuntimeError(
@@ -292,14 +487,77 @@ def load_policy(
             return _RandomPolicy(action_shape)
         raise ValueError(f"unknown baseline policy '{spec.name}'")
 
-    # Pretrained loading: Day 0b TODO. The plan:
-    #   from lerobot.common.policies.factory import make_policy
-    #   model = make_policy(spec.repo_id, revision=spec.revision_sha,
-    #                       fp_precision=spec.fp_precision).to(device).eval()
-    #   return _LerobotPolicyAdapter(model)
-    raise NotImplementedError(
-        f"pretrained policy loading not wired up yet (policy '{spec.name}'); "
-        "Day 0b TODO -- requires lerobot install + revision_sha lock."
+    # Pretrained branch (Day 0b). Lazy-import everything heavy so this
+    # module stays importable in CI without torch/lerobot.
+    assert spec.repo_id is not None  # is_runnable() guarantees both
+    assert spec.revision_sha is not None
+    return _load_pretrained_policy(
+        repo_id=spec.repo_id,
+        revision=spec.revision_sha,
+        action_shape=action_shape,
+        device=device,
+    )
+
+
+def _load_pretrained_policy(
+    *,
+    repo_id: str,
+    revision: str,
+    action_shape: tuple[int, ...] | None,
+    device: str,
+) -> _LerobotPolicyAdapter:
+    """Inner helper: lazy-imports lerobot and instantiates the adapter.
+
+    Split out of :func:`load_policy` so the lerobot imports are confined
+    to a function that is only entered on the pretrained branch.
+    """
+    # Side-effect import: triggers registration of every PreTrainedConfig
+    # subclass (act, diffusion, pi0, ...) in draccus's choice registry.
+    # Without this, `PreTrainedConfig.from_pretrained` on an `act`
+    # checkpoint raises `DecodingError: Couldn't find a choice class for
+    # 'act'`. Importing the factory module is cheap; it does not load
+    # any model weights.
+    import lerobot.policies.factory as _lerobot_factory
+    from lerobot.configs.policies import PreTrainedConfig
+
+    cfg = PreTrainedConfig.from_pretrained(repo_id, revision=revision)
+    policy_cls = _lerobot_factory.get_policy_class(cfg.type)
+
+    # Normalization stats: try the new processor-pipeline format on the
+    # Hub first (newer checkpoints); on FileNotFoundError fall back to
+    # recovering stats from legacy safetensors buffers.
+    try:
+        preprocessor, postprocessor = _lerobot_factory.make_pre_post_processors(
+            cfg, pretrained_path=repo_id, revision=revision
+        )
+    except FileNotFoundError:
+        logger.info(
+            "no policy_preprocessor.json on '%s'@%s; recovering "
+            "normalization stats from legacy safetensors buffers",
+            repo_id,
+            revision,
+        )
+        dataset_stats = _recover_dataset_stats_from_safetensors(repo_id, revision)
+        if not dataset_stats:
+            raise RuntimeError(
+                f"could not recover normalization stats for '{repo_id}'@{revision}: "
+                "no policy_preprocessor.json on the Hub AND no normalize_inputs/targets "
+                "buffers in model.safetensors. Pretrained policy will not work without "
+                "valid normalization."
+            ) from None
+        preprocessor, postprocessor = _lerobot_factory.make_pre_post_processors(
+            cfg, dataset_stats=dataset_stats
+        )
+
+    model = policy_cls.from_pretrained(repo_id, revision=revision, config=cfg)
+    model = model.to(device).eval()
+
+    return _LerobotPolicyAdapter(
+        model,
+        preprocessor=preprocessor,
+        postprocessor=postprocessor,
+        action_shape=action_shape,
+        device=device,
     )
 
 
@@ -316,6 +574,11 @@ def load_env(spec: EnvSpec) -> GymLikeEnv:
     before ``gym.make``. Without this, freshly-installed gym-pusht /
     gym-aloha packages register lazily and ``gym.make`` raises
     :class:`gymnasium.error.NamespaceNotFound`.
+
+    ``spec.gym_kwargs`` (a tuple of ``(key, value)`` pairs from the
+    YAML registry) is materialized into a dict and forwarded verbatim;
+    ``obs_type='pixels_agent_pos'`` is the most common one (required by
+    every pretrained policy).
     """
     try:
         import gymnasium as gym
@@ -340,7 +603,7 @@ def load_env(spec: EnvSpec) -> GymLikeEnv:
                 f"`pip install '{namespace.replace('_', '-')}'`."
             ) from exc
 
-    env = gym.make(spec.gym_id, max_episode_steps=spec.max_steps)
+    env = gym.make(spec.gym_id, max_episode_steps=spec.max_steps, **spec.gym_kwargs_dict())
     # gym.make returns a generic Env; we know our protocol is a slice
     # of the gymnasium API so this cast is sound at runtime.
     return cast(GymLikeEnv, env)

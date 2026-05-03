@@ -5,6 +5,13 @@
 # `lerobot.envs.<lerobot_module>.config.SUCCESS_REWARD` if it exists in
 # lerobot 0.5.1, otherwise locked here per docs/DESIGN.md § Methodology.
 #
+# gym_kwargs are forwarded verbatim to gymnasium.make() in addition to
+# `gym_id` and `max_episode_steps`. obs_type=pixels_agent_pos returns
+# {pixels: image, agent_pos: state} which is what every pretrained
+# lerobot policy in this benchmark was trained on. Baseline policies
+# (random, no_op) are obs-shape-agnostic so the same env spec works
+# for both branches.
+#
 # Libero entries are intentionally NOT yet listed — gated on the Day 1
 # install spike (4-hr cap). They will be added once the spike confirms
 # Libero works on this WSL2 box.
@@ -16,6 +23,9 @@ envs:
     max_steps: 300
     success_threshold: 0.95
     lerobot_module: lerobot.envs.pusht
+    gym_kwargs:
+      # 96x96 RGB pixels + (2,) agent xy — what lerobot/diffusion_pusht expects.
+      obs_type: pixels_agent_pos
 
   - name: aloha_transfer_cube
     family: aloha
@@ -23,3 +33,7 @@ envs:
     max_steps: 400
     success_threshold: 1.0
     lerobot_module: lerobot.envs.aloha
+    gym_kwargs:
+      # 480x640 top-cam RGB + (14,) agent_pos — matches
+      # lerobot/act_aloha_sim_transfer_cube_human input_features.
+      obs_type: pixels_agent_pos
