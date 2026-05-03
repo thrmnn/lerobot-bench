@@ -13,12 +13,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from numpy.typing import NDArray
 
 from lerobot_bench.checkpointing import RESULT_SCHEMA
 from lerobot_bench.envs import EnvSpec
 from lerobot_bench.eval import (
     CellResult,
     EpisodeResult,
+    _gym_obs_to_batch,
+    _LerobotPolicyAdapter,
     _NoOpPolicy,
     _RandomPolicy,
     load_env,
@@ -474,19 +477,348 @@ def test_load_policy_baseline_requires_action_shape() -> None:
         load_policy(spec)
 
 
-def test_load_policy_pretrained_runnable_not_implemented_yet() -> None:
-    # A "runnable" pretrained spec (revision_sha set) currently raises
-    # NotImplementedError -- the lerobot factory call is Day 0b TODO.
+def test_load_policy_pretrained_calls_lerobot_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pretrained branch dispatches to ``_load_pretrained_policy`` with
+    ``repo_id`` + ``revision`` taken straight from the spec.
+
+    The actual lerobot factory call requires torch + lerobot installed;
+    those are sim/GPU-marked. Here we monkeypatch the inner function so
+    the test runs in CI fast without either dependency. The test
+    asserts the *contract* between :func:`load_policy` and the inner
+    helper: positional args go through verbatim, the spec's locked SHA
+    is forwarded as the Hub revision pin.
+    """
+    from lerobot_bench import eval as eval_mod
+
+    captured: dict[str, Any] = {}
+
+    class _SentinelAdapter:
+        def __call__(self, obs: dict[str, Any]) -> NDArray[np.float32]:
+            return np.zeros((2,), dtype=np.float32)
+
+        def reset(self) -> None:
+            return None
+
+    def _fake_inner(*, repo_id: str, revision: str, action_shape: Any, device: str) -> Any:
+        captured.update(
+            {
+                "repo_id": repo_id,
+                "revision": revision,
+                "action_shape": action_shape,
+                "device": device,
+            }
+        )
+        return _SentinelAdapter()
+
+    monkeypatch.setattr(eval_mod, "_load_pretrained_policy", _fake_inner)
+
     spec = PolicySpec(
         name="diffusion_policy",
         is_baseline=False,
         env_compat=("pusht",),
         repo_id="lerobot/diffusion_pusht",
-        revision_sha="deadbeef",
+        revision_sha="84a7c23178445c6bbf7e1a884ff497017910f653",
         fp_precision="fp32",
     )
-    with pytest.raises(NotImplementedError, match="Day 0b"):
-        load_policy(spec, action_shape=(2,))
+    pol = load_policy(spec, action_shape=(2,), device="cpu")
+    assert captured == {
+        "repo_id": "lerobot/diffusion_pusht",
+        "revision": "84a7c23178445c6bbf7e1a884ff497017910f653",
+        "action_shape": (2,),
+        "device": "cpu",
+    }
+    # And the returned policy is callable + resets.
+    pol.reset()
+    out = pol({"pixels": np.zeros((96, 96, 3), dtype=np.uint8)})
+    assert out.shape == (2,)
+    assert out.dtype == np.float32
+
+
+# --------------------------------------------------------------------- #
+# _LerobotPolicyAdapter unit tests                                      #
+#                                                                       #
+# We can't call real make_policy in CI fast (no torch/lerobot). These   #
+# tests target the adapter logic with a fake model + fake processors.   #
+# `pytest.importorskip("torch")` keeps them runnable in any env that    #
+# happens to have torch installed (lerobot dev env), but they skip      #
+# cleanly in the base CI fast job.                                      #
+# --------------------------------------------------------------------- #
+
+
+class _FakeModel:
+    """Stand-in for a lerobot ``PreTrainedPolicy``.
+
+    Records the batch passed to ``select_action`` (so tests can assert
+    shape/keys/dtype), counts ``reset`` calls, and optionally raises if
+    invoked outside ``torch.no_grad()`` so the adapter's gradient
+    discipline is testable end-to-end.
+    """
+
+    def __init__(
+        self,
+        *,
+        action_value: Any = None,
+        require_no_grad: bool = False,
+    ) -> None:
+        self._action_value = action_value
+        self._require_no_grad = require_no_grad
+        self.reset_calls = 0
+        self.last_batch: dict[str, Any] | None = None
+
+    def reset(self) -> None:
+        self.reset_calls += 1
+
+    def select_action(self, batch: dict[str, Any]) -> Any:
+        import torch
+
+        if self._require_no_grad and torch.is_grad_enabled():
+            raise AssertionError("select_action invoked with grad enabled")
+        self.last_batch = batch
+        if self._action_value is None:
+            return torch.zeros(1, 2, dtype=torch.float32)
+        return self._action_value
+
+
+def _identity(x: Any) -> Any:
+    return x
+
+
+def test_lerobot_adapter_calls_model_with_torch_no_grad() -> None:
+    pytest.importorskip("torch")
+
+    model = _FakeModel(require_no_grad=True)
+    adapter = _LerobotPolicyAdapter(
+        model,
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(2,),
+        device="cpu",
+    )
+    out = adapter({"pixels": np.zeros((96, 96, 3), dtype=np.uint8)})
+    assert out.shape == (2,)
+
+
+def test_lerobot_adapter_returns_numpy_float32_with_correct_shape() -> None:
+    torch = pytest.importorskip("torch")
+
+    model = _FakeModel(action_value=torch.tensor([[1.5, 2.5]], dtype=torch.float32))
+    adapter = _LerobotPolicyAdapter(
+        model,
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(2,),
+        device="cpu",
+    )
+    out = adapter({"pixels": np.zeros((96, 96, 3), dtype=np.uint8)})
+    assert out.dtype == np.float32
+    assert out.shape == (2,)
+    np.testing.assert_array_equal(out, np.array([1.5, 2.5], dtype=np.float32))
+
+
+def test_lerobot_adapter_reset_delegates_to_model() -> None:
+    pytest.importorskip("torch")
+
+    model = _FakeModel()
+    adapter = _LerobotPolicyAdapter(
+        model,
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(2,),
+        device="cpu",
+    )
+    assert model.reset_calls == 0
+    adapter.reset()
+    adapter.reset()
+    assert model.reset_calls == 2
+
+
+def test_lerobot_adapter_reset_noop_when_model_has_no_reset() -> None:
+    pytest.importorskip("torch")
+
+    class _ModelNoReset:
+        def select_action(self, batch: dict[str, Any]) -> Any:
+            import torch
+
+            return torch.zeros(1, 2)
+
+    adapter = _LerobotPolicyAdapter(
+        _ModelNoReset(),
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(2,),
+        device="cpu",
+    )
+    adapter.reset()  # must not raise
+
+
+def test_lerobot_adapter_handles_pusht_obs_dict() -> None:
+    """PushT obs_type=pixels_agent_pos returns {pixels, agent_pos}.
+
+    The adapter translates this to {observation.image, observation.state}
+    via ``_gym_obs_to_batch`` (HWC->CHW + scale by 255 for the image).
+    """
+    torch = pytest.importorskip("torch")
+
+    model = _FakeModel(action_value=torch.zeros(1, 2))
+    adapter = _LerobotPolicyAdapter(
+        model,
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(2,),
+        device="cpu",
+    )
+
+    pixels = np.full((96, 96, 3), 255, dtype=np.uint8)  # all-white
+    agent_pos = np.array([100.0, 200.0], dtype=np.float64)
+    adapter({"pixels": pixels, "agent_pos": agent_pos})
+
+    assert model.last_batch is not None
+    assert set(model.last_batch.keys()) == {"observation.image", "observation.state"}
+    image_t = model.last_batch["observation.image"]
+    state_t = model.last_batch["observation.state"]
+    # CHW shape, float in [0, 1].
+    assert tuple(image_t.shape) == (3, 96, 96)
+    assert image_t.dtype == torch.float32
+    np.testing.assert_allclose(image_t.numpy().max(), 1.0)
+    # agent_pos kept as float32 with original values, no scaling.
+    assert tuple(state_t.shape) == (2,)
+    np.testing.assert_array_equal(state_t.numpy(), [100.0, 200.0])
+
+
+def test_lerobot_adapter_handles_aloha_multiview_obs_dict() -> None:
+    """Aloha-style ``pixels.<view>`` keys map to ``observation.images.<view>``."""
+    torch = pytest.importorskip("torch")
+
+    model = _FakeModel(action_value=torch.zeros(1, 14))
+    adapter = _LerobotPolicyAdapter(
+        model,
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(14,),
+        device="cpu",
+    )
+
+    obs = {
+        "pixels.top": np.zeros((480, 640, 3), dtype=np.uint8),
+        "agent_pos": np.zeros(14, dtype=np.float64),
+    }
+    adapter(obs)
+
+    assert model.last_batch is not None
+    assert "observation.images.top" in model.last_batch
+    assert "observation.state" in model.last_batch
+    assert tuple(model.last_batch["observation.images.top"].shape) == (3, 480, 640)
+
+
+def test_lerobot_adapter_rejects_non_dict_obs() -> None:
+    pytest.importorskip("torch")
+
+    adapter = _LerobotPolicyAdapter(
+        _FakeModel(),
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(2,),
+        device="cpu",
+    )
+    with pytest.raises(RuntimeError, match="dict observation"):
+        adapter(np.zeros(5))  # type: ignore[arg-type]
+
+
+def test_lerobot_adapter_action_shape_mismatch_raises() -> None:
+    torch = pytest.importorskip("torch")
+
+    # Model returns a (1, 14) action; adapter expects shape (2,) -> mismatch.
+    model = _FakeModel(action_value=torch.zeros(1, 14))
+    adapter = _LerobotPolicyAdapter(
+        model,
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(2,),
+        device="cpu",
+    )
+    with pytest.raises(RuntimeError, match=r"size 14, expected 2"):
+        adapter({"pixels": np.zeros((96, 96, 3), dtype=np.uint8)})
+
+
+def test_gym_obs_to_batch_unknown_key_raises() -> None:
+    pytest.importorskip("torch")
+
+    with pytest.raises(RuntimeError, match="unknown gym observation key"):
+        _gym_obs_to_batch({"weird_key": np.zeros(2)})
+
+
+def test_gym_obs_to_batch_handles_environment_state() -> None:
+    pytest.importorskip("torch")
+
+    obs = {
+        "pixels": np.zeros((96, 96, 3), dtype=np.uint8),
+        "environment_state": np.array([1.0, 2.0, 3.0], dtype=np.float32),
+    }
+    batch = _gym_obs_to_batch(obs)
+    assert "observation.environment_state" in batch
+    assert tuple(batch["observation.environment_state"].shape) == (3,)
+
+
+# --------------------------------------------------------------------- #
+# load_env: gym_kwargs forwarding                                       #
+# --------------------------------------------------------------------- #
+
+
+def test_load_env_forwards_gym_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``EnvSpec.gym_kwargs`` must be forwarded verbatim to ``gym.make``.
+
+    Stubs ``importlib.import_module`` to skip the ``gym_X`` namespace
+    side-effect import (we don't have gym-pusht installed in CI fast),
+    then stubs ``gymnasium.make`` to capture its kwargs without
+    actually instantiating an env.
+    """
+    gym = pytest.importorskip("gymnasium")
+
+    spec = EnvSpec(
+        name="pusht",
+        family="pusht",
+        gym_id="gym_pusht/PushT-v0",
+        max_steps=300,
+        success_threshold=0.95,
+        lerobot_module="lerobot.envs.pusht",
+        gym_kwargs=(("obs_type", "pixels_agent_pos"),),
+    )
+
+    captured: dict[str, Any] = {}
+
+    def _fake_make(env_id: str, **kwargs: Any) -> Any:
+        captured["env_id"] = env_id
+        captured["kwargs"] = kwargs
+
+        class _Stub:
+            def close(self) -> None:
+                return None
+
+        return _Stub()
+
+    monkeypatch.setattr(gym, "make", _fake_make)
+
+    # Skip the namespace import by no-op'ing importlib.import_module.
+    import importlib
+
+    monkeypatch.setattr(importlib, "import_module", lambda _name: None)
+
+    load_env(spec)
+    assert captured["env_id"] == "gym_pusht/PushT-v0"
+    assert captured["kwargs"] == {"max_episode_steps": 300, "obs_type": "pixels_agent_pos"}
+
+
+def test_env_spec_gym_kwargs_dict_roundtrips() -> None:
+    spec = EnvSpec(
+        name="x",
+        family="x",
+        gym_id="x/v0",
+        max_steps=10,
+        success_threshold=0.5,
+        lerobot_module="x",
+        gym_kwargs=(("a", 1), ("b", "two")),
+    )
+    assert spec.gym_kwargs_dict() == {"a": 1, "b": "two"}
 
 
 # --------------------------------------------------------------------- #

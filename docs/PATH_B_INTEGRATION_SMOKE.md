@@ -76,35 +76,65 @@ Do NOT commit yet — this is a smoke probe.
 
 ## Step 3 — implement the Day 0b TODO in `eval.load_policy`
 
-The current Day 0b TODO lives in `src/lerobot_bench/eval.py` around
-line 295, with the planned shape:
+**STATUS: completed (PR landed 2026-05-03).** This step describes
+what the work entailed; you do NOT need to redo it on a fresh checkout.
+
+The historical `lerobot.common.policies.factory.make_policy` import
+path was wrong for `lerobot==0.5.1`: the `common.` namespace is gone
+in 0.5.x, and the surviving `lerobot.policies.factory.make_policy`
+no longer takes `(repo_id, revision=..., fp_precision=...)` — its
+signature is now `make_policy(cfg: PreTrainedConfig, ds_meta=None,
+env_cfg=None, rename_map=None) -> PreTrainedPolicy`. Shape inference
+needs either dataset metadata or env config, neither of which we
+have at eval time, so we go through `from_pretrained` directly.
+
+What we actually do (see `src/lerobot_bench/eval._load_pretrained_policy`):
 
 ```python
-from lerobot.common.policies.factory import make_policy
-model = make_policy(
-    spec.repo_id,
-    revision=spec.revision_sha,
-    fp_precision=spec.fp_precision,
-).to(device).eval()
-return _LerobotPolicyAdapter(model)
+import lerobot.policies.factory as _lerobot_factory  # registers all PreTrainedConfig choices
+from lerobot.configs.policies import PreTrainedConfig
+
+cfg = PreTrainedConfig.from_pretrained(repo_id, revision=revision)
+policy_cls = _lerobot_factory.get_policy_class(cfg.type)
+preprocessor, postprocessor = _lerobot_factory.make_pre_post_processors(
+    cfg, pretrained_path=repo_id, revision=revision
+)  # FileNotFoundError -> recover from legacy safetensors stats
+model = policy_cls.from_pretrained(repo_id, revision=revision, config=cfg)
+return _LerobotPolicyAdapter(model.to(device).eval(), preprocessor=..., postprocessor=...)
 ```
 
-Verify the import path against your installed `lerobot==0.5.1`:
+Two non-obvious gotchas surfaced during implementation:
 
-```bash
-python -c "from lerobot.common.policies.factory import make_policy; print(make_policy)"
-```
+1. **The factory module import is load-bearing.** `import
+   lerobot.policies.factory` is a side-effect import that registers
+   every `PreTrainedConfig` subclass (act, diffusion, pi0, ...) in
+   draccus's choice registry. Without it, `PreTrainedConfig.from_pretrained`
+   on an `act` checkpoint raises `DecodingError: Couldn't find a
+   choice class for 'act'`.
 
-If the import path has shifted (it has changed across recent lerobot
-releases), patch it. Implement a minimal `_LerobotPolicyAdapter` that
-maps the gym obs dict to whatever `model.select_action` expects, runs
-the forward pass under `torch.no_grad()`, and returns a numpy array of
-shape matching `env.action_space.shape`. The adapter belongs in
-`eval.py` next to the baselines.
+2. **Legacy checkpoints lack `policy_preprocessor.json`.**
+   `lerobot/diffusion_pusht` (locked at SHA `84a7c23...`) pre-dates
+   the pre/post-processor pipeline split. Its normalization stats
+   live inside `model.safetensors` as `normalize_inputs.buffer_*`
+   and `normalize_targets.buffer_*` — lerobot 0.5.1 silently drops
+   them on load (only a `WARNING` fires) and the policy then outputs
+   actions in normalized space, useless on the env.
+   `_recover_dataset_stats_from_safetensors` reads the safetensors
+   directly, reshapes the buffer keys back to feature-key form, and
+   feeds them as `dataset_stats=` to `make_pre_post_processors`.
 
-This is the single most important step. Most "everything builds,
-nothing runs" failure modes manifest as a shape or dtype mismatch in
-this adapter.
+The adapter (`_LerobotPolicyAdapter`) translates the gym obs dict
+`{pixels, agent_pos}` (or Aloha-style `{pixels.<view>, agent_pos}`)
+→ the lerobot batch dict `{observation.image, observation.state}`
+(or `{observation.images.<view>, observation.state}`), wraps the
+inference call in `torch.no_grad()`, and casts the post-processed
+torch action back to `numpy.float32` of `env.action_space.shape`.
+
+The env spec also gained a `gym_kwargs` field (forwarded verbatim to
+`gym.make`); both shipped envs now set `obs_type: pixels_agent_pos`
+so pretrained policies receive the image+state obs they were trained
+on. The baseline policies (`random` / `no_op`) are obs-shape-agnostic
+and continue to work against the same env spec.
 
 ## Step 4 — one real cell, one episode
 

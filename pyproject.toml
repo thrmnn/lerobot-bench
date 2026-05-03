@@ -169,5 +169,7 @@ module = [
     "imageio.*",
     "scipy.*",
     "torch.*",
+    "huggingface_hub.*",
+    "safetensors.*",
 ]
 ignore_missing_imports = true
