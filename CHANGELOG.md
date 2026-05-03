@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `src/lerobot_bench/cli.py` — CLI entrypoint stub (currently `--version` only); subcommands grow with `scripts/`.
 
 ### Changed
+- `src/lerobot_bench/render.py` — `render_episode` now walks an adaptive `RENDER_LADDER` of `(fps, crf)` rungs (`(10,23) -> (5,23) -> (5,28) -> (5,33)`) until the encoded clip fits under `MAX_BYTES`, instead of single-shot encoding at fixed `crf=23` and erroring on overshoot. Premortem mitigation for real Aloha episodes (1000+ steps) blowing the 2 MiB cap. The successful rung index is recorded in the new `EncoderSettings.rung_index` field (`-1` when the caller passes explicit `fps`/`crf` to bypass the ladder; `>=1` is "playback faster than wall-clock"). Pathological inputs that overshoot every rung still raise `RenderSizeError`, now carrying the full per-rung attempt log in the message and a structured `attempts` tuple. We do *not* drop input frames — lower fps means faster playback, which is the documented tradeoff over sample loss.
 - `docs/CEO-PLAN.md` — appended an "Infrastructure (added 2026-04-30)" section noting the agent team, hooks, CI evolution, and operational docs. Strategy unchanged.
 
 ## [0.0.1] - 2026-04-29

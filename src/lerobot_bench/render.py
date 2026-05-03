@@ -4,21 +4,35 @@ Constraints (see ``docs/DESIGN.md`` § Render pipeline):
 
 * **Per-clip cap**: ``MAX_BYTES`` = 2 MiB. We publish every clip to the
   free HF Hub dataset and the Space streams them on a free CPU tier;
-  bigger files break the UX. If a re-encode exceeds the cap we delete
-  the file and raise :class:`RenderSizeError` rather than silently
-  truncating — the caller is expected to lower fps or raise crf.
+  bigger files break the UX.
+
+* **Adaptive encoder ladder**: the default encoder settings (256 px,
+  10 fps, libx264 crf=23) comfortably fit 30-300 frame clips. Real
+  Aloha-style episodes can run 1000+ steps and blow the 2 MiB cap at
+  those settings. :data:`RENDER_LADDER` defines a small list of
+  ``(fps, crf)`` rungs the encoder walks until the encoded file fits
+  under :data:`MAX_BYTES`. A successful rung's index is recorded in
+  :class:`EncoderSettings` so downstream consumers (the Space, the
+  publish script, the failure-taxonomy labeler) know whether to expect
+  frame jumps. We *do not* drop input frames — lower fps just means the
+  clip plays back faster than wall-clock; that is a documented tradeoff
+  over the alternative of dropping samples (see DESIGN.md). The 256 px
+  edge and ``yuv420p`` pixel format are fixed; only fps and crf are
+  tunable. If every rung overshoots :class:`RenderSizeError` is raised
+  with the full attempt log — the file is removed and we never silently
+  truncate.
 
 * **Encoder**: H.264 baseline (libx264) + ``yuv420p`` for browser
-  compatibility, 256x256 px @ 10 fps. ``macro_block_size=1`` is passed
-  to imageio so non-multiples of 16 don't get padded; 256 is already
-  even so yuv420p chroma subsampling is fine.
+  compatibility. ``macro_block_size=1`` is passed to imageio so
+  non-multiples of 16 don't get padded; 256 is already even so yuv420p
+  chroma subsampling is fine.
 
-* **Determinism**: same input frames + same encoder settings produce a
-  byte-identical MP4 in our spike (libx264 + a fixed crf + no PSNR/SSIM
-  side outputs). The :data:`RenderResult.content_sha256` field captures
-  the on-disk bytes so callers can detect drift if a future ffmpeg
-  upgrade breaks byte-identity; the visual content (decoded array) is
-  the deeper invariant.
+* **Determinism**: same input frames + same successful rung produce a
+  byte-identical MP4 in our spike (libx264 + a fixed crf). The
+  :data:`RenderResult.content_sha256` field captures the on-disk bytes
+  so callers can detect drift if a future ffmpeg upgrade breaks
+  byte-identity; the visual content (decoded array) is the deeper
+  invariant.
 
 We use :mod:`imageio.v3` end-to-end (no ``subprocess`` / ``ffmpeg``
 shell-out) to keep the dep surface honest. Resizing is done by a small
@@ -41,6 +55,23 @@ DEFAULT_SIZE: int = 256
 DEFAULT_CRF: int = 23
 MAX_BYTES: int = 2 * 1024 * 1024  # 2 MiB
 
+# Adaptive (fps, crf) rungs the encoder walks until the file fits under
+# MAX_BYTES. Ordered cheapest-to-quality-cost. Notes:
+#   * Rung 0 is the historical default and handles 30-300 frame clips.
+#   * Rung 1 halves the playback rate (encoder-level fps; we DO NOT drop
+#     input frames). Surprisingly libx264 often produces a *larger* file
+#     at the same crf for fewer fps because per-frame quality is held
+#     constant and the GOP structure has fewer P/B references — this is
+#     why rung 1 alone may not be enough and rungs 2/3 also bump crf.
+#   * Rungs 2 and 3 step crf to 28 and 33; visible artifacts at 33 but
+#     better than failing to publish the clip.
+RENDER_LADDER: tuple[tuple[int, int], ...] = (
+    (10, 23),
+    (5, 23),
+    (5, 28),
+    (5, 33),
+)
+
 _CODEC: str = "libx264"
 _PIXEL_FORMAT: str = "yuv420p"
 _PNG_CODEC: str = "png"
@@ -50,9 +81,16 @@ _PNG_CODEC: str = "png"
 class EncoderSettings:
     """Encoder knobs we burn into the output filename's metadata.
 
-    For PNG thumbnails ``fps`` and ``crf`` are zero and ``codec`` is
-    ``"png"``; the dataclass is shared so callers can switch on
-    ``codec`` rather than carrying a separate type.
+    For PNG thumbnails ``fps``, ``crf`` and ``rung_index`` are zero and
+    ``codec`` is ``"png"``; the dataclass is shared so callers can switch
+    on ``codec`` rather than carrying a separate type.
+
+    ``rung_index`` is the index into :data:`RENDER_LADDER` that produced
+    a fit. ``-1`` means "ladder bypassed" — the caller passed an
+    explicit ``fps`` or ``crf`` override and we did a single-shot encode
+    instead of walking the ladder. Downstream consumers should treat
+    ``rung_index >= 1`` as "playback is faster than wall-clock; expect
+    frame jumps relative to the source rate".
     """
 
     fps: int
@@ -60,6 +98,7 @@ class EncoderSettings:
     codec: str
     pixel_format: str
     crf: int
+    rung_index: int = -1
 
 
 @dataclass(frozen=True)
@@ -81,18 +120,38 @@ class RenderResult:
 class RenderSizeError(RuntimeError):
     """Raised when an encoded clip exceeds :data:`MAX_BYTES`.
 
-    Carries the offending size so the caller can log + decide whether
-    to drop fps or raise crf and retry.
+    For ladder-mode encodes the message lists every rung that was tried
+    and the size it produced, so the failure-taxonomy labeler has
+    actionable detail. ``size`` is the size of the last (highest-rung)
+    attempt; ``attempts`` carries the full tuple.
     """
 
-    def __init__(self, path: Path, size: int, limit: int) -> None:
-        super().__init__(
-            f"encoded clip {path} is {size} bytes (> {limit} byte cap); "
-            f"lower fps or raise crf and re-encode"
-        )
+    def __init__(
+        self,
+        path: Path,
+        size: int,
+        limit: int,
+        attempts: tuple[tuple[int, int, int], ...] = (),
+    ) -> None:
+        if attempts:
+            ladder_log = ", ".join(
+                f"rung {idx} (fps={fps}, crf={crf}) -> {sz} B"
+                for idx, (fps, crf, sz) in enumerate(attempts)
+            )
+            msg = (
+                f"encoded clip {path} exceeds {limit} byte cap on every ladder rung: "
+                f"{ladder_log}. Last attempt: {size} B."
+            )
+        else:
+            msg = (
+                f"encoded clip {path} is {size} bytes (> {limit} byte cap); "
+                f"lower fps or raise crf and re-encode"
+            )
+        super().__init__(msg)
         self.path = path
         self.size = size
         self.limit = limit
+        self.attempts = attempts
 
 
 # --------------------------------------------------------------------- #
@@ -178,49 +237,13 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def render_episode(
-    frames: NDArray[np.uint8],
+def _encode_once(
+    resized: NDArray[np.uint8],
     out_path: Path,
-    *,
-    fps: int = DEFAULT_FPS,
-    size: int = DEFAULT_SIZE,
-    crf: int = DEFAULT_CRF,
-) -> RenderResult:
-    """Encode ``frames`` to a small MP4 at ``out_path`` and return metadata.
-
-    Args:
-        frames: ``(T, H, W, 3)`` uint8 RGB array. Resized to
-            ``size x size`` via numpy bilinear if not already.
-        out_path: Destination MP4 path. Parent directory must exist;
-            this function does not create it.
-        fps: Output frame rate (default 10). The eval loop typically
-            renders at 10 fps regardless of sim step rate.
-        size: Output square edge in pixels (default 256). Must be even
-            for ``yuv420p``; 256 always satisfies that.
-        crf: libx264 constant rate factor (default 23). Higher = smaller
-            file, lower visual quality. Try 28 if the default exceeds
-            :data:`MAX_BYTES`.
-
-    Raises:
-        ValueError / TypeError: on malformed ``frames``.
-        :class:`RenderSizeError`: if the encoded file is larger than
-            :data:`MAX_BYTES`. The file is removed before raising.
-    """
-    _validate_frames(frames)
-    if size % 2 != 0:
-        raise ValueError(f"size must be even (yuv420p chroma), got {size}")
-    if fps <= 0:
-        raise ValueError(f"fps must be positive, got {fps}")
-
-    resized = _resize_stack(frames, size, size)
-    settings = EncoderSettings(
-        fps=fps,
-        size=size,
-        codec=_CODEC,
-        pixel_format=_PIXEL_FORMAT,
-        crf=crf,
-    )
-
+    fps: int,
+    crf: int,
+) -> int:
+    """Encode ``resized`` to ``out_path`` and return the on-disk size in bytes."""
     iio.imwrite(
         out_path,
         resized,
@@ -230,14 +253,101 @@ def render_episode(
         macro_block_size=1,
         output_params=["-crf", str(crf), "-preset", "medium"],
     )
+    return out_path.stat().st_size
 
-    bytes_written = out_path.stat().st_size
-    # Re-read the cap each call so monkeypatched-in-tests values are honoured.
+
+def render_episode(
+    frames: NDArray[np.uint8],
+    out_path: Path,
+    *,
+    fps: int | None = None,
+    size: int = DEFAULT_SIZE,
+    crf: int | None = None,
+) -> RenderResult:
+    """Encode ``frames`` to a small MP4 at ``out_path`` and return metadata.
+
+    By default this walks :data:`RENDER_LADDER`, encoding at each rung
+    until the output fits under :data:`MAX_BYTES`. The successful rung
+    index is recorded in :attr:`EncoderSettings.rung_index`.
+
+    If the caller passes an explicit ``fps`` or ``crf`` the ladder is
+    bypassed and a single encode is performed at those settings (with
+    the other knob defaulting to :data:`DEFAULT_FPS` / :data:`DEFAULT_CRF`).
+    The resulting :attr:`EncoderSettings.rung_index` is ``-1``.
+
+    Args:
+        frames: ``(T, H, W, 3)`` uint8 RGB array. Resized to
+            ``size x size`` via numpy bilinear if not already.
+        out_path: Destination MP4 path. Parent directory must exist;
+            this function does not create it.
+        fps: Output frame rate. ``None`` (default) selects ladder mode;
+            an explicit value bypasses the ladder.
+        size: Output square edge in pixels (default 256). Must be even
+            for ``yuv420p``; 256 always satisfies that.
+        crf: libx264 constant rate factor. ``None`` (default) selects
+            ladder mode; an explicit value bypasses the ladder.
+
+    Raises:
+        ValueError / TypeError: on malformed ``frames``.
+        :class:`RenderSizeError`: if every ladder rung overshoots (or,
+            in single-shot mode, the one encode overshoots). In both
+            cases the file is removed before raising.
+    """
+    _validate_frames(frames)
+    if size % 2 != 0:
+        raise ValueError(f"size must be even (yuv420p chroma), got {size}")
+    if fps is not None and fps <= 0:
+        raise ValueError(f"fps must be positive, got {fps}")
+
+    resized = _resize_stack(frames, size, size)
     cap = _current_max_bytes()
+
+    use_ladder = fps is None and crf is None
+    if use_ladder:
+        attempts: list[tuple[int, int, int]] = []
+        for rung_idx, (rung_fps, rung_crf) in enumerate(RENDER_LADDER):
+            bytes_written = _encode_once(resized, out_path, rung_fps, rung_crf)
+            attempts.append((rung_fps, rung_crf, bytes_written))
+            if bytes_written <= cap:
+                settings = EncoderSettings(
+                    fps=rung_fps,
+                    size=size,
+                    codec=_CODEC,
+                    pixel_format=_PIXEL_FORMAT,
+                    crf=rung_crf,
+                    rung_index=rung_idx,
+                )
+                return RenderResult(
+                    path=out_path,
+                    bytes_written=bytes_written,
+                    frame_count=int(resized.shape[0]),
+                    encoder_settings=settings,
+                    content_sha256=_sha256_file(out_path),
+                )
+            # File overshoots; remove it before trying the next rung so
+            # we never leave a partially-acceptable artifact behind.
+            out_path.unlink(missing_ok=True)
+        # Ladder exhausted; the last attempt's size + the full log go in
+        # the error so the caller knows exactly what was tried.
+        last_size = attempts[-1][2] if attempts else 0
+        raise RenderSizeError(out_path, last_size, cap, tuple(attempts))
+
+    # Single-shot legacy path: explicit fps/crf bypasses the ladder.
+    eff_fps = DEFAULT_FPS if fps is None else fps
+    eff_crf = DEFAULT_CRF if crf is None else crf
+    bytes_written = _encode_once(resized, out_path, eff_fps, eff_crf)
     if bytes_written > cap:
         out_path.unlink(missing_ok=True)
         raise RenderSizeError(out_path, bytes_written, cap)
 
+    settings = EncoderSettings(
+        fps=eff_fps,
+        size=size,
+        codec=_CODEC,
+        pixel_format=_PIXEL_FORMAT,
+        crf=eff_crf,
+        rung_index=-1,
+    )
     return RenderResult(
         path=out_path,
         bytes_written=bytes_written,
@@ -296,6 +406,7 @@ def render_thumbnail_strip(
         codec=_PNG_CODEC,
         pixel_format="rgb24",
         crf=0,
+        rung_index=-1,
     )
     return RenderResult(
         path=out_path,
@@ -319,6 +430,7 @@ __all__ = [
     "DEFAULT_FPS",
     "DEFAULT_SIZE",
     "MAX_BYTES",
+    "RENDER_LADDER",
     "EncoderSettings",
     "RenderResult",
     "RenderSizeError",
