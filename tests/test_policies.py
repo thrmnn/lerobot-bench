@@ -75,8 +75,19 @@ def test_supporting_filters_by_env_compat() -> None:
 def test_runnable_includes_locked_pretrained_policies() -> None:
     registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
     runnable_names = {p.name for p in registry.runnable()}
-    # Day 0a: diffusion_policy + act SHAs locked, so all 4 default entries are runnable.
-    assert runnable_names == {"no_op", "random", "diffusion_policy", "act"}
+    # Day 0a: diffusion_policy + act SHAs locked.
+    # Libero v2 integration: 5 VLA libero finetunes locked.
+    assert runnable_names == {
+        "no_op",
+        "random",
+        "diffusion_policy",
+        "act",
+        "pi05_libero_finetuned_v044",
+        "pi0_libero_finetuned_v044",
+        "pi0fast_libero",
+        "xvla_libero",
+        "smolvla_libero",
+    }
 
 
 def test_get_unknown_policy_lists_available() -> None:
@@ -193,3 +204,73 @@ def test_iter_and_len() -> None:
     specs = list(registry)
     assert len(specs) == len(registry)
     assert all(isinstance(s, PolicySpec) for s in specs)
+
+
+# --------------------------------------------------------------------- #
+# Libero v2 VLA policies                                                #
+# --------------------------------------------------------------------- #
+
+
+_VLA_LIBERO_LOCKED = {
+    "pi05_libero_finetuned_v044": (
+        "lerobot/pi05_libero_finetuned_v044",
+        "dbf8a3f794a9c4297b44f40b752712f50073d945",
+    ),
+    "pi0_libero_finetuned_v044": (
+        "lerobot/pi0_libero_finetuned_v044",
+        "45dcc8fc0e02601c8ccf0554fbd1d26a55070c1f",
+    ),
+    "pi0fast_libero": (
+        "lerobot/pi0fast-libero",
+        "840f4b503f4c09110421c33c810a85b6684fd658",
+    ),
+    "xvla_libero": (
+        "lerobot/xvla-libero",
+        "12e8783e996944f5c97e490d37d4c145484ed70a",
+    ),
+    "smolvla_libero": (
+        "lerobot/smolvla_libero",
+        "31d453f7edd78c839a8bbc39744a292686daf0de",
+    ),
+}
+
+_LIBERO_SUITES = ("libero_spatial", "libero_object", "libero_goal", "libero_10")
+
+
+@pytest.mark.parametrize("policy_name", sorted(_VLA_LIBERO_LOCKED))
+def test_vla_libero_policy_loads_with_locked_sha(policy_name: str) -> None:
+    """Each VLA libero policy entry has its locked SHA + repo_id and is runnable."""
+    registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    spec = registry.get(policy_name)
+    repo_id, sha = _VLA_LIBERO_LOCKED[policy_name]
+    assert spec.is_baseline is False
+    assert spec.repo_id == repo_id
+    assert spec.revision_sha == sha
+    assert spec.is_runnable() is True
+    spec.assert_runnable()  # does not raise
+
+
+@pytest.mark.parametrize("policy_name", sorted(_VLA_LIBERO_LOCKED))
+def test_vla_libero_policy_env_compat_covers_all_4_suites(policy_name: str) -> None:
+    """Every VLA libero entry advertises compat with all 4 LIBERO suites."""
+    registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    spec = registry.get(policy_name)
+    assert set(spec.env_compat) >= set(_LIBERO_SUITES)
+
+
+def test_libero_suites_have_at_least_one_vla_policy() -> None:
+    """Every LIBERO suite picks up at least the 5 VLA policies via supporting()."""
+    registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    for suite in _LIBERO_SUITES:
+        names = {p.name for p in registry.supporting(suite)}
+        # Baselines + 5 VLAs minimum.
+        assert {"no_op", "random"} <= names
+        assert set(_VLA_LIBERO_LOCKED) <= names
+
+
+def test_baselines_now_cover_libero_suites() -> None:
+    """The libero v2 PR extends no_op + random env_compat to the 4 LIBERO suites."""
+    registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    for baseline in ("no_op", "random"):
+        spec = registry.get(baseline)
+        assert set(spec.env_compat) >= set(_LIBERO_SUITES)

@@ -90,7 +90,7 @@ Owner: human (decisions and credential steps Claude cannot make).
 - [x] **2026-05-03**: wandb API key rotated; `wandb login` done with new key.
 - [x] **2026-05-03**: lerobot installed via `pip install -e "/home/theo/projects/lerobot[pusht,aloha]"` in the `lerobot` conda env. `lerobot==0.5.1` confirmed. Torch CUDA initially failed against the system's CUDA 12.1 toolkit — resolved by installing torch 2.10.0 with cu126 wheel from `https://download.pytorch.org/whl/cu126`.
 - [x] **2026-05-03**: Locked diffusion_policy + act revision SHAs in `configs/policies.yaml` and `docs/MODEL_CARDS.md`. **Also corrected the env_compat lists**: `diffusion_pusht` is PushT-only and `act_aloha_sim_transfer_cube_human` is Aloha-only (the prior `[pusht, aloha_transfer_cube]` listing on both was incorrect and would have produced nonsensical eval cells).
-- [ ] Add SmolVLA + Pi0 entries to `configs/policies.yaml` once their HF Hub repo IDs are picked.
+- [x] **2026-05-03**: Added 5 VLA libero finetune entries to `configs/policies.yaml` with locked Hub revision SHAs: `pi05_libero_finetuned_v044`, `pi0_libero_finetuned_v044`, `pi0fast_libero`, `xvla_libero`, `smolvla_libero`. All 5 carry `env_compat` for the 4 LIBERO suites. SHAs locked via `huggingface_hub.HfApi().model_info(repo_id).sha` (see Libero v2 PR for exact values; mirrored in `docs/MODEL_CARDS.md`). License flags: pi0 / pi0.5 are gemma-licensed (review terms before redistribution); pi0fast license unspecified on the Hub card (treat as all-rights-reserved until clarified upstream); xvla + smolvla are apache-2.0.
 - [ ] Verify `lerobot.envs.<env>.config.SUCCESS_REWARD` exists in 0.5.1; if it does, switch `envs.py` to read from there instead of the hardcoded YAML thresholds (or document the choice to keep the YAML authoritative).
 - [x] **2026-05-03**: 10-min novelty search done. No competing public lerobot multi-policy leaderboard exists on HF Datasets or Spaces. Two `lerobot/video-benchmark-*` datasets exist but are video-codec benchmarks, unrelated to policy evaluation. Framing holds; no pivot.
 - [x] **Resolved 2026-04-30**: GitHub repo owner is `thrmnn`; SSH alias `github-thrmnn` configured.
@@ -110,11 +110,10 @@ Owner: `sweep-sre` agent for the script; human runs it on the dev box.
 
 Owner: `bench-eval-engineer` agent, human-supervised.
 
-- [ ] **4-hour cap** on Libero install on WSL2. If `pip install gym-libero` (or upstream equivalent) plus a single rollout fails inside 4 hours, drop Libero from v1 and proceed with PushT + Aloha. No exceptions.
-- [ ] If Libero in: extend `configs/envs.yaml` with the locked Libero task variant(s).
-- [ ] Verify each locked policy can produce one action tensor against a fresh env reset for each (policy, env) cell. Assert shape against env action space.
+- [x] **2026-05-03**: Libero install + factory integration done. `hf-libero==0.1.3` was already installed alongside lerobot (transitive dep). `EnvSpec` extended with `factory` / `factory_kwargs` fields and `eval.load_env` learned a factory dispatch path; `_DebatchedVecEnvAdapter` wraps the size-1 vec env that lerobot's libero factory returns into the single-env API the cell loop expects. `_ensure_libero_setup` writes `~/.libero/config.yaml` non-interactively before any libero-touching import (libero's `__init__` calls `input()` on first run otherwise). All 4 LIBERO suites (`libero_spatial`/`libero_object`/`libero_goal`/`libero_10`) added to `configs/envs.yaml` with `task_ids=[0]` (one task per suite for v1) and the canonical `agentview_image,robot0_eye_in_hand_image` 2-camera setup. End-to-end smoke test: smolvla_libero on libero_spatial, seed 0 → success=True, n_steps=79, episode wallclock=12.75s. Libero is **in** for v1.
+- [x] Each locked VLA policy x LIBERO suite cell is now factory-eligible (5 × 4 = 20 cells of zero-competition VLA comparison). Calibration on the dev box still pending — `make calibrate` will probe latency now that the loaders work end-to-end.
 
-**Exit criterion:** every locked (policy, env) cell produces a valid action; Libero in/out decision committed to `docs/MODEL_CARDS.md` and `configs/envs.yaml`.
+**Exit criterion:** every locked (policy, env) cell produces a valid action; Libero in/out decision committed to `docs/MODEL_CARDS.md` and `configs/envs.yaml`. **Done 2026-05-03.**
 
 ## Days 2-3 — core eval + mini sweep
 

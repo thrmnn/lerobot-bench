@@ -8,6 +8,7 @@ baseline.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -874,6 +875,380 @@ def test_load_env_skips_namespace_import_for_non_gym_prefixed_ids() -> None:
         # has no gym_ prefix; any other ImportError (missing classic-control,
         # etc.) is acceptable since CI fast doesn't install full sim extras.
         assert "namespace package" not in str(exc)
+
+
+# --------------------------------------------------------------------- #
+# load_env: factory dispatch path                                       #
+# --------------------------------------------------------------------- #
+
+
+def test_load_env_dispatches_to_factory_when_factory_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``EnvSpec.factory`` is set, ``load_env`` resolves through
+    ``importlib.import_module(factory).make_env(cfg, n_envs=1)`` and
+    skips the gym.make namespace-resolve path entirely.
+
+    We mock the factory module via ``importlib.import_module`` so the
+    test runs without lerobot/libero installed. The mock records that
+    ``make_env_config(env_type="libero", ...)`` was called and that
+    ``make_env(cfg, n_envs=1)`` returned the expected dict shape.
+    """
+    import sys
+    import types
+
+    captured: dict[str, Any] = {}
+
+    fake_mod = types.ModuleType("fake_factory_mod")
+
+    class _StubVecEnv:
+        num_envs = 1
+
+        def step(self, action: Any) -> Any:
+            return {}, [0.0], [False], [False], {}
+
+        def reset(self, *, seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
+            return {}, {}
+
+        def close(self) -> None:
+            return None
+
+    def _make_env_config(*, env_type: str, **kwargs: Any) -> Any:
+        captured["cfg_call"] = {"env_type": env_type, **kwargs}
+        return {"_cfg_marker": env_type}
+
+    def _make_env(cfg: Any, *, n_envs: int) -> Any:
+        captured["make_env_args"] = {"cfg": cfg, "n_envs": n_envs}
+        return {"libero_spatial": {0: _StubVecEnv()}}
+
+    fake_mod.make_env_config = _make_env_config  # type: ignore[attr-defined]
+    fake_mod.make_env = _make_env  # type: ignore[attr-defined]
+    sys.modules["fake_factory_mod"] = fake_mod
+
+    try:
+        spec = EnvSpec(
+            name="libero_spatial",
+            family="libero",
+            max_steps=280,
+            success_threshold=1.0,
+            lerobot_module="lerobot.envs.libero",
+            factory="fake_factory_mod",
+            factory_kwargs=(
+                ("env_type", "libero"),
+                ("task", "libero_spatial"),
+                ("task_ids", (0,)),  # tuple to keep the spec hashable
+            ),
+        )
+
+        # Stub out _ensure_libero_setup so the test doesn't touch ~/.libero.
+        from lerobot_bench import eval as eval_mod
+
+        monkeypatch.setattr(eval_mod, "_ensure_libero_setup", lambda: None)
+
+        env = load_env(spec)
+    finally:
+        del sys.modules["fake_factory_mod"]
+
+    assert captured["cfg_call"] == {
+        "env_type": "libero",
+        "task": "libero_spatial",
+        "task_ids": (0,),
+    }
+    assert captured["make_env_args"]["n_envs"] == 1
+    # The returned env is wrapped in our debatching adapter.
+    from lerobot_bench.eval import _DebatchedVecEnvAdapter
+
+    assert isinstance(env, _DebatchedVecEnvAdapter)
+
+
+def test_load_env_factory_skips_gym_namespace_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Factory specs must NOT trigger the ``gym_X/`` namespace import
+    side-effect. Confirms the dispatch branches are mutually exclusive.
+    """
+    import sys
+    import types
+
+    namespace_imports: list[str] = []
+    real_import = __import__
+
+    def _record_import(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name.startswith("gym_"):
+            namespace_imports.append(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", _record_import)
+
+    fake_mod = types.ModuleType("factory_no_gym")
+
+    def _make_env(**_: Any) -> Any:
+        # Bare factory, no env_type — exercises the no-config branch.
+        class _SingleEnv:
+            def reset(self, *, seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
+                return {}, {}
+
+            def step(self, action: Any) -> Any:
+                return {}, 0.0, False, False, {}
+
+            def close(self) -> None:
+                return None
+
+            def render(self) -> Any:
+                return np.zeros((4, 4, 3), dtype=np.uint8)
+
+        return _SingleEnv()
+
+    fake_mod.make_env = _make_env  # type: ignore[attr-defined]
+    sys.modules["factory_no_gym"] = fake_mod
+
+    try:
+        spec = EnvSpec(
+            name="custom",
+            family="custom",
+            max_steps=10,
+            success_threshold=1.0,
+            lerobot_module="x",
+            factory="factory_no_gym",
+        )
+        from lerobot_bench import eval as eval_mod
+
+        monkeypatch.setattr(eval_mod, "_ensure_libero_setup", lambda: None)
+
+        env = load_env(spec)
+        env.close()  # type: ignore[attr-defined]
+    finally:
+        del sys.modules["factory_no_gym"]
+
+    assert namespace_imports == [], (
+        f"factory dispatch leaked into gym namespace import path: {namespace_imports}"
+    )
+
+
+def test_load_env_factory_rejects_n_envs_above_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The bench runs single episodes; n_envs > 1 in factory_kwargs is rejected."""
+    import sys
+    import types
+
+    fake_mod = types.ModuleType("factory_multi")
+    fake_mod.make_env_config = lambda **_: object()  # type: ignore[attr-defined]
+    fake_mod.make_env = lambda *_, **__: {}  # type: ignore[attr-defined]
+    sys.modules["factory_multi"] = fake_mod
+
+    try:
+        spec = EnvSpec(
+            name="multi",
+            family="x",
+            max_steps=10,
+            success_threshold=1.0,
+            lerobot_module="x",
+            factory="factory_multi",
+            factory_kwargs=(("env_type", "libero"), ("n_envs", 4)),
+        )
+        from lerobot_bench import eval as eval_mod
+
+        monkeypatch.setattr(eval_mod, "_ensure_libero_setup", lambda: None)
+
+        with pytest.raises(ValueError, match="n_envs must be 1"):
+            load_env(spec)
+    finally:
+        del sys.modules["factory_multi"]
+
+
+def test_load_env_factory_rejects_multi_suite_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If a factory returns >1 suite or >1 task, load_env refuses (single-cell contract)."""
+    import sys
+    import types
+
+    fake_mod = types.ModuleType("factory_multi_result")
+    fake_mod.make_env_config = lambda **_: object()  # type: ignore[attr-defined]
+
+    class _Stub:
+        num_envs = 1
+
+        def reset(self, *, seed: int) -> Any:
+            return {}, {}
+
+        def step(self, a: Any) -> Any:
+            return {}, [0.0], [False], [False], {}
+
+        def close(self) -> None:
+            return None
+
+    fake_mod.make_env = lambda *_, **__: {  # type: ignore[attr-defined]
+        "suite_a": {0: _Stub()},
+        "suite_b": {0: _Stub()},
+    }
+    sys.modules["factory_multi_result"] = fake_mod
+
+    try:
+        spec = EnvSpec(
+            name="multi",
+            family="x",
+            max_steps=10,
+            success_threshold=1.0,
+            lerobot_module="x",
+            factory="factory_multi_result",
+            factory_kwargs=(("env_type", "libero"),),
+        )
+        from lerobot_bench import eval as eval_mod
+
+        monkeypatch.setattr(eval_mod, "_ensure_libero_setup", lambda: None)
+
+        with pytest.raises(RuntimeError, match="expected 1 suite, got 2"):
+            load_env(spec)
+    finally:
+        del sys.modules["factory_multi_result"]
+
+
+def test_debatched_vec_env_adapter_strips_and_adds_batch_dim() -> None:
+    """The adapter strips axis-0 from obs/reward and adds it to actions."""
+    pytest.importorskip("gymnasium")
+
+    actions_seen: list[np.ndarray] = []
+
+    class _FakeVecEnv:
+        num_envs = 1
+        single_action_space = type("S", (), {"shape": (7,)})()
+        single_observation_space: Any = None
+
+        def reset(self, *, seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
+            return (
+                {"pixels": {"image": np.zeros((1, 4, 4, 3), dtype=np.uint8)}},
+                {"task": ["x"]},
+            )
+
+        def step(
+            self, action: np.ndarray
+        ) -> tuple[dict[str, Any], np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+            actions_seen.append(action.copy())
+            return (
+                {"pixels": {"image": np.zeros((1, 4, 4, 3), dtype=np.uint8)}},
+                np.array([0.5]),
+                np.array([True]),
+                np.array([False]),
+                {},
+            )
+
+        def close(self) -> None:
+            return None
+
+    from lerobot_bench.eval import _DebatchedVecEnvAdapter
+
+    adapter = _DebatchedVecEnvAdapter(_FakeVecEnv())
+    obs, _info = adapter.reset(seed=42)
+    # Stripped: image is now (4, 4, 3) not (1, 4, 4, 3).
+    assert obs["pixels"]["image"].shape == (4, 4, 3)
+
+    obs, reward, terminated, truncated, _ = adapter.step(np.zeros(7, dtype=np.float32))
+    assert reward == pytest.approx(0.5)
+    assert terminated is True
+    assert truncated is False
+    # Action passed to vec env got a leading batch dim.
+    assert actions_seen[-1].shape == (1, 7)
+
+
+def test_strip_batch_dim_handles_nested_dicts() -> None:
+    """LIBERO obs has 2-3 levels of dict nesting under robot_state."""
+    from lerobot_bench.eval import _strip_batch_dim
+
+    nested = {
+        "pixels": {"image": np.zeros((1, 4, 4, 3), dtype=np.uint8)},
+        "robot_state": {
+            "eef": {
+                "pos": np.zeros((1, 3)),
+                "quat": np.zeros((1, 4)),
+            },
+            "gripper": {"qpos": np.zeros((1, 2))},
+        },
+    }
+    out = _strip_batch_dim(nested)
+    assert out["pixels"]["image"].shape == (4, 4, 3)
+    assert out["robot_state"]["eef"]["pos"].shape == (3,)
+    assert out["robot_state"]["eef"]["quat"].shape == (4,)
+    assert out["robot_state"]["gripper"]["qpos"].shape == (2,)
+
+
+def test_libero_obs_to_batch_translates_correctly() -> None:
+    """LIBERO obs → lerobot batch: H+W flip on images, quat→axisangle on state."""
+    torch = pytest.importorskip("torch")
+
+    from lerobot_bench.eval import _libero_obs_to_batch
+
+    # Identity quaternion (w=1) -> zero axis-angle.
+    obs = {
+        "pixels": {
+            "image": np.full((4, 4, 3), 100, dtype=np.uint8),
+            "image2": np.full((4, 4, 3), 200, dtype=np.uint8),
+        },
+        "robot_state": {
+            "eef": {
+                "pos": np.array([1.0, 2.0, 3.0]),
+                "quat": np.array([0.0, 0.0, 0.0, 1.0]),  # x,y,z,w identity
+                "mat": np.eye(3),
+            },
+            "gripper": {
+                "qpos": np.array([0.5, -0.5]),
+                "qvel": np.array([0.0, 0.0]),
+            },
+            "joints": {"pos": np.zeros(7), "vel": np.zeros(7)},
+        },
+    }
+    batch = _libero_obs_to_batch(obs)
+    assert "observation.images.image" in batch
+    assert "observation.images.image2" in batch
+    assert "observation.state" in batch
+    # CHW float in [0, 1].
+    img = batch["observation.images.image"]
+    assert tuple(img.shape) == (3, 4, 4)
+    assert img.dtype == torch.float32
+    # State = pos(3) + axisangle(3) + qpos(2) = 8.
+    state = batch["observation.state"]
+    assert tuple(state.shape) == (8,)
+    np.testing.assert_allclose(state.numpy()[:3], [1.0, 2.0, 3.0])
+    # Identity quat -> zero rotation in axis-angle.
+    np.testing.assert_allclose(state.numpy()[3:6], [0.0, 0.0, 0.0], atol=1e-6)
+    np.testing.assert_allclose(state.numpy()[6:], [0.5, -0.5])
+
+
+def test_gym_obs_to_batch_dispatches_to_libero_branch_on_dict_pixels() -> None:
+    """The dispatcher recognizes nested LIBERO obs by `pixels: dict` or `robot_state` key."""
+    pytest.importorskip("torch")
+    from lerobot_bench.eval import _gym_obs_to_batch
+
+    obs = {
+        "pixels": {"image": np.zeros((4, 4, 3), dtype=np.uint8)},
+        "robot_state": {
+            "eef": {"pos": np.zeros(3), "quat": np.array([0, 0, 0, 1.0])},
+            "gripper": {"qpos": np.zeros(2)},
+        },
+    }
+    batch = _gym_obs_to_batch(obs)
+    assert "observation.images.image" in batch
+    assert "observation.state" in batch
+    # Confirm we did NOT route through the flat-pixels path.
+    assert "observation.image" not in batch
+
+
+def test_ensure_libero_setup_idempotent_when_config_exists(tmp_path: Path) -> None:
+    """If ~/.libero/config.yaml already exists, _ensure_libero_setup is a no-op."""
+    from lerobot_bench import eval as eval_mod
+
+    fake_libero_dir = tmp_path / "libero_cfg"
+    fake_libero_dir.mkdir()
+    cfg_file = fake_libero_dir / "config.yaml"
+    cfg_file.write_text("preexisting: marker\n")
+
+    # Reset module-level guard so the function actually runs its body.
+    eval_mod._LIBERO_SETUP_DONE = False
+    try:
+        import os
+
+        os.environ["LIBERO_CONFIG_PATH"] = str(fake_libero_dir)
+        eval_mod._ensure_libero_setup()
+    finally:
+        os.environ.pop("LIBERO_CONFIG_PATH", None)
+
+    # File contents unchanged — we did not overwrite a user config.
+    assert cfg_file.read_text() == "preexisting: marker\n"
 
 
 # --------------------------------------------------------------------- #

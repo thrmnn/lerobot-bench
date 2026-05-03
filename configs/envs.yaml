@@ -5,16 +5,31 @@
 # `lerobot.envs.<lerobot_module>.config.SUCCESS_REWARD` if it exists in
 # lerobot 0.5.1, otherwise locked here per docs/DESIGN.md § Methodology.
 #
-# gym_kwargs are forwarded verbatim to gymnasium.make() in addition to
-# `gym_id` and `max_episode_steps`. obs_type=pixels_agent_pos returns
-# {pixels: image, agent_pos: state} which is what every pretrained
-# lerobot policy in this benchmark was trained on. Baseline policies
-# (random, no_op) are obs-shape-agnostic so the same env spec works
-# for both branches.
+# Two construction paths (mutually exclusive — exactly one of `gym_id`
+# or `factory` must be set):
 #
-# Libero entries are intentionally NOT yet listed — gated on the Day 1
-# install spike (4-hr cap). They will be added once the spike confirms
-# Libero works on this WSL2 box.
+# * gym path — `gym_id` is the gym registration id (e.g. "gym_pusht/PushT-v0").
+#   `gym_kwargs` is forwarded to gymnasium.make() in addition to `gym_id`
+#   and `max_episode_steps`. obs_type=pixels_agent_pos returns
+#   {pixels: image, agent_pos: state}, the format every pretrained
+#   lerobot policy in this benchmark was trained on. Baseline policies
+#   (random, no_op) are obs-shape-agnostic so the same env spec works
+#   for both branches.
+#
+# * factory path — `factory` is a dotted module path with a `make_env`
+#   callable; `factory_kwargs` is forwarded to it. lerobot's factory
+#   takes `env_type` + per-env-type kwargs and returns a
+#   {suite: {task_id: vec_env}} mapping; `eval.load_env` extracts the
+#   single (suite, task_id) entry and wraps the size-1 vec env in
+#   `_DebatchedVecEnvAdapter` so the cell loop sees the same single-env
+#   API as the gym path.
+#
+# LIBERO note: the `libero.libero` package's __init__ writes
+# ~/.libero/config.yaml on first import — and prompts via interactive
+# input() if it doesn't exist. `eval._ensure_libero_setup` writes the
+# default config (pointing at libero's bundled bddl_files / init_files)
+# before any libero-touching import to keep the eval loop non-interactive.
+# Set the env var LIBERO_CONFIG_PATH to override the location.
 
 envs:
   - name: pusht
@@ -37,3 +52,70 @@ envs:
       # 480x640 top-cam RGB + (14,) agent_pos — matches
       # lerobot/act_aloha_sim_transfer_cube_human input_features.
       obs_type: pixels_agent_pos
+
+  # ------------------------------------------------------------------
+  # LIBERO — 4 task suites, factory path. lerobot wraps libero's
+  # OffScreenRenderEnv via lerobot.envs.factory.make_env(env_type=
+  # "libero", ...) because libero is not gym-registered. Each suite
+  # has 10 tasks; we lock task_id=0 per suite for v1 (one task per
+  # cell) — the canonical first task in each LIBERO benchmark suite.
+  # max_steps mirrors lerobot.envs.libero.TASK_SUITE_MAX_STEPS
+  # (libero_spatial=280, libero_object=280, libero_goal=300, libero_10=520).
+  # camera_name="agentview_image,robot0_eye_in_hand_image" is the
+  # canonical 2-camera setup used by every VLA libero checkpoint we
+  # evaluate (smolvla / pi0 / pi05 / pi0fast / xvla — all libero finetunes).
+  # success_threshold=1.0 = libero's per-task `check_success()` flag
+  # (binary; rewarded as 1.0 on completion).
+  # ------------------------------------------------------------------
+
+  - name: libero_spatial
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [0]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+
+  - name: libero_object
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [0]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+
+  - name: libero_goal
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [0]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+
+  - name: libero_10
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [0]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero

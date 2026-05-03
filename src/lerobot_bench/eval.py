@@ -348,6 +348,12 @@ def _gym_obs_to_batch(obs: dict[str, Any] | NDArray[np.floating[Any]]) -> dict[s
     See the comment block above :class:`_LerobotPolicyAdapter` for the
     full mapping table. Lazy-imports ``torch`` so this module can be
     imported in a torch-free environment.
+
+    LIBERO envs emit a nested observation:
+    ``{pixels: {image, image2}, robot_state: {eef: {pos, quat, mat},
+    gripper: {qpos, qvel}, joints: {pos, vel}}}``. We translate this
+    via :func:`_libero_obs_to_batch` (separate function so the simpler
+    PushT/Aloha branch stays readable).
     """
     import torch
 
@@ -358,8 +364,26 @@ def _gym_obs_to_batch(obs: dict[str, Any] | NDArray[np.floating[Any]]) -> dict[s
             "(e.g. 'pixels_agent_pos')"
         )
 
+    # LIBERO has a nested {pixels: dict, robot_state: dict} structure.
+    # Detect by inspecting whether `pixels` is itself a dict OR
+    # `robot_state` is a top-level key — both are LIBERO-only signals.
+    if isinstance(obs.get("pixels"), dict) or "robot_state" in obs:
+        return _libero_obs_to_batch(obs)
+
+    # Pull the language-conditioning task string out before the
+    # PushT/Aloha branch (it's not a tensor, so the loop below would
+    # reject it). Single-env -> wrap as a length-1 list, matching how
+    # lerobot's `add_envs_task` produces it for vector envs.
+    task = obs.get("task")
+    if task is not None and not isinstance(task, list):
+        task = [str(task)]
+
     batch: dict[str, Any] = {}
     for key, value in obs.items():
+        # Task language string is forwarded as-is into complementary_data
+        # by lerobot's `_extract_complementary_data`; skip the per-key loop.
+        if key == "task":
+            continue
         # pixels[.view] -> observation.image[s.view] (HWC uint8 -> CHW float [0,1]).
         if key == "pixels":
             tensor = torch.from_numpy(np.asarray(value)).float() / 255.0
@@ -376,8 +400,86 @@ def _gym_obs_to_batch(obs: dict[str, Any] | NDArray[np.floating[Any]]) -> dict[s
             raise RuntimeError(
                 f"unknown gym observation key '{key}'; "
                 "_gym_obs_to_batch supports {pixels, pixels.<view>, "
-                "agent_pos, environment_state}"
+                "agent_pos, environment_state, task}"
             )
+    if task is not None:
+        batch["task"] = task
+    return batch
+
+
+def _libero_obs_to_batch(obs: dict[str, Any]) -> dict[str, Any]:
+    """Translate a (single-env, debatched) LIBERO observation to a lerobot batch.
+
+    Mirrors lerobot's ``preprocess_observation`` + ``LiberoProcessorStep``
+    pipeline (``lerobot.envs.utils`` + ``lerobot.processor.env_processor``),
+    collapsed to the single-env case the bench runs:
+
+    * ``pixels: {image: HWC uint8, image2: HWC uint8}`` →
+      ``observation.images.image``, ``observation.images.image2`` as
+      ``CHW float32 [0, 1]``, with both H+W flipped (the
+      HuggingFaceVLA/libero camera-orientation convention applied by
+      ``LiberoProcessorStep``).
+    * ``robot_state: {eef: {pos: (3,), quat: (4,), mat: (3,3)},
+      gripper: {qpos: (2,), qvel: (2,)}, joints: {pos: (7,), vel: (7,)}}`` →
+      ``observation.state`` of shape ``(8,)`` = ``concat(eef.pos,
+      quat→axisangle, gripper.qpos)``. The quat→axisangle conversion
+      uses the standard ``2 * acos(w) * (x,y,z) / sqrt(1 - w*w)`` form;
+      tiny denominators (well below the libero physics noise floor)
+      collapse to the zero rotation.
+
+    Keys not in the standard LIBERO layout are silently ignored — they
+    are never inputs to the policies we evaluate (for instance,
+    ``robot_state.eef.mat`` is the rotation matrix, redundant with the
+    quaternion). This is intentional: the policies are trained with the
+    8-dim flattened state and any extra obs slots would cause a
+    normalization-key mismatch downstream.
+    """
+    import torch
+
+    batch: dict[str, Any] = {}
+
+    pixels = obs.get("pixels")
+    if isinstance(pixels, dict):
+        for view, img in pixels.items():
+            tensor = torch.from_numpy(np.asarray(img)).float() / 255.0
+            # HWC -> CHW
+            tensor = tensor.permute(2, 0, 1)
+            # H+W flip — matches LiberoProcessorStep (torch.flip dims=[2,3] in batched form
+            # is dims=[1,2] in CHW with no batch dim).
+            tensor = torch.flip(tensor, dims=[1, 2])
+            batch[f"observation.images.{view}"] = tensor
+
+    robot_state = obs.get("robot_state")
+    if isinstance(robot_state, dict):
+        eef = robot_state.get("eef", {})
+        gripper = robot_state.get("gripper", {})
+
+        eef_pos = torch.from_numpy(np.asarray(eef["pos"])).float()  # (3,)
+        eef_quat = torch.from_numpy(np.asarray(eef["quat"])).float()  # (4,) in (x,y,z,w)
+        gripper_qpos = torch.from_numpy(np.asarray(gripper["qpos"])).float()  # (2,)
+
+        # Quaternion -> axis-angle. Single sample, no batching.
+        w = eef_quat[3].clamp(-1.0, 1.0)
+        den = torch.sqrt(torch.clamp(1.0 - w * w, min=0.0))
+        if float(den) > 1e-10:
+            angle = 2.0 * torch.acos(w)
+            axis = eef_quat[:3] / den
+            eef_axisangle = axis * angle
+        else:
+            eef_axisangle = torch.zeros(3, dtype=torch.float32)
+
+        state = torch.cat([eef_pos, eef_axisangle, gripper_qpos], dim=-1).float()
+        batch["observation.state"] = state
+
+    # Task language string for VLA conditioning. lerobot expects a list
+    # (one entry per env in the batch) under the "task" key; the
+    # downstream pipeline picks it up via `_extract_complementary_data`.
+    task = obs.get("task")
+    if task is not None:
+        batch["task"] = task if isinstance(task, list) else [str(task)]
+
+    if not batch:
+        raise RuntimeError(f"libero obs missing both pixels and robot_state; got keys={list(obs)}")
     return batch
 
 
@@ -562,24 +664,38 @@ def _load_pretrained_policy(
 
 
 def load_env(spec: EnvSpec) -> GymLikeEnv:
-    """Instantiate a gym env from the spec.
+    """Instantiate a gym-like env from the spec.
 
-    Lazy-imports gymnasium. If the sim extra isn't installed this
-    raises :class:`ImportError` at runtime -- intentional: Day 0b is a
-    one-line install away from working without scaffolding more
-    indirection here.
+    Two paths, mutually exclusive (enforced by :class:`EnvSpec`):
 
-    Also import-resolves the gym_id namespace (e.g. ``gym_pusht`` from
-    ``gym_pusht/PushT-v0``) so the env's registration side-effect fires
-    before ``gym.make``. Without this, freshly-installed gym-pusht /
-    gym-aloha packages register lazily and ``gym.make`` raises
-    :class:`gymnasium.error.NamespaceNotFound`.
+    * **gym path** (``spec.gym_id`` set) — lazy-imports ``gymnasium``,
+      side-effect imports the ``gym_X`` namespace package so env
+      registration fires (without this, freshly-installed gym-pusht /
+      gym-aloha raise :class:`gymnasium.error.NamespaceNotFound`),
+      then ``gymnasium.make(gym_id, max_episode_steps=max_steps,
+      **gym_kwargs)``. ``obs_type='pixels_agent_pos'`` is the most
+      common kwarg (every pretrained policy needs it).
+    * **factory path** (``spec.factory`` set) — lazy-imports the
+      dotted module path in ``spec.factory`` (typically
+      ``lerobot.envs.factory``) and calls its ``make_env`` with
+      ``factory_kwargs``. lerobot's factory returns a
+      ``{suite: {task_id: vec_env}}`` mapping (because LIBERO can be
+      multi-task); we extract a single ``(suite, task_id)`` and wrap
+      the vector env in :class:`_DebatchedVecEnvAdapter` so the cell
+      loop sees the same single-env API as the gym path.
 
-    ``spec.gym_kwargs`` (a tuple of ``(key, value)`` pairs from the
-    YAML registry) is materialized into a dict and forwarded verbatim;
-    ``obs_type='pixels_agent_pos'`` is the most common one (required by
-    every pretrained policy).
+    Sim extras must be installed for either path. The factory path
+    additionally requires the LIBERO setup invariant — see
+    :func:`_ensure_libero_setup` for the non-interactive
+    ``~/.libero/config.yaml`` precondition.
     """
+    if spec.uses_factory:
+        return _load_factory_env(spec)
+    return _load_gym_env(spec)
+
+
+def _load_gym_env(spec: EnvSpec) -> GymLikeEnv:
+    """gym.make path. Pre-condition: ``spec.gym_id`` is set."""
     try:
         import gymnasium as gym
     except ImportError as exc:
@@ -589,6 +705,7 @@ def load_env(spec: EnvSpec) -> GymLikeEnv:
             "are pulled in for the env you are loading)."
         ) from exc
 
+    assert spec.gym_id is not None  # EnvSpec.__post_init__ guarantees one of {gym_id, factory}
     # Trigger namespace registration (side-effect import).
     namespace = spec.gym_id.split("/", 1)[0] if "/" in spec.gym_id else None
     if namespace and namespace.startswith("gym_"):
@@ -607,6 +724,323 @@ def load_env(spec: EnvSpec) -> GymLikeEnv:
     # gym.make returns a generic Env; we know our protocol is a slice
     # of the gymnasium API so this cast is sound at runtime.
     return cast(GymLikeEnv, env)
+
+
+def _load_factory_env(spec: EnvSpec) -> GymLikeEnv:
+    """factory path. Pre-condition: ``spec.factory`` is set.
+
+    The factory module must expose a ``make_env`` callable. lerobot's
+    factory returns ``{suite: {task_id: vec_env}}``; we extract one
+    vec_env (single-suite + single-task is the v1 contract) and wrap
+    via :class:`_DebatchedVecEnvAdapter`. If the factory returns a
+    bare gym env (some hub envs do this), it is returned as-is.
+    """
+    import importlib
+
+    assert spec.factory is not None  # EnvSpec.__post_init__ guarantees one of {gym_id, factory}
+
+    # Setup invariant: lerobot's libero loader will trigger
+    # libero.libero.__init__'s interactive `input()` on first import
+    # if ~/.libero/config.yaml is missing. Pre-create it before any
+    # libero-touching factory call.
+    if "libero" in spec.factory_kwargs_dict().get("env_type", "") or _factory_kwargs_mention_libero(
+        spec
+    ):
+        _ensure_libero_setup()
+
+    try:
+        factory_mod = importlib.import_module(spec.factory)
+    except ImportError as exc:
+        raise ImportError(
+            f"factory module '{spec.factory}' is not importable; required for env "
+            f"'{spec.name}'. Install lerobot + the relevant sim package."
+        ) from exc
+
+    if not hasattr(factory_mod, "make_env"):
+        raise RuntimeError(
+            f"factory module '{spec.factory}' does not expose `make_env(...)` "
+            f"(required for env '{spec.name}')"
+        )
+
+    factory_kwargs = spec.factory_kwargs_dict()
+
+    # lerobot's `make_env(cfg, ...)` takes an EnvConfig as first positional;
+    # we build it via `make_env_config(env_type=..., **kwargs)` (also exposed
+    # by the same module). For non-lerobot factories with a different
+    # signature, this branch is skipped.
+    env_type = factory_kwargs.pop("env_type", None)
+    n_envs = factory_kwargs.pop("n_envs", 1)
+    if n_envs != 1:
+        raise ValueError(
+            f"factory env '{spec.name}': n_envs must be 1 (got {n_envs}); the bench "
+            "runs one episode at a time"
+        )
+    if env_type is not None:
+        if not hasattr(factory_mod, "make_env_config"):
+            raise RuntimeError(
+                f"factory module '{spec.factory}' has env_type='{env_type}' in "
+                "factory_kwargs but no `make_env_config(...)` to construct the EnvConfig"
+            )
+        cfg = factory_mod.make_env_config(env_type=env_type, **factory_kwargs)
+        result = factory_mod.make_env(cfg, n_envs=1)
+    else:
+        # Bare factory call — for hub envs or simpler integrations.
+        result = factory_mod.make_env(**factory_kwargs)
+
+    return _materialize_factory_result(result, spec=spec)
+
+
+def _factory_kwargs_mention_libero(spec: EnvSpec) -> bool:
+    """Heuristic: does this factory spec target libero (so we need the setup invariant)?
+
+    True when the factory dotted path contains the substring 'libero',
+    OR the factory_kwargs reference a libero suite name. Conservative
+    by design — the setup is idempotent; running it for non-libero
+    factories is a no-op cost.
+    """
+    if "libero" in spec.factory.lower() if spec.factory else False:
+        return True
+    kwargs = spec.factory_kwargs_dict()
+    task = str(kwargs.get("task", ""))
+    return task.startswith("libero_")
+
+
+def _materialize_factory_result(result: Any, *, spec: EnvSpec) -> GymLikeEnv:
+    """Pick the single env we expect from a factory result.
+
+    Accepts:
+    * a ``{suite: {task_id: vec_env}}`` mapping with exactly one suite
+      and one task_id (lerobot's libero/metaworld factory return shape);
+      the vec_env (size 1) is wrapped via :class:`_DebatchedVecEnvAdapter`.
+    * a gymnasium ``VectorEnv`` (size 1) — wrapped via the same adapter.
+    * a bare ``gym.Env`` — returned as-is.
+
+    We avoid an explicit ``isinstance(leaf, gymnasium.vector.VectorEnv)``
+    check (which would force a top-level gymnasium import) and instead
+    duck-type on ``num_envs`` + ``step`` — both attrs are unique to
+    vector envs in the gymnasium API surface we care about. This keeps
+    the function importable in the CI fast job (no gymnasium installed)
+    without leaking a sentinel ``Any``-typed gym module into the
+    function body.
+    """
+    if isinstance(result, dict):
+        if len(result) != 1:
+            raise RuntimeError(
+                f"factory env '{spec.name}': expected 1 suite, got {len(result)}: {sorted(result)}"
+            )
+        suite_name, task_map = next(iter(result.items()))
+        if not isinstance(task_map, dict) or len(task_map) != 1:
+            raise RuntimeError(
+                f"factory env '{spec.name}': expected suite '{suite_name}' to have 1 task, "
+                f"got {len(task_map) if isinstance(task_map, dict) else 'non-dict'}"
+            )
+        leaf = next(iter(task_map.values()))
+        return _wrap_leaf(leaf)
+
+    return _wrap_leaf(result)
+
+
+def _wrap_leaf(leaf: Any) -> GymLikeEnv:
+    """Wrap a single leaf env (vec or scalar) into a :class:`GymLikeEnv`.
+
+    Vec envs are detected by the ``num_envs`` attribute; everything
+    else is assumed to be a single :class:`gymnasium.Env` and returned
+    as-is via the protocol cast.
+    """
+    if hasattr(leaf, "num_envs") and hasattr(leaf, "step"):
+        return cast(GymLikeEnv, _DebatchedVecEnvAdapter(leaf))
+    return cast(GymLikeEnv, leaf)
+
+
+_LIBERO_SETUP_DONE = False
+
+
+def _ensure_libero_setup() -> None:
+    """Pre-create ``~/.libero/config.yaml`` so libero's first import is non-interactive.
+
+    The libero package's top-level ``__init__.py`` calls ``input()`` to
+    prompt for a custom dataset directory if ``~/.libero/config.yaml``
+    does not exist (see ``libero/libero/__init__.py``). That prompt
+    blocks any non-TTY context (CI, subprocess, headless eval). We
+    write the default config (pointing at libero's own bundled
+    ``bddl_files`` / ``init_files``) before any libero-touching import.
+
+    Idempotent. If the file already exists we leave it alone — the
+    user may have customized the dataset path. Setting the
+    ``LIBERO_CONFIG_PATH`` env var is the alternative; we prefer the
+    file write because it is what every downstream libero script
+    expects.
+
+    Module-level ``_LIBERO_SETUP_DONE`` flag avoids the repeated stat
+    on every cell within a process.
+    """
+    global _LIBERO_SETUP_DONE
+    if _LIBERO_SETUP_DONE:
+        return
+
+    import os
+
+    cfg_dir = Path(os.environ.get("LIBERO_CONFIG_PATH", os.path.expanduser("~/.libero")))
+    cfg_file = cfg_dir / "config.yaml"
+    if cfg_file.exists():
+        _LIBERO_SETUP_DONE = True
+        return
+
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        import libero
+    except ImportError as exc:
+        raise ImportError(
+            "libero is not installed; required for LIBERO env factory specs. "
+            "Install with `pip install hf-libero`."
+        ) from exc
+
+    base = Path(libero.__file__).resolve().parent / "libero"
+    default_cfg = {
+        "benchmark_root": str(base),
+        "bddl_files": str(base / "bddl_files"),
+        "init_states": str(base / "init_files"),
+        "datasets": str(base.parent / "datasets"),
+        "assets": str(base / "assets"),
+    }
+    import yaml
+
+    with cfg_file.open("w", encoding="utf-8") as fh:
+        yaml.safe_dump(default_cfg, fh)
+    logger.info("wrote default libero config to %s", cfg_file)
+    _LIBERO_SETUP_DONE = True
+
+
+class _DebatchedVecEnvAdapter:
+    """Adapt a size-1 gymnasium ``VectorEnv`` into a single-env :class:`GymLikeEnv`.
+
+    The cell loop in :func:`run_cell` is written against the single-env
+    gymnasium API: ``reset(seed) -> (obs, info)``, ``step(action) ->
+    (obs, reward, terminated, truncated, info)``, ``render() -> ndarray``,
+    ``close()``. lerobot's factory returns vec envs even for a single
+    task; this thin shim strips/adds the leading ``num_envs=1`` dim
+    on the boundary so the cell loop does not need to know the env
+    came through the factory path.
+
+    Action handling: the cell loop emits a 1-D ``(action_dim,)`` array;
+    the vec env expects ``(1, action_dim)``. We expand on the way in.
+    Observation handling: the vec env returns batched arrays/dicts; we
+    walk the (potentially nested) dict and squeeze axis 0. Rewards /
+    termination flags come back as length-1 arrays; we extract item 0.
+    Render delegates to the underlying single env via the vec env's
+    ``call`` plumbing — vec envs do not expose render directly, but
+    each sub-env does. We use ``env.envs[0].render()`` for the
+    ``SyncVectorEnv`` (the default for our n_envs=1 case).
+
+    ``action_space`` reports the single-env action space (vec env's
+    ``single_action_space``) so callers reading ``env.action_space.shape``
+    get ``(action_dim,)`` not ``(1, action_dim)``.
+
+    **Task injection.** VLA policies need the task language string in
+    the batch's ``complementary_data["task"]`` slot. lerobot's eval
+    loop pulls this via :func:`add_envs_task` from
+    ``env.envs[0].task_description``. We inject it directly into the
+    returned obs dict as ``obs["task"] = "<task string>"`` (single
+    string, not a list — :func:`_libero_obs_to_batch` will pass it
+    through unchanged for the policy preprocessor's
+    ``TokenizerProcessorStep`` to consume). For envs without a
+    ``task_description`` attribute (PushT, Aloha when wrapped via the
+    factory path), the key is omitted; the eval loop is unaffected.
+    """
+
+    def __init__(self, vec_env: Any) -> None:
+        self._vec = vec_env
+        self._task_description = self._discover_task_description()
+
+    def _discover_task_description(self) -> str | None:
+        """Best-effort: pull ``task_description`` (or ``task``) from the underlying env.
+
+        SyncVectorEnv exposes ``envs`` as a list of underlying gym envs;
+        the LIBERO env stores the language string on the instance as
+        ``task_description``. Returns ``None`` if neither attribute
+        exists — the obs will simply not carry a ``task`` key.
+        """
+        underlying: Any = None
+        if hasattr(self._vec, "envs") and len(self._vec.envs) > 0:
+            underlying = self._vec.envs[0]
+        if underlying is None:
+            return None
+        # Walk Wrapper.unwrapped chain in case lerobot's factory adds a wrapper layer.
+        if hasattr(underlying, "unwrapped"):
+            underlying = underlying.unwrapped
+        for attr in ("task_description", "task"):
+            value = getattr(underlying, attr, None)
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
+    @property
+    def action_space(self) -> Any:
+        return self._vec.single_action_space
+
+    @property
+    def observation_space(self) -> Any:
+        return self._vec.single_observation_space
+
+    def reset(self, *, seed: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        obs, info = self._vec.reset(seed=seed)
+        # Re-discover task description: LIBERO sets it on env construction
+        # (constant per task_id), but other factories may set it on reset.
+        if self._task_description is None:
+            self._task_description = self._discover_task_description()
+        return self._inject_task(_strip_batch_dim(obs)), info
+
+    def step(
+        self, action: NDArray[np.floating[Any]]
+    ) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
+        # Re-batch the 1-D action to (1, action_dim).
+        action_arr = np.asarray(action)
+        action_batched = action_arr[np.newaxis, ...] if action_arr.ndim == 1 else action_arr
+        obs, reward, terminated, truncated, info = self._vec.step(action_batched)
+        return (
+            self._inject_task(_strip_batch_dim(obs)),
+            float(np.asarray(reward).reshape(-1)[0]),
+            bool(np.asarray(terminated).reshape(-1)[0]),
+            bool(np.asarray(truncated).reshape(-1)[0]),
+            info,
+        )
+
+    def _inject_task(self, obs: Any) -> Any:
+        """Add ``obs["task"] = <task string>`` if known and obs is a dict."""
+        if isinstance(obs, dict) and self._task_description is not None:
+            obs = dict(obs)  # shallow copy; do not mutate caller's reference
+            obs.setdefault("task", self._task_description)
+        return obs
+
+    def render(self) -> NDArray[np.uint8]:
+        # SyncVectorEnv exposes envs[0]; AsyncVectorEnv would need .call("render").
+        if hasattr(self._vec, "envs"):
+            frame = self._vec.envs[0].render()
+        else:
+            results = self._vec.call("render")
+            frame = results[0] if isinstance(results, (list, tuple)) else results
+        return np.asarray(frame, dtype=np.uint8)
+
+    def close(self) -> None:
+        self._vec.close()
+
+
+def _strip_batch_dim(obs: Any) -> Any:
+    """Recursively strip the leading axis-0 dim from a (possibly nested) obs.
+
+    Vec env observations are batched: e.g. ``(1, H, W, C)`` images and
+    ``(1, 7)`` proprioception. The cell loop is single-env, so we
+    squeeze axis 0. Dict-of-dicts are walked recursively (LIBERO's
+    obs has 2-3 levels of nesting under ``robot_state``).
+
+    Non-array leaves are returned unchanged (keeps strings, ints, etc.
+    intact in the info dict).
+    """
+    if isinstance(obs, dict):
+        return {k: _strip_batch_dim(v) for k, v in obs.items()}
+    if isinstance(obs, np.ndarray):
+        return obs[0] if obs.shape and obs.shape[0] == 1 else obs
+    return obs
 
 
 # --------------------------------------------------------------------- #

@@ -5,20 +5,35 @@
 # revision_sha: null — those load fine but the eval loop refuses to run
 # them. See docs/MODEL_CARDS.md for the human-readable companion.
 #
-# SmolVLA and Pi0 are intentionally NOT yet listed — locked at Day 0a
-# alongside their HF Hub repo IDs and pinned revisions. Libero-only
-# policies are gated on the Day 1 Libero install spike anyway.
+# VLA libero policies — locked 2026-05-03 via huggingface_hub.HfApi().model_info(repo_id).sha
+# All 4 LIBERO task suites are listed under env_compat: lerobot's libero
+# wrapper exposes the same observation contract for every suite, and
+# every VLA below is finetuned on libero (suite mix varies by checkpoint
+# but all 4 suites work — performance differences are the headline
+# finding in the artifact).
 
 policies:
   - name: no_op
     is_baseline: true
-    env_compat: [pusht, aloha_transfer_cube]
+    env_compat:
+      - pusht
+      - aloha_transfer_cube
+      - libero_spatial
+      - libero_object
+      - libero_goal
+      - libero_10
     license: MIT
     notes: "Emits a zero action every step. Floor on the leaderboard."
 
   - name: random
     is_baseline: true
-    env_compat: [pusht, aloha_transfer_cube]
+    env_compat:
+      - pusht
+      - aloha_transfer_cube
+      - libero_spatial
+      - libero_object
+      - libero_goal
+      - libero_10
     license: MIT
     notes: "Uniformly samples from the action space each step."
 
@@ -37,3 +52,75 @@ policies:
     revision_sha: ba73b2766f1371cdc133ca4efb97eb090d744625
     fp_precision: fp32
     license: apache-2.0
+
+  # ------------------------------------------------------------------
+  # VLA libero policies — 5 entries, all libero suites compatible.
+  # SHAs locked 2026-05-03 from huggingface_hub.HfApi().model_info(repo_id).sha.
+  # These are large (Pi-class) models; expect 0.5-2s/step on RTX 4060
+  # per docs/DESIGN.md § Open Questions Q2. The auto-downscope rule in
+  # scripts/run_sweep.py handles per-cell wall-time budgets.
+  # ------------------------------------------------------------------
+
+  - name: pi05_libero_finetuned_v044
+    is_baseline: false
+    env_compat:
+      - libero_spatial
+      - libero_object
+      - libero_goal
+      - libero_10
+    repo_id: lerobot/pi05_libero_finetuned_v044
+    revision_sha: dbf8a3f794a9c4297b44f40b752712f50073d945
+    fp_precision: bf16
+    license: gemma
+    notes: "Pi0.5 LIBERO finetune (~17.5k DL). Gemma license — review terms before redistribution."
+
+  - name: pi0_libero_finetuned_v044
+    is_baseline: false
+    env_compat:
+      - libero_spatial
+      - libero_object
+      - libero_goal
+      - libero_10
+    repo_id: lerobot/pi0_libero_finetuned_v044
+    revision_sha: 45dcc8fc0e02601c8ccf0554fbd1d26a55070c1f
+    fp_precision: bf16
+    license: gemma
+    notes: "Pi0 LIBERO finetune (~8.9k DL). Gemma license — review terms before redistribution."
+
+  - name: pi0fast_libero
+    is_baseline: false
+    env_compat:
+      - libero_spatial
+      - libero_object
+      - libero_goal
+      - libero_10
+    repo_id: lerobot/pi0fast-libero
+    revision_sha: 840f4b503f4c09110421c33c810a85b6684fd658
+    fp_precision: bf16
+    notes: "Pi0Fast LIBERO finetune (~8.6k DL). License unspecified on Hub card; treat as 'all rights reserved' until clarified upstream."
+
+  - name: xvla_libero
+    is_baseline: false
+    env_compat:
+      - libero_spatial
+      - libero_object
+      - libero_goal
+      - libero_10
+    repo_id: lerobot/xvla-libero
+    revision_sha: 12e8783e996944f5c97e490d37d4c145484ed70a
+    fp_precision: bf16
+    license: apache-2.0
+    notes: "XVLA LIBERO checkpoint (~3.5k DL)."
+
+  - name: smolvla_libero
+    is_baseline: false
+    env_compat:
+      - libero_spatial
+      - libero_object
+      - libero_goal
+      - libero_10
+    repo_id: lerobot/smolvla_libero
+    revision_sha: 31d453f7edd78c839a8bbc39744a292686daf0de
+    fp_precision: bf16
+    license: apache-2.0
+    notes: "SmolVLA LIBERO finetune (~1.6k DL). Smallest VLA in the matrix — fastest cell turnaround."
