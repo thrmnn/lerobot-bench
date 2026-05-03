@@ -35,9 +35,9 @@ These ship without lerobot installed. Everything tests against synthetic data.
 | #10 | `scripts/run_one.py` | sweep-sre | merged |
 | #12 | `scripts/run_sweep.py` — matrix orchestrator + resume drill | sweep-sre | merged |
 | #14 | `scripts/publish_results.py` — HF Hub upload | sweep-sre | merged |
-| #15 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | **this PR** |
+| #15 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | merged |
 | #16 | `docs/FAILURE_TAXONOMY.md` — labeling template | researcher-writeup | merged |
-| #17 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | pending |
+| #17 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | merged |
 | #18 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | pending |
 
 After #18: Path A is exhausted; Path B (lerobot install + revision_sha lockin)
@@ -45,15 +45,18 @@ becomes critical for any further progress.
 
 ## Resume now
 
-PR #16 (`docs/FAILURE_TAXONOMY.md`) lands the labeling template for the
-six rollout failure modes (`trajectory_overshoot`, `gripper_slip`,
-`timeout`, `wrong_object`, `premature_release`, `drift`) — the rubric
-the human + researcher-writeup follow on Day 7 once real rollouts
-exist. Pure markdown, no code, no tests. Next: PR #17
-(`notebooks/01-write-finding.ipynb`) — the analysis scaffold that
-computes Wilson + bootstrap CIs and a placeholder taxonomy bar chart
-against synthetic parquet. Path B (Day 0a auth + revision_sha lockin)
-is independent and unblocks pretrained policies for `eval.load_policy`.
+PR #17 (`notebooks/01-write-finding.ipynb`) lands the analysis scaffold
+the researcher-writeup runs on Day 7-8 to produce the headline finding
++ figures for the paper. Eight cells: imports + load with synthetic
+fallback, schema sanity, Wilson leaderboard table, per-cell bootstrap
+forest plot, paired Δsuccess + Wilcoxon + Cohen's h with an
+`inconclusive_at_N` MDE flag, taxonomy preview bar chart against
+synthetic random labels, hedged finding paragraph, reproducibility
+footer. Verified end-to-end with `nbclient.NotebookClient` against the
+deterministic 3 × 2 × 5 × 50 synthetic parquet (`np.random.default_rng(0)`).
+Next: PR #18 (`paper/main.tex` + `paper/references.bib`) — the 4-page
+arxiv writeup template. Path B (Day 0a auth + revision_sha lockin) is
+independent and unblocks pretrained policies for `eval.load_policy`.
 
 ---
 
