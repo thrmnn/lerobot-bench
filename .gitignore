@@ -27,6 +27,9 @@ venv/
 env/
 ENV/
 
+# Claude Code agent worktrees (per-agent ephemeral checkouts)
+.claude/worktrees/
+
 # Testing & coverage
 .pytest_cache/
 .coverage

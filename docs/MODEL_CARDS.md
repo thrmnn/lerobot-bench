@@ -12,10 +12,10 @@ from the failure taxonomy labeling pass).
 
 ## Diffusion Policy
 
-- **Repo ID**: `lerobot/diffusion_pusht` (Aloha variant: TBD)
-- **Revision SHA**: TBD (locked Day 0a)
-- **License**: TBD (read from Hub model card)
-- **Envs supported**: PushT, Aloha
+- **Repo ID**: `lerobot/diffusion_pusht`
+- **Revision SHA**: `84a7c23178445c6bbf7e1a884ff497017910f653` (locked 2026-05-03; lastModified 2025-03-06)
+- **License**: apache-2.0
+- **Envs supported**: PushT (this checkpoint is PushT-trained only; an Aloha variant would be a separate Hub entry not yet listed)
 - **Inference precision**: fp32
 - **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
 - **Mean ms/step (calibrated)**: TBD
@@ -24,10 +24,10 @@ from the failure taxonomy labeling pass).
 
 ## ACT (Action Chunking Transformer)
 
-- **Repo ID**: `lerobot/act_aloha_sim_transfer_cube_human` (PushT variant: TBD)
-- **Revision SHA**: TBD
-- **License**: TBD
-- **Envs supported**: PushT, Aloha
+- **Repo ID**: `lerobot/act_aloha_sim_transfer_cube_human`
+- **Revision SHA**: `ba73b2766f1371cdc133ca4efb97eb090d744625` (locked 2026-05-03; lastModified 2025-03-06)
+- **License**: apache-2.0
+- **Envs supported**: Aloha transfer-cube (this checkpoint is Aloha-trained only; a PushT variant would be a separate Hub entry not yet listed)
 - **Inference precision**: fp32
 - **VRAM @ inference**: TBD
 - **Mean ms/step**: TBD

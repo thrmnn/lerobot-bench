@@ -32,28 +32,51 @@ def test_baselines_are_runnable_out_of_the_box() -> None:
     no_op.assert_runnable()  # does not raise
 
 
-def test_pretrained_policies_with_unlocked_sha_are_not_runnable() -> None:
+def test_pretrained_policies_in_default_yaml_are_locked() -> None:
     registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
     diff = registry.get("diffusion_policy")
     assert diff.is_baseline is False
-    # revision_sha is intentionally null in the shipped YAML — Day 0a TODO.
-    assert diff.revision_sha is None
-    assert diff.is_runnable() is False
+    # SHA was locked Day 0a (2026-05-03); see docs/MODEL_CARDS.md.
+    assert diff.revision_sha == "84a7c23178445c6bbf7e1a884ff497017910f653"
+    assert diff.is_runnable() is True
+    diff.assert_runnable()  # does not raise
+
+
+def test_pretrained_spec_with_null_sha_is_not_runnable(tmp_path: Path) -> None:
+    yaml_path = tmp_path / "policies.yaml"
+    yaml_path.write_text(
+        """
+policies:
+  - name: not_yet_locked
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: lerobot/some_future_policy
+    revision_sha: null
+    fp_precision: fp32
+"""
+    )
+    spec = PolicyRegistry.from_yaml(yaml_path).get("not_yet_locked")
+    assert spec.is_runnable() is False
     with pytest.raises(ValueError, match=r"not runnable.*revision_sha"):
-        diff.assert_runnable()
+        spec.assert_runnable()
 
 
 def test_supporting_filters_by_env_compat() -> None:
     registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
     pusht_policies = {p.name for p in registry.supporting("pusht")}
-    assert {"no_op", "random", "diffusion_policy", "act"} <= pusht_policies
+    # diffusion_pusht is PushT-only; act is Aloha-only (Day 0a env_compat fix).
+    assert {"no_op", "random", "diffusion_policy"} <= pusht_policies
+    assert "act" not in pusht_policies
+    aloha_policies = {p.name for p in registry.supporting("aloha_transfer_cube")}
+    assert {"no_op", "random", "act"} <= aloha_policies
+    assert "diffusion_policy" not in aloha_policies
 
 
-def test_runnable_excludes_unlocked_pretrained_policies() -> None:
+def test_runnable_includes_locked_pretrained_policies() -> None:
     registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
     runnable_names = {p.name for p in registry.runnable()}
-    # Only the baselines are runnable until Day 0a fills in revision_sha.
-    assert runnable_names == {"no_op", "random"}
+    # Day 0a: diffusion_policy + act SHAs locked, so all 4 default entries are runnable.
+    assert runnable_names == {"no_op", "random", "diffusion_policy", "act"}
 
 
 def test_get_unknown_policy_lists_available() -> None:

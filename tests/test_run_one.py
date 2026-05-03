@@ -217,23 +217,33 @@ def test_main_unrunnable_pretrained_exits_3(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """diffusion_policy on pusht ships with revision_sha=null -> exit 3.
+    """A pretrained policy with revision_sha=null -> exit 3.
 
-    Depends on the shipped ``configs/policies.yaml`` having
-    ``revision_sha: null`` for ``diffusion_policy``. If Day 0a lands
-    before this PR (locks the SHA), update this test to use a different
-    not-yet-locked policy or build a tmp policies.yaml.
+    Uses a tmp policies.yaml since the shipped diffusion_policy/act now
+    have locked revision SHAs (Day 0a, 2026-05-03).
     """
+    policies_yaml = tmp_path / "policies.yaml"
+    policies_yaml.write_text(
+        """
+policies:
+  - name: not_yet_locked
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: lerobot/some_future_policy
+    revision_sha: null
+    fp_precision: fp32
+"""
+    )
     rc = ro.main(
         [
             "--policy",
-            "diffusion_policy",
+            "not_yet_locked",
             "--env",
             "pusht",
             "--seed",
             "0",
             "--policies-yaml",
-            str(DEFAULT_POLICIES_YAML),
+            str(policies_yaml),
             "--envs-yaml",
             str(DEFAULT_ENVS_YAML),
             "--out-parquet",
@@ -242,7 +252,7 @@ def test_main_unrunnable_pretrained_exits_3(
     )
     assert rc == 3
     err = capsys.readouterr().err
-    assert "diffusion_policy" in err
+    assert "not_yet_locked" in err
     assert "revision_sha" in err
 
 

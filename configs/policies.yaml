@@ -24,16 +24,16 @@ policies:
 
   - name: diffusion_policy
     is_baseline: false
-    env_compat: [pusht, aloha_transfer_cube]
+    env_compat: [pusht]
     repo_id: lerobot/diffusion_pusht
-    revision_sha: null  # TODO Day 0a: lock SHA from HF Hub model card
+    revision_sha: 84a7c23178445c6bbf7e1a884ff497017910f653
     fp_precision: fp32
-    license: null  # TODO Day 0a: read from upstream model card
+    license: apache-2.0
 
   - name: act
     is_baseline: false
-    env_compat: [pusht, aloha_transfer_cube]
+    env_compat: [aloha_transfer_cube]
     repo_id: lerobot/act_aloha_sim_transfer_cube_human
-    revision_sha: null  # TODO Day 0a
+    revision_sha: ba73b2766f1371cdc133ca4efb97eb090d744625
     fp_precision: fp32
-    license: null  # TODO Day 0a
+    license: apache-2.0

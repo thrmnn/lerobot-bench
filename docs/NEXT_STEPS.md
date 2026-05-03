@@ -86,13 +86,13 @@ real numbers.
 
 Owner: human (decisions and credential steps Claude cannot make).
 
-- [ ] `huggingface-cli login` (write scope) — token saved to `~/.cache/huggingface/token`.
-- [ ] `wandb login` (optional; only if W&B will track runs). **Reminder:** rotate the API key shared in chat on 2026-04-30 before logging in.
-- [ ] Resume the lerobot install: `pip install -e /home/theo/projects/lerobot` in the `lerobot` conda env (until `lerobot==0.5.1` lands on PyPI). Confirm `python -c "import lerobot; print(lerobot.__version__)"` prints `0.5.1`.
-- [ ] Lock the **5 policy repo IDs + revision SHAs** into `docs/MODEL_CARDS.md` AND `configs/policies.yaml`. The `revision_sha: null` entries in the YAML block `PolicySpec.assert_runnable()`.
+- [x] **2026-05-03**: `huggingface-cli login` done. HF whoami: `Theozinh0`. **Follow-up needed:** rebrand all hardcoded `thrmnn/lerobot-bench-results-v1` Hub paths in `space/`, `scripts/publish_results.py`, and `docs/{DESIGN,ARCHITECTURE,RUNBOOK}.md` to `Theozinh0/lerobot-bench-results-v1` (separate PR).
+- [x] **2026-05-03**: wandb API key rotated; `wandb login` done with new key.
+- [x] **2026-05-03**: lerobot installed via `pip install -e "/home/theo/projects/lerobot[pusht,aloha]"` in the `lerobot` conda env. `lerobot==0.5.1` confirmed. Torch CUDA initially failed against the system's CUDA 12.1 toolkit — resolved by installing torch 2.10.0 with cu126 wheel from `https://download.pytorch.org/whl/cu126`.
+- [x] **2026-05-03**: Locked diffusion_policy + act revision SHAs in `configs/policies.yaml` and `docs/MODEL_CARDS.md`. **Also corrected the env_compat lists**: `diffusion_pusht` is PushT-only and `act_aloha_sim_transfer_cube_human` is Aloha-only (the prior `[pusht, aloha_transfer_cube]` listing on both was incorrect and would have produced nonsensical eval cells).
 - [ ] Add SmolVLA + Pi0 entries to `configs/policies.yaml` once their HF Hub repo IDs are picked.
 - [ ] Verify `lerobot.envs.<env>.config.SUCCESS_REWARD` exists in 0.5.1; if it does, switch `envs.py` to read from there instead of the hardcoded YAML thresholds (or document the choice to keep the YAML authoritative).
-- [ ] **10-min novelty search** on HF Hub + Google Scholar for "lerobot benchmark" / "multi-policy lerobot eval". If something close exists, reposition before any code lands.
+- [x] **2026-05-03**: 10-min novelty search done. No competing public lerobot multi-policy leaderboard exists on HF Datasets or Spaces. Two `lerobot/video-benchmark-*` datasets exist but are video-codec benchmarks, unrelated to policy evaluation. Framing holds; no pivot.
 - [x] **Resolved 2026-04-30**: GitHub repo owner is `thrmnn`; SSH alias `github-thrmnn` configured.
 
 ## Day 0b — calibration spike (Claude scaffolds, human runs)
