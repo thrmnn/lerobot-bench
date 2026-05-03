@@ -21,9 +21,9 @@ the runway between them.
 - PR #11 — `docs/PATH_B_INTEGRATION_SMOKE.md` + NEXT_STEPS sync (Path B integration smoke checklist).
 
 **In flight:**
-- PR #13 — `scripts/publish_results.py` HF Hub uploader + `tests/test_publish_results.py` (this PR).
+- PR #15 — `space/app.py` + `space/_helpers.py` + `space/requirements.txt` Gradio Space (this PR).
 
-**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML`, `pandas-stubs` installed. `make all` green. **219 tests passing** with PR #13 in. lerobot itself is NOT yet installed — Day 0a item.
+**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML`, `pandas-stubs` installed. `make all` green. **236 tests passing** with PR #15 in (PR #15 added 17 in `tests/test_space.py` on top of PR #13's 219). lerobot itself is NOT yet installed — Day 0a item; the Space deliberately does not need it.
 
 ## Path A queue (committed plan, no human input needed)
 
@@ -34,27 +34,26 @@ These ship without lerobot installed. Everything tests against synthetic data.
 | #9  | `src/lerobot_bench/eval.py` | bench-eval-engineer | merged |
 | #10 | `scripts/run_one.py` | sweep-sre | merged |
 | #12 | `scripts/run_sweep.py` — matrix orchestrator + resume drill | sweep-sre | merged |
-| #13 | `scripts/publish_results.py` — HF Hub upload | sweep-sre | **this PR** |
-| #14 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | pending |
-| #15 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | pending |
-| #16 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | pending |
-| #17 | `docs/FAILURE_TAXONOMY.md` — labeling template | researcher-writeup | pending |
+| #14 | `scripts/publish_results.py` — HF Hub upload | sweep-sre | merged |
+| #15 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | **this PR** |
+| #16 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | pending |
+| #17 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | pending |
+| #18 | `docs/FAILURE_TAXONOMY.md` — labeling template | researcher-writeup | pending |
 
-After #17: Path A is exhausted; Path B (lerobot install + revision_sha lockin)
+After #18: Path A is exhausted; Path B (lerobot install + revision_sha lockin)
 becomes critical for any further progress.
 
 ## Resume now
 
-PR #13 (`scripts/publish_results.py`) lands the HF Hub uploader at the
-end of the sweep stack: pre-flight (parquet schema, manifest readable,
-MP4 references resolve), mocked `_get_hf_api` injection point, lazy
-import of `huggingface_hub` (AST-guarded), staging dir + `_provenance.json`
-audit trail, last-line-of-defense per-MP4 size cap, idempotent re-runs
-via Hub content-addressed dedup. `make publish ARGS=...` wired up.
-Next: PR #14 (`space/app.py` + `space/requirements.txt`) — the Gradio
-Space that reads from `thrmnn/lerobot-bench-results-v1`. Path B
-(Day 0a auth + revision_sha lockin) is independent and unblocks
-pretrained policies for `eval.load_policy`.
+PR #15 (`space/app.py` + `space/_helpers.py` + `space/requirements.txt`)
+lands the public Gradio surface at the top of the read stack: three tabs
+(Leaderboard with Wilson 95% CIs, Browse-Rollouts with direct Hub video
+URLs, Methodology), helpers split out of `app.py` so the project's
+pytest fast job exercises the data layer without pulling Gradio. The
+space-smoke workflow boots the app and curls `/` on every PR that
+touches `space/**`. Next: PR #16 (`notebooks/01-write-finding.ipynb`)
+— the analysis scaffold. Path B (Day 0a auth + revision_sha lockin) is
+independent and unblocks pretrained policies for `eval.load_policy`.
 
 ---
 
@@ -106,9 +105,9 @@ Owner: `bench-eval-engineer` (lib), `sweep-sre` (orchestration), `render-pipelin
 
 Owner: `spaces-frontend-engineer`, with `sweep-sre` for the resume test.
 
-- [ ] `space/app.py` with three tabs: Leaderboard, Browse Rollouts, Methodology. Direct Hub URLs on `gr.Video`.
-- [ ] `space/requirements.txt` pinning `lerobot==0.5.1`, `gradio>=5`.
-- [ ] `make space-deploy` targets the HF Spaces git remote.
+- [x] `space/app.py` with three tabs: Leaderboard, Browse Rollouts, Methodology. Direct Hub URLs on `gr.Video`. **Done in PR #14 — pure-Python helpers split into `space/_helpers.py` (gradio-free, AST-guarded) so `tests/test_space.py` runs in the project's pytest fast job.**
+- [x] `space/requirements.txt` pinning `gradio>=5,<6` + project pulled via `git+https://github.com/thrmnn/lerobot-bench@<sha>`. **Done in PR #14. Note: `lerobot==0.5.1` is intentionally NOT installed on the Space — the Space only reads parquet + MP4 URLs from the Hub dataset, no policy inference, no torch needed; pin is documented in the Methodology tab and reproducibility lives in `pyproject.toml`.**
+- [x] `make space-deploy` targets the HF Spaces git remote. **Already in Makefile from PR #1; PR #14 ships the directory it pushes.**
 - [x] Resume drill: kill `run_sweep.py` mid-cell, restart, confirm the killed cell restarts from episode 0 cleanly. **Done in PR #12 — `tests/test_resume_drill.py` covers cold start, mid-sweep `KeyboardInterrupt` + clean resume, partial-cell drop-and-rerun, OOM continue, dry-run, idempotent re-resume; the live `kill -9` rehearsal still wants a wet run on the dev box.**
 
 ## Days 5-10 — full sweep, fine-tune track, writeup, ship

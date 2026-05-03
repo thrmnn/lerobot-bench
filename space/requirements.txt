@@ -1,0 +1,26 @@
+# Pins for the lerobot-bench HF Space (free CPU tier).
+#
+# Mirrors the project's pyproject.toml constraints where possible. The
+# Space pulls the project itself from the GitHub repo at a specific SHA
+# so the deployed Space is reproducible — bump the SHA below in
+# lock-step with each new sweep that updates the Hub dataset.
+#
+# Note: lerobot==0.5.1 is intentionally NOT installed on the Space.
+# The Space only reads the published parquet + MP4 grid from the Hub
+# dataset; it does no policy inference and does not need lerobot's
+# torch/sim stack. Cold-starting the Space without lerobot keeps boot
+# time well under the free-tier 30 s budget. The reproducibility pin
+# is documented in the Methodology tab and in pyproject.toml.
+
+gradio>=5,<6
+pandas>=2.2,<3.0
+pyarrow>=18.0
+huggingface-hub>=0.30
+scipy>=1.13,<2.0
+numpy>=2.0,<3.0
+
+# Pull lerobot-bench (this project's library code — RESULT_SCHEMA,
+# stats.wilson_ci, etc.) from GitHub. Pinned to a branch ref while
+# the PR is open; flip to the merged-main SHA when this PR lands so
+# the Space is reproducible from the deployed commit.
+git+https://github.com/thrmnn/lerobot-bench.git@feat/space-app
