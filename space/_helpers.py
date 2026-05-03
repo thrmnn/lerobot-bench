@@ -51,7 +51,7 @@ from lerobot_bench.stats import wilson_ci
 # HF Hub dataset that hosts the published parquet + MP4 grid.
 # Mirrors the value used by scripts/publish_results.py and
 # docs/RUNBOOK.md. Bumped in lock-step on a breaking schema change.
-HUB_DATASET_REPO = "thrmnn/lerobot-bench-results-v1"
+HUB_DATASET_REPO = "Theozinh0/lerobot-bench-results-v1"
 
 # Direct raw-content URL prefix on the Hub. ``resolve/main`` is what
 # Hub returns the actual file bytes for; the alternative ``blob/main``

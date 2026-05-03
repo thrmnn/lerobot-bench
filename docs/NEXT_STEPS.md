@@ -86,7 +86,7 @@ real numbers.
 
 Owner: human (decisions and credential steps Claude cannot make).
 
-- [x] **2026-05-03**: `huggingface-cli login` done. HF whoami: `Theozinh0`. **Follow-up needed:** rebrand all hardcoded `thrmnn/lerobot-bench-results-v1` Hub paths in `space/`, `scripts/publish_results.py`, and `docs/{DESIGN,ARCHITECTURE,RUNBOOK}.md` to `Theozinh0/lerobot-bench-results-v1` (separate PR).
+- [x] **2026-05-03**: `huggingface-cli login` done. HF whoami: `Theozinh0` (different from GH owner `thrmnn`). All hardcoded HF Hub paths rebranded `thrmnn/lerobot-bench-results-v1` → `Theozinh0/lerobot-bench-results-v1` in `space/`, `scripts/publish_results.py`, `docs/{DESIGN,ARCHITECTURE,RUNBOOK}.md`. GitHub URLs (`github.com/thrmnn/lerobot-bench`) remain correct since `thrmnn` owns the GH repo.
 - [x] **2026-05-03**: wandb API key rotated; `wandb login` done with new key.
 - [x] **2026-05-03**: lerobot installed via `pip install -e "/home/theo/projects/lerobot[pusht,aloha]"` in the `lerobot` conda env. `lerobot==0.5.1` confirmed. Torch CUDA initially failed against the system's CUDA 12.1 toolkit — resolved by installing torch 2.10.0 with cu126 wheel from `https://download.pytorch.org/whl/cu126`.
 - [x] **2026-05-03**: Locked diffusion_policy + act revision SHAs in `configs/policies.yaml` and `docs/MODEL_CARDS.md`. **Also corrected the env_compat lists**: `diffusion_pusht` is PushT-only and `act_aloha_sim_transfer_cube_human` is Aloha-only (the prior `[pusht, aloha_transfer_cube]` listing on both was incorrect and would have produced nonsensical eval cells).
@@ -152,7 +152,7 @@ day's work is a separate PR; that table is authoritative.
 
 1. ~~**GitHub remote** — resolved, owner is `thrmnn`.~~
 2. ~~**lerobot env Python tooling** — resolved.~~
-3. **HF username confirmation**: rebrand assumed HF Hub username = `thrmnn` (matches GH). If HF account is different, run `huggingface-cli whoami` after login and submit a follow-up rebrand PR — only `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md` reference HF paths (dataset + Space).
+3. ~~**HF username confirmation**~~ — resolved 2026-05-03: HF whoami is `Theozinh0`, all hardcoded paths rebranded.
 4. **`lerobot==0.5.1` not on PyPI**: install path on the dev box is `pip install -e /home/theo/projects/lerobot`. CI `smoke.yml` will fail until upstream PyPI release lands; logged as `::warning::` for now. Day 0a unblocks local install.
 5. **Auth not yet performed**: `huggingface-cli login` (write scope, needed for publish) and `wandb login` (optional). Day 0a item. **Wandb API key from chat on 2026-04-30 must be rotated before login.**
 6. **Sim extras not yet installed** in the lerobot env (`gym-pusht`, `gym-aloha`, optional Libero). Day 1 item.
