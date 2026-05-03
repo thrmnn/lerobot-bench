@@ -5,53 +5,46 @@ Live execution checklist. Updated as work lands. Source of truth for
 `docs/CEO-PLAN.md`; the technical spec is in `docs/DESIGN.md`; this is
 the runway between them.
 
-## Status as of 2026-05-01
+## Status as of 2026-05-03
 
-**Merged to main (8 PRs):**
+**Merged to main (10 PRs):**
 - PR #1 — agent team, hooks, CI evolution, runbook.
 - PR #2 — dependabot batch (5 GitHub Actions major bumps, all green).
 - PR #3 — `stats.py`: `bootstrap_ci`, `paired_delta_bootstrap`, `paired_wilcoxon`, `cohens_h`, `wilson_ci`. 20 tests against analytical references.
 - PR #4 — `envs.py` + `policies.py` with strict YAML loaders. `configs/envs.yaml` ships PushT + Aloha; `configs/policies.yaml` ships baselines + DiffPolicy/ACT (with `revision_sha: null` until Day 0a lockin).
-- PR #5 — `render.py`: episode → MP4 (256px / 10fps / H.264 / ≤2MB) + thumbnail strip; pure imageio.v3 + libx264.
-- PR #6 — `checkpointing.py`: cell-boundary parquet resume layer.
-- PR #7 — `scripts/calibrate.py` Day 0b calibration spike scaffold (inner measurement loop is a TODO until lerobot install).
-- PR #8 — `eval.py` orchestration core (this PR). Seeding contract enforced; baselines fully runnable; pretrained loading is a Day 0b TODO.
+- PR #5 — EOD checkpoint doc.
+- PR #6 — `render.py`: episode → MP4 (256px / 10fps / H.264 / ≤2MB) + thumbnail strip; pure imageio.v3 + libx264.
+- PR #7 — `checkpointing.py`: cell-boundary parquet resume layer.
+- PR #8 — `scripts/calibrate.py` Day 0b calibration spike scaffold (inner measurement loop is a TODO until lerobot install).
+- PR #9 — `eval.py` orchestration core. Seeding contract enforced; baselines fully runnable; pretrained loading is a Day 0b TODO.
+- PR #10 — `scripts/run_one.py` single-cell CLI shell with atomic parquet append, lazy render import, AST-guarded dry-run.
 
-**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML` installed. `make all` green. 138 tests passing. Current commit: 954274f. lerobot itself is NOT yet installed — Day 0a item.
+**Local state:** lerobot conda env has `ruff`, `mypy`, `pytest`, `pytest-cov`, `pre-commit`, `scipy`, `imageio[ffmpeg]`, `types-PyYAML`, `pandas-stubs` installed. `make all` green. **150 tests passing.** Current commit: `800c362`. lerobot itself is NOT yet installed — Day 0a item.
 
 ## Path A queue (committed plan, no human input needed)
 
 These ship without lerobot installed. Everything tests against synthetic data.
 
-| PR | File(s) | Status |
-|---|---|---|
-| #9 | `src/lerobot_bench/eval.py` — orchestration core | done |
-| #10 | `scripts/run_one.py` — single-cell CLI | **this PR** |
-| #11 | `scripts/run_sweep.py` — matrix orchestrator | pending |
-| #12 | `scripts/publish_results.py` — HF Hub upload | pending |
-| #13 | `space/app.py` + `space/requirements.txt` — Gradio Space | pending |
-| #14 | `notebooks/01-write-finding.ipynb` — analysis scaffold | pending |
-| #15 | `paper/main.tex` + `paper/references.bib` — arxiv template | pending |
-| #16 | `docs/FAILURE_TAXONOMY.md` — labeling template | pending |
+| PR | File(s) | Owner agent | Status |
+|---|---|---|---|
+| #9  | `src/lerobot_bench/eval.py` | bench-eval-engineer | merged |
+| #10 | `scripts/run_one.py` | sweep-sre | merged |
+| #11 | `scripts/run_sweep.py` — matrix orchestrator | sweep-sre | **next** (design pending user confirm) |
+| #12 | `scripts/publish_results.py` — HF Hub upload | sweep-sre | pending |
+| #13 | `space/app.py` + `space/requirements.txt` — Gradio Space | spaces-frontend-engineer | pending |
+| #14 | `notebooks/01-write-finding.ipynb` — analysis scaffold | researcher-writeup (+ stats-rigor-reviewer veto) | pending |
+| #15 | `paper/main.tex` + `paper/references.bib` — arxiv template | researcher-writeup | pending |
+| #16 | `docs/FAILURE_TAXONOMY.md` — labeling template | researcher-writeup | pending |
 
 After #16: Path A is exhausted; Path B (lerobot install + revision_sha lockin)
 becomes critical for any further progress.
 
-## Resume tomorrow
+## Resume now
 
-The very first thing to do tomorrow:
-
-```bash
-cd /home/theo/projects/lerobot-bench
-git checkout main && git pull --ff-only
-git status  # should be clean
-gh pr list --state open  # confirm nothing in flight
-```
-
-Then continue with PR #10 (`scripts/run_one.py`) — a thin CLI shell over
-`run_cell_from_specs`, fully testable with the baseline policies in
-isolation. Path B (Day 0a auth + revision_sha lockin) is independent and
-unblocks pretrained policies for `eval.load_policy`.
+PR #11 (`scripts/run_sweep.py`) is paused at a design check-in (six bolded
+recommendations from the prior session: subprocess dispatch, skip-on-OOM,
+sorted ordering, soft timeout, sweep YAML schema, incremental manifest).
+Confirm or flip those decisions, then `sweep-sre` ships the spec.
 
 ---
 
