@@ -401,26 +401,51 @@ policies:
     assert timing.mean_ms_per_step == 0.0
 
 
-def test_measure_cell_baseline_returns_error_until_loop_implemented() -> None:
-    """Baselines are runnable but the measurement loop is a Day-0b stub.
-
-    Until the loop lands, calling ``measure_cell`` on a runnable spec
-    should return ``status="error"`` with the marker message -- NOT
-    raise. This guarantees the surrounding plumbing (auto-downscope on
-    failure, JSON write, exit-code 2) keeps working through the
-    transition.
+def test_measure_cell_missing_runtime_returns_error() -> None:
+    """When any required runtime dep is missing (torch / lerobot /
+    gymnasium / gym-pusht), measure_cell short-circuits to
+    ``status="error"`` with a clear message instead of raising.
     """
+    try:
+        import gym_pusht  # noqa: F401
+        import gymnasium  # noqa: F401
+        import lerobot  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError:
+        policies = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+        envs = EnvRegistry.from_yaml(DEFAULT_ENVS_YAML)
+        no_op = policies.get("no_op")
+        pusht = envs.get("pusht")
+        timing = measure_cell(no_op, pusht, n_steps=1, n_episodes=1)
+        assert timing.status == "error"
+        assert timing.error is not None
+        # Either the top-level lazy-import guard ("missing runtime: ...")
+        # or load_env's namespace-import ImportError fires; both fine.
+        assert "missing" in timing.error.lower() or "ImportError" in timing.error
+        return
+    pytest.skip("all runtimes installed -- this test exercises the missing-runtime branch")
+
+
+def test_measure_cell_baseline_runs_when_runtime_available() -> None:
+    """On the dev box where torch + lerobot + gym are installed, the
+    no_op baseline against PushT should yield ``status="ok"`` with real
+    timing and VRAM numbers. Skipped in CI fast (no runtime).
+    """
+    pytest.importorskip("torch")
+    pytest.importorskip("lerobot")
+    pytest.importorskip("gymnasium")
+    pytest.importorskip("gym_pusht")
+
     policies = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
     envs = EnvRegistry.from_yaml(DEFAULT_ENVS_YAML)
     no_op = policies.get("no_op")
     pusht = envs.get("pusht")
 
-    timing = measure_cell(no_op, pusht, n_steps=1, n_episodes=1)
-    # In CI lerobot is not installed -> "error" with "missing runtime".
-    # On a dev box where lerobot IS installed -> "error" with the
-    # NotImplementedError stub. Either way: status='error'.
-    assert timing.status == "error"
-    assert timing.error is not None
+    timing = measure_cell(no_op, pusht, n_steps=2, n_episodes=1, device="cpu")
+    assert timing.status == "ok", f"got status={timing.status} error={timing.error}"
+    assert timing.n_steps_measured == 2
+    assert timing.mean_ms_per_step >= 0.0
+    assert timing.recommended is not None  # auto_downscope ran
 
 
 # --------------------------------------------------------------------- #
