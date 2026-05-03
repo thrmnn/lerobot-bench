@@ -195,13 +195,21 @@ $\ge 0.8$ large.
 
 \paragraph{MDE bound.} At $N = 250$, the Wilson 95\% half-width at
 the worst case $\hat{p} = 0.5$ is
-$\text{HW} \approx 0.062$. Following~\cite{wilson1927probable}, any
-$|\Delta\hat{p}| < 2 \cdot \text{HW} \approx 0.124$ is inconclusive
+$\text{HW} = 0.0615$ (computed via
+\texttt{lerobot\_bench.stats.wilson\_ci(125, 250)}; see
+\texttt{docs/MDE\_TABLE.md} for the full $p$-grid).
+Following~\cite{wilson1927probable}, any
+$|\Delta\hat{p}| < 2 \cdot \text{HW} = 0.1230$ is inconclusive
 at this $N$ regardless of the bootstrap or Wilcoxon p-value: two
-cells whose marginal CIs each have half-width up to 0.062 can produce
-a sample delta below 0.124 just from sampling noise. Every paired
-comparison in Section~\ref{sec:results} is annotated with whether
-its delta clears this threshold; deltas below it are reported as
+cells whose marginal CIs each have half-width up to 0.0615 can produce
+a sample delta below 0.1230 just from sampling noise. The
+\texttt{docs/MDE\_TABLE.md} doc tabulates the per-$\hat{p}$ threshold
+(it shrinks for saturated and near-zero cells) and the empirical
+paired bootstrap MDE at $\rho \in \{0, 0.3, 0.5\}$ for the
+contracted $N{=}250$ as well as the auto-downscope variants
+$N \in \{50, 100, 500\}$. Every paired comparison in
+Section~\ref{sec:results} is annotated with whether its delta clears
+the per-cell threshold; deltas below it are reported as
 \emph{inconclusive at $N{=}250$} rather than as findings.
 
 \subsection{Auto-downscope rule}
@@ -316,8 +324,10 @@ Env & $\hat{p}_A$ & $\hat{p}_B$ & $\Delta\hat{p}$ & 95\% CI on $\Delta$ & Wilcox
 \end{tabular}
 \caption{Paired comparison: policy~A vs.\ policy~B,
 $\Delta\hat{p} = \hat{p}_A - \hat{p}_B$. Pairing is per
-$(\text{seed\_idx}, e)$. Any $|\Delta\hat{p}| < 0.124$ is reported
-as inconclusive at $N{=}250$ (Section~\ref{sec:methods}).}
+$(\text{seed\_idx}, e)$. Any $|\Delta\hat{p}| < 2 \cdot \text{HW}(\max(\hat{p}_A, \hat{p}_B), N{=}250)$
+is reported as inconclusive at $N{=}250$
+(per-$\hat{p}$ thresholds in \texttt{docs/MDE\_TABLE.md} § 4; the
+worst case at $\hat{p} = 0.5$ is $0.1230$).}
 \label{tab:paired}
 \end{table}
 
