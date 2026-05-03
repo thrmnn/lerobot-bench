@@ -29,6 +29,7 @@ installed. Filled in on Day 0b after lerobot lock.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import json
 import logging
@@ -242,6 +243,7 @@ def measure_cell(
     *,
     n_steps: int,
     n_episodes: int,
+    device: str = "cuda",
 ) -> CellTiming:
     """Measure latency + VRAM for one (policy, env) cell.
 
@@ -249,10 +251,10 @@ def measure_cell(
     module must not require either. Returns a CellTiming with status
     one of ``"ok" | "oom" | "skipped" | "error"``. Never raises.
 
-    Day 0b TODO: the actual measurement loop is a stub. It returns
-    ``status="error"`` with a clearly-marked message until lerobot is
-    locked. The surrounding plumbing (lazy imports, OOM catch,
-    auto-downscope, JSON write) is real and tested.
+    The measurement loop times **policy inference only** (not the env
+    step), which is what the auto_downscope thresholds care about.
+    ``torch.cuda.synchronize()`` is called after each policy call so
+    GPU async work doesn't hide in subsequent steps.
     """
     if not policy.is_runnable():
         return _zero_timing(
@@ -266,8 +268,12 @@ def measure_cell(
     # required deps. Surface as status="error" with a clear message
     # (NOT exit 4 -- that's only when nothing can run).
     try:
-        import lerobot  # noqa: F401  -- surface ImportError early
+        import time
+
+        import numpy as np
         import torch
+
+        from lerobot_bench.eval import load_env, load_policy
     except ImportError as exc:
         return _zero_timing(
             policy.name,
@@ -276,35 +282,52 @@ def measure_cell(
             error=f"missing runtime: {exc}",
         )
 
-    # Day 0b TODO: implement the real measurement loop here.
-    # Sketch:
-    #   import gymnasium as gym
-    #   from lerobot.common.policies.factory import make_policy
-    #   torch.cuda.reset_peak_memory_stats()
-    #   sim = gym.make(env.gym_id)
-    #   pol = make_policy(policy.repo_id, revision=policy.revision_sha,
-    #                     fp_precision=policy.fp_precision).to("cuda").eval()
-    #   step_times_ms: list[float] = []
-    #   for _ in range(n_episodes):
-    #       obs, _ = sim.reset(seed=0)
-    #       for _ in range(n_steps):
-    #           t0 = time.perf_counter()
-    #           with torch.inference_mode():
-    #               action = pol(obs)
-    #           torch.cuda.synchronize()
-    #           step_times_ms.append((time.perf_counter() - t0) * 1000.0)
-    #           obs, _, term, trunc, _ = sim.step(action.cpu().numpy())
-    #           if term or trunc:
-    #               obs, _ = sim.reset()
-    #   vram_peak_mb = torch.cuda.max_memory_allocated() / (1024 * 1024)
-    #   timing = CellTiming(status="ok", ..., recommended=None)
-    #   return replace(timing, recommended=auto_downscope(timing))
+    sim = None
     try:
-        raise NotImplementedError(
-            "measurement loop not implemented -- Day 0b (after lerobot install + revision_sha lock)"
+        sim = load_env(env)
+        action_shape = tuple(sim.action_space.shape)  # type: ignore[attr-defined]
+
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+        pol = load_policy(policy, action_shape=action_shape, device=device)
+
+        step_times_ms: list[float] = []
+        for ep_idx in range(n_episodes):
+            obs, _ = sim.reset(seed=ep_idx)
+            pol.reset()
+            for _ in range(n_steps):
+                t0 = time.perf_counter()
+                action = pol(obs)
+                if device == "cuda" and torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                step_times_ms.append(elapsed_ms)
+                obs, _, terminated, truncated, _ = sim.step(action)
+                if terminated or truncated:
+                    obs, _ = sim.reset(seed=ep_idx)
+                    pol.reset()
+
+        vram_peak_mb = (
+            torch.cuda.max_memory_allocated() / (1024 * 1024)
+            if device == "cuda" and torch.cuda.is_available()
+            else 0.0
         )
+        times_arr = np.asarray(step_times_ms, dtype=np.float64)
+        timing = CellTiming(
+            policy=policy.name,
+            env=env.name,
+            n_steps_measured=int(times_arr.size),
+            mean_ms_per_step=float(times_arr.mean()),
+            p95_ms_per_step=float(np.percentile(times_arr, 95)),
+            vram_peak_mb=float(vram_peak_mb),
+            status="ok",
+            error=None,
+            recommended=None,
+        )
+        return replace(timing, recommended=auto_downscope(timing))
     except torch.cuda.OutOfMemoryError as exc:
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return _zero_timing(
             policy.name,
             env.name,
@@ -318,6 +341,10 @@ def measure_cell(
             status="error",
             error=f"{type(exc).__name__}: {str(exc)[:200]}",
         )
+    finally:
+        if sim is not None:
+            with contextlib.suppress(Exception):
+                sim.close()  # type: ignore[attr-defined]
 
 
 # --------------------------------------------------------------------- #
