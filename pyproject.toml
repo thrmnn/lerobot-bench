@@ -168,5 +168,6 @@ module = [
     "mujoco.*",
     "imageio.*",
     "scipy.*",
+    "torch.*",
 ]
 ignore_missing_imports = true
