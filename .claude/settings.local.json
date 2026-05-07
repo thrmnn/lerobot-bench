@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_doc": "Project-local Claude Code settings. Layered on top of .claude/settings.json. Adds three hooks aimed at the four worktree gotchas in user memory: (1) PostToolUse on Agent — pycache cleanup + parent editable-install rebind; (2) UserPromptSubmit — refuses dangerous git ops; (3) PostToolUse on Edit|Write of results/calibration-*.json — emits auto_downscope hint, informational only. See .claude/hooks/README.md.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/post-agent-rebind.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/calibration-hint.sh\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/block-dangerous-git.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
