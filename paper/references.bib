@@ -54,6 +54,17 @@
     doi     = {10.1080/01621459.1927.10502953},
 }
 
+@article{agresti1998approximate,
+    title   = {Approximate is Better than ``Exact'' for Interval Estimation of Binomial Proportions},
+    author  = {Agresti, Alan and Coull, Brent A.},
+    journal = {The American Statistician},
+    volume  = {52},
+    number  = {2},
+    pages   = {119--126},
+    year    = {1998},
+    doi     = {10.1080/00031305.1998.10480550},
+}
+
 @article{wilcoxon1945individual,
     title   = {Individual Comparisons by Ranking Methods},
     author  = {Wilcoxon, Frank},
@@ -63,6 +74,17 @@
     pages   = {80--83},
     year    = {1945},
     doi     = {10.2307/3001968},
+}
+
+@article{mcnemar1947note,
+    title   = {Note on the Sampling Error of the Difference Between Correlated Proportions or Percentages},
+    author  = {McNemar, Quinn},
+    journal = {Psychometrika},
+    volume  = {12},
+    number  = {2},
+    pages   = {153--157},
+    year    = {1947},
+    doi     = {10.1007/BF02295996},
 }
 
 @book{cohen1988statistical,
@@ -76,10 +98,10 @@
     note      = {Cohen's $h$ effect size for differences between two proportions, ch.~6.},
 }
 
-@inproceedings{efron1979bootstrap,
+@article{efron1979bootstrap,
     title     = {Bootstrap Methods: Another Look at the Jackknife},
     author    = {Efron, Bradley},
-    booktitle = {The Annals of Statistics},
+    journal   = {The Annals of Statistics},
     volume    = {7},
     number    = {1},
     pages     = {1--26},
@@ -87,15 +109,113 @@
     doi       = {10.1214/aos/1176344552},
 }
 
-@inproceedings{brockman2016openai,
-    title     = {{OpenAI} Gym},
-    author    = {Brockman, Greg and Cheung, Vicki and Pettersson, Ludwig and
-                 Schneider, Jonas and Schulman, John and Tang, Jie and Zaremba, Wojciech},
-    year      = {2016},
-    eprint    = {1606.01540},
+@book{efron1993introduction,
+    title     = {An Introduction to the Bootstrap},
+    author    = {Efron, Bradley and Tibshirani, Robert J.},
+    year      = {1993},
+    publisher = {Chapman \& Hall/CRC},
+    address   = {Boca Raton, FL},
+    isbn      = {978-0-412-04231-7},
+    series    = {Monographs on Statistics and Applied Probability},
+    volume    = {57},
+}
+
+@article{bonferroni1936teoria,
+    title   = {Teoria statistica delle classi e calcolo delle probabilit\`a},
+    author  = {Bonferroni, Carlo E.},
+    journal = {Pubblicazioni del R Istituto Superiore di Scienze Economiche e Commerciali di Firenze},
+    volume  = {8},
+    pages   = {3--62},
+    year    = {1936},
+}
+
+@article{bohg2025open,
+    title   = {The {Open X-Embodiment} Dataset and Cross-Embodiment Robot Learning},
+    author  = {{Open X-Embodiment Collaboration}},
+    journal = {IEEE International Conference on Robotics and Automation (ICRA)},
+    year    = {2024},
+    eprint  = {2310.08864},
+    archivePrefix = {arXiv},
+    primaryClass  = {cs.RO},
+    note    = {Cross-embodiment dataset; companion to RT-X benchmarks.},
+}
+
+@inproceedings{james2020rlbench,
+    title     = {{RLBench}: The Robot Learning Benchmark \& Learning Environment},
+    author    = {James, Stephen and Ma, Zicong and Rovick Arrojo, David and Davison, Andrew J.},
+    booktitle = {IEEE Robotics and Automation Letters (RA-L)},
+    year      = {2020},
+    eprint    = {1909.12271},
+    archivePrefix = {arXiv},
+    primaryClass  = {cs.RO},
+}
+
+@inproceedings{mees2022calvin,
+    title     = {{CALVIN}: A Benchmark for Language-Conditioned Policy Learning for Long-Horizon Robot Manipulation Tasks},
+    author    = {Mees, Oier and Hermann, Lukas and Rosete-Beas, Erick and Burgard, Wolfram},
+    booktitle = {IEEE Robotics and Automation Letters (RA-L)},
+    year      = {2022},
+    eprint    = {2112.03227},
+    archivePrefix = {arXiv},
+    primaryClass  = {cs.RO},
+}
+
+@article{black2024pi0,
+    title   = {$\pi_0$: A Vision-Language-Action Flow Model for General Robot Control},
+    author  = {Black, Kevin and Brown, Noah and Driess, Danny and Esmail, Adnan and
+               Equi, Michael and Finn, Chelsea and Fusai, Niccolo and Groom, Lachy and
+               Hausman, Karol and Ichter, Brian and Jakubczak, Szymon and others},
+    journal = {arXiv preprint},
+    year    = {2024},
+    eprint  = {2410.24164},
+    archivePrefix = {arXiv},
+    primaryClass  = {cs.RO},
+}
+
+@misc{shukor2025smolvla,
+    title        = {{SmolVLA}: A Vision-Language-Action Model for Affordable and Efficient Robotics},
+    author       = {Shukor, Mustafa and Aubakirova, Dana and Capuano, Francesco and
+                    Kooijmans, Pepijn and Palma, Steven and Zouitine, Adil and
+                    Aractingi, Michel and Pascal, Caroline and Russi, Martino and
+                    Marafioti, Andres and Alibert, Simon and Cord, Matthieu and
+                    Wolf, Thomas and Cadene, Remi},
+    year         = {2025},
+    eprint       = {2506.01844},
+    archivePrefix= {arXiv},
+    primaryClass = {cs.RO},
+}
+
+@article{henderson2018deep,
+    title   = {Deep Reinforcement Learning that Matters},
+    author  = {Henderson, Peter and Islam, Riashat and Bachman, Philip and
+               Pineau, Joelle and Precup, Doina and Meger, David},
+    journal = {AAAI Conference on Artificial Intelligence},
+    year    = {2018},
+    eprint  = {1709.06560},
     archivePrefix = {arXiv},
     primaryClass  = {cs.LG},
-    note      = {Predecessor of Gymnasium; the env API the lerobot envs build on.},
+}
+
+@inproceedings{agarwal2021deep,
+    title     = {Deep Reinforcement Learning at the Edge of the Statistical Precipice},
+    author    = {Agarwal, Rishabh and Schwarzer, Max and Castro, Pablo Samuel and
+                 Courville, Aaron and Bellemare, Marc G.},
+    booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+    year      = {2021},
+    eprint    = {2108.13264},
+    archivePrefix = {arXiv},
+    primaryClass  = {cs.LG},
+}
+
+@misc{brockman2016openai,
+    title        = {{OpenAI} Gym},
+    author       = {Brockman, Greg and Cheung, Vicki and Pettersson, Ludwig and
+                    Schneider, Jonas and Schulman, John and Tang, Jie and Zaremba, Wojciech},
+    year         = {2016},
+    eprint       = {1606.01540},
+    archivePrefix= {arXiv},
+    primaryClass = {cs.LG},
+    note         = {Predecessor of Gymnasium; the env API the lerobot envs build on.},
 }
 
 @misc{huggingfacehub2024,
