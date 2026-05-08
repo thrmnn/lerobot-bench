@@ -364,10 +364,12 @@ def _gym_obs_to_batch(obs: dict[str, Any] | NDArray[np.floating[Any]]) -> dict[s
             "(e.g. 'pixels_agent_pos')"
         )
 
-    # LIBERO has a nested {pixels: dict, robot_state: dict} structure.
-    # Detect by inspecting whether `pixels` is itself a dict OR
-    # `robot_state` is a top-level key — both are LIBERO-only signals.
-    if isinstance(obs.get("pixels"), dict) or "robot_state" in obs:
+    # LIBERO has a {pixels: dict, robot_state: dict, ...} structure;
+    # the load-bearing signal is `robot_state`, not the nested pixels
+    # dict (gym-aloha also uses nested pixels but emits agent_pos, not
+    # robot_state). Routing on robot_state alone keeps Aloha in the
+    # PushT/Aloha branch where its agent_pos is handled correctly.
+    if "robot_state" in obs:
         return _libero_obs_to_batch(obs)
 
     # Pull the language-conditioning task string out before the
@@ -386,8 +388,15 @@ def _gym_obs_to_batch(obs: dict[str, Any] | NDArray[np.floating[Any]]) -> dict[s
             continue
         # pixels[.view] -> observation.image[s.view] (HWC uint8 -> CHW float [0,1]).
         if key == "pixels":
-            tensor = torch.from_numpy(np.asarray(value)).float() / 255.0
-            batch["observation.image"] = tensor.permute(2, 0, 1)
+            # gym-aloha returns pixels as a {view: HWC} dict (e.g. {top:
+            # ...}); gym-pusht returns a flat HWC ndarray. Handle both.
+            if isinstance(value, dict):
+                for view, view_arr in value.items():
+                    tensor = torch.from_numpy(np.asarray(view_arr)).float() / 255.0
+                    batch[f"observation.images.{view}"] = tensor.permute(2, 0, 1)
+            else:
+                tensor = torch.from_numpy(np.asarray(value)).float() / 255.0
+                batch["observation.image"] = tensor.permute(2, 0, 1)
         elif key.startswith("pixels."):
             view = key.split(".", 1)[1]
             tensor = torch.from_numpy(np.asarray(value)).float() / 255.0

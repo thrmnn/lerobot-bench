@@ -184,6 +184,8 @@ def plan_cells(
     *,
     policy_filter: str | None = None,
     env_filter: str | None = None,
+    exclude_policies: tuple[str, ...] = (),
+    exclude_envs: tuple[str, ...] = (),
 ) -> list[tuple[PolicySpec, EnvSpec, str]]:
     """Cross-product (policy, env) with per-cell status.
 
@@ -192,18 +194,27 @@ def plan_cells(
         ``"skipped"``  -- policy.is_runnable() is False (pre-Day-0a entry).
         ``"incompat"`` -- env not declared in policy.env_compat tuple.
 
+    Excluded policies/envs are dropped from the plan entirely (not surfaced
+    as skipped) so the report doesn't fill up with operator-driven filters.
+
     Order is stable, sorted by (policy_name, env_name).
     """
     plan: list[tuple[PolicySpec, EnvSpec, str]] = []
     policy_names = sorted(policies.names())
     env_names = sorted(envs.names())
+    exclude_p = set(exclude_policies)
+    exclude_e = set(exclude_envs)
 
     for p_name in policy_names:
         if policy_filter is not None and p_name != policy_filter:
             continue
+        if p_name in exclude_p:
+            continue
         policy = policies.get(p_name)
         for e_name in env_names:
             if env_filter is not None and e_name != env_filter:
+                continue
+            if e_name in exclude_e:
                 continue
             env = envs.get(e_name)
             if e_name not in policy.env_compat:
@@ -410,6 +421,8 @@ def run_calibration(
     policy_filter: str | None,
     env_filter: str | None,
     dry_run: bool,
+    exclude_policies: tuple[str, ...] = (),
+    exclude_envs: tuple[str, ...] = (),
 ) -> tuple[CalibrationReport, int]:
     """Plan, measure, write -- pure plumbing.
 
@@ -420,7 +433,14 @@ def run_calibration(
     policies = PolicyRegistry.from_yaml(policies_yaml)
     envs = EnvRegistry.from_yaml(envs_yaml)
 
-    plan = plan_cells(policies, envs, policy_filter=policy_filter, env_filter=env_filter)
+    plan = plan_cells(
+        policies,
+        envs,
+        policy_filter=policy_filter,
+        env_filter=env_filter,
+        exclude_policies=exclude_policies,
+        exclude_envs=exclude_envs,
+    )
 
     ready = [(p, e) for (p, e, status) in plan if status == PLAN_READY]
     skipped = [(p, e) for (p, e, status) in plan if status == PLAN_SKIPPED]
@@ -469,12 +489,16 @@ def run_calibration(
         return replace(report_skeleton, cells=tuple(dry_cells)), 0
 
     cells: list[CellTiming] = []
+    # Pre-record skipped cells so a crash mid-measurement still leaves a
+    # report that documents the full plan, not just the cells we got to.
+    skipped_cells = [
+        _zero_timing(p.name, e.name, status="skipped", error="not runnable") for (p, e) in skipped
+    ]
+
     for policy, env in ready:
         logger.info("measuring %s x %s ...", policy.name, env.name)
         timing = measure_cell(policy, env, n_steps=steps, n_episodes=episodes)
         if timing.status == "ok" and timing.recommended is None:
-            # measure_cell is responsible for filling recommended on ok,
-            # but defend against a future caller that forgets.
             timing = replace(timing, recommended=auto_downscope(timing))
         logger.info(
             "  -> status=%s mean_ms=%.2f p95_ms=%.2f vram_mb=%.1f",
@@ -484,11 +508,12 @@ def run_calibration(
             timing.vram_peak_mb,
         )
         cells.append(timing)
+        # Persist after every cell so a crash leaves the partial report
+        # on disk. write_report is idempotent (timestamp prefix is fixed).
+        partial = replace(report_skeleton, cells=tuple(cells + skipped_cells))
+        write_report(partial, out_dir)
 
-    # Always record the skipped cells too so the report shows the full picture.
-    for policy, env in skipped:
-        cells.append(_zero_timing(policy.name, env.name, status="skipped", error="not runnable"))
-
+    cells.extend(skipped_cells)
     report = replace(report_skeleton, cells=tuple(cells))
     write_report(report, out_dir)
 
@@ -554,6 +579,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"Episodes per cell (default: {DEFAULT_EPISODES}).",
     )
     parser.add_argument(
+        "--exclude-policy",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Skip this policy (repeatable).",
+    )
+    parser.add_argument(
+        "--exclude-env",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Skip this env (repeatable).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the planned cells and exit 0 without importing torch.",
@@ -593,6 +632,8 @@ def main(argv: list[str] | None = None) -> int:
             policy_filter=args.policy,
             env_filter=args.env,
             dry_run=args.dry_run,
+            exclude_policies=tuple(args.exclude_policy),
+            exclude_envs=tuple(args.exclude_env),
         )
     except FileNotFoundError as exc:
         # A missing yaml file is operator error, not a runtime crash.

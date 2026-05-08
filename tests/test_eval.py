@@ -711,6 +711,28 @@ def test_lerobot_adapter_handles_aloha_multiview_obs_dict() -> None:
     assert tuple(model.last_batch["observation.images.top"].shape) == (3, 480, 640)
 
 
+def test_gym_obs_to_batch_unpacks_nested_pixels_dict_for_aloha() -> None:
+    """gym-aloha emits ``pixels`` as a ``{view: HWC}`` dict (not flat keys).
+
+    Routing must keep this in the PushT/Aloha branch (it has no
+    ``robot_state``) and unpack each view into ``observation.images.<view>``.
+    """
+    torch = pytest.importorskip("torch")
+    from lerobot_bench.eval import _gym_obs_to_batch
+
+    obs = {
+        "pixels": {"top": np.zeros((480, 640, 3), dtype=np.uint8)},
+        "agent_pos": np.zeros(14, dtype=np.float64),
+    }
+    batch = _gym_obs_to_batch(obs)
+    assert "observation.images.top" in batch
+    assert "observation.state" in batch
+    # Did NOT route to the libero branch.
+    assert "observation.image" not in batch
+    assert tuple(batch["observation.images.top"].shape) == (3, 480, 640)
+    assert isinstance(batch["observation.state"], torch.Tensor)
+
+
 def test_lerobot_adapter_rejects_non_dict_obs() -> None:
     pytest.importorskip("torch")
 
