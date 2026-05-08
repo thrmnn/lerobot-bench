@@ -747,11 +747,18 @@ def test_lerobot_adapter_rejects_non_dict_obs() -> None:
         adapter(np.zeros(5))  # type: ignore[arg-type]
 
 
-def test_lerobot_adapter_action_shape_mismatch_raises() -> None:
+def test_lerobot_adapter_oversized_action_slices_to_env_shape() -> None:
+    """Multi-embodiment VLAs (xvla, pi0fast) emit padded action vectors.
+
+    The convention is that the first ``env_action_dim`` entries are
+    active for the current embodiment; trailing dims are zero-padded
+    slots for other embodiments. The adapter slices to the env shape.
+    """
     torch = pytest.importorskip("torch")
 
-    # Model returns a (1, 14) action; adapter expects shape (2,) -> mismatch.
-    model = _FakeModel(action_value=torch.zeros(1, 14))
+    # Model emits 14 dims; env wants 2. Take the first 2.
+    full_action = torch.tensor([[1.0, 2.0, 99.0, 99.0] + [0.0] * 10])
+    model = _FakeModel(action_value=full_action)
     adapter = _LerobotPolicyAdapter(
         model,
         preprocessor=_identity,
@@ -759,7 +766,26 @@ def test_lerobot_adapter_action_shape_mismatch_raises() -> None:
         action_shape=(2,),
         device="cpu",
     )
-    with pytest.raises(RuntimeError, match=r"size 14, expected 2"):
+    out = adapter({"pixels": np.zeros((96, 96, 3), dtype=np.uint8)})
+    assert tuple(out.shape) == (2,)
+    np.testing.assert_allclose(out, [1.0, 2.0])
+
+
+def test_lerobot_adapter_undersized_action_raises() -> None:
+    """An action smaller than the env's expected shape is a real bug
+    (not the padded multi-embodiment case) and must raise.
+    """
+    torch = pytest.importorskip("torch")
+
+    model = _FakeModel(action_value=torch.zeros(1, 1))
+    adapter = _LerobotPolicyAdapter(
+        model,
+        preprocessor=_identity,
+        postprocessor=_identity,
+        action_shape=(7,),
+        device="cpu",
+    )
+    with pytest.raises(RuntimeError, match=r"size 1, expected 7"):
         adapter({"pixels": np.zeros((96, 96, 3), dtype=np.uint8)})
 
 

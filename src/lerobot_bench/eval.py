@@ -333,13 +333,22 @@ class _LerobotPolicyAdapter:
         action_np = np.asarray(action_np, dtype=np.float32).reshape(-1)
         if self._action_shape is not None:
             expected = int(np.prod(self._action_shape))
-            if action_np.size != expected:
+            if action_np.size > expected:
+                # Multi-embodiment VLAs (xvla, pi0fast) emit a padded
+                # action vector (e.g. 20-dim) so a single policy can
+                # cover several robots. The convention is that the
+                # first `env_action_dim` entries are the active dims;
+                # the trailing dims are zero-padded slots for other
+                # embodiments. Slice to the env's action shape.
+                action_np = np.asarray(action_np[:expected], dtype=np.float32)
+            elif action_np.size < expected:
                 raise RuntimeError(
                     f"policy emitted action of size {action_np.size}, "
-                    f"expected {expected} for action_shape {self._action_shape}"
+                    f"expected {expected} for action_shape {self._action_shape} "
+                    "(too few dims; not a padded multi-embodiment case)"
                 )
             action_np = action_np.reshape(self._action_shape)
-        return action_np
+        return np.asarray(action_np, dtype=np.float32)
 
 
 def _gym_obs_to_batch(obs: dict[str, Any] | NDArray[np.floating[Any]]) -> dict[str, Any]:
