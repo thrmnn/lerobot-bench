@@ -973,3 +973,456 @@ def env_dashboard_logs_dir() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return DEFAULT_LOGS_DIR
+
+
+# --------------------------------------------------------------------- #
+# Explainability layer: project context, methodology, per-tab intros    #
+# --------------------------------------------------------------------- #
+#
+# The data tabs are already plenty; the operator's complaint is that
+# the numbers on screen need framing. The helpers below produce *only*
+# markdown -- the gradio wiring in ``app.py`` is a thin shell that
+# renders the strings into ``gr.Markdown`` / ``gr.Accordion`` blocks.
+# Keeping them here means the tests (which can't import gradio) cover
+# the prose surface directly.
+#
+# Three slots:
+#
+# * **persistent_header_markdown** -- the one-screen elevator pitch
+#   that renders above the tab strip on every tab. Includes a live
+#   ``cell N/total`` badge wired through :func:`compute_manifest_progress`.
+# * **per_tab_intro_markdown** -- the "What this tab shows" block that
+#   sits inside an open accordion at the top of each tab. Pulled into
+#   the About tab too so the operator has a single reference of all
+#   four tabs' purpose.
+# * **methodology_markdown** -- the About tab body. Mirrors the seeding
+#   contract, CI math, MDE bounds, and v1 scope from ``paper/main.tex``.
+#
+# Thresholds are interpolated from the module-level constants
+# (``SLOW_MS_PER_STEP_THRESHOLD`` et al.) so the prose drifts only when
+# the underlying calibration rule changes -- the per-tab-intro test
+# pins this by reading the constants and asserting they appear in the
+# rendered string.
+
+# v1 scope numbers. Sourced from ``configs/sweep_full.yaml`` (6 policies
+# x 6 envs minus the env_compat-pruned cells == 22 runnable, with 5
+# seeds each == 110 seed-entries). Kept as constants so the header
+# badge has a stable denominator even before the manifest is on disk.
+V1_POLICIES: tuple[str, ...] = (
+    "act",
+    "diffusion_policy",
+    "no_op",
+    "random",
+    "smolvla_libero",
+    "xvla_libero",
+)
+V1_ENVS: tuple[str, ...] = (
+    "pusht",
+    "aloha_transfer_cube",
+    "libero_spatial",
+    "libero_object",
+    "libero_goal",
+    "libero_10",
+)
+V1_RUNNABLE_CELLS = 22
+V1_SEEDS_PER_CELL = 5
+V1_EPISODES_PER_SEED = 50
+V1_TOTAL_SEED_ENTRIES = V1_RUNNABLE_CELLS * V1_SEEDS_PER_CELL  # 110
+
+# Tags used by :func:`compute_manifest_progress` -- match the
+# ``manifest["cells"][k]["status"]`` schema from ``scripts/run_sweep.py``.
+ManifestStatusCounts = dict[str, int]
+
+
+def compute_manifest_progress(
+    manifest_path: Path | None,
+) -> ManifestStatusCounts:
+    """Count seed-entries in a sweep manifest by status.
+
+    Returns a dict with keys ``{"completed", "failed", "skipped",
+    "pending", "running", "total"}``. ``running`` is the subset of
+    ``pending`` entries that have a non-empty ``started_utc`` (the
+    sweep driver flips ``pending -> completed/failed/skipped`` rather
+    than introducing a separate ``running`` state, so we recover the
+    in-flight count from the started_utc field).
+
+    Returns all-zero counts on missing/unparseable manifest -- the
+    persistent header then degrades to "no in-flight sweep" rather
+    than throwing on cold start.
+    """
+    counts: ManifestStatusCounts = {
+        "completed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "pending": 0,
+        "running": 0,
+        "total": 0,
+    }
+    if manifest_path is None or not manifest_path.exists():
+        return counts
+    data = load_manifest(manifest_path)
+    cells = data.get("cells", [])
+    if not isinstance(cells, list):
+        return counts
+    for entry in cells:
+        if not isinstance(entry, dict):
+            continue
+        status = str(entry.get("status", ""))
+        counts["total"] += 1
+        if status == STATUS_COMPLETED:
+            counts["completed"] += 1
+        elif status == STATUS_FAILED:
+            counts["failed"] += 1
+        elif status == STATUS_SKIPPED:
+            counts["skipped"] += 1
+        elif status == STATUS_PENDING:
+            counts["pending"] += 1
+            if entry.get("started_utc"):
+                counts["running"] += 1
+    return counts
+
+
+def _format_progress_badge(counts: ManifestStatusCounts) -> str:
+    """Render the cell ``N/total`` chip for the persistent header.
+
+    Three states:
+
+    * No manifest discovered -> "_no sweep on disk yet_".
+    * Manifest present, every seed completed/skipped -> "all 110 done".
+    * Mid-flight -> ``M/N done (R running, F failed)``.
+    """
+    total = counts["total"]
+    done = counts["completed"] + counts["skipped"]
+    failed = counts["failed"]
+    running = counts["running"]
+    denom = total or V1_TOTAL_SEED_ENTRIES
+    if total == 0:
+        return "_no sweep on disk yet_"
+    if done == total and failed == 0:
+        return f"**all {done}/{denom} seeds complete**"
+    parts = [f"**{done}/{denom}** done"]
+    if running > 0:
+        parts.append(f"{running} running")
+    if failed > 0:
+        parts.append(f"**{failed} failed**")
+    return f"sweep in progress -- {', '.join(parts)}"
+
+
+def persistent_header_markdown(
+    *,
+    results_dir: Path | None = None,
+    logs_dir: Path | None = None,
+    manifest_path: Path | None = None,
+) -> str:
+    """Return the markdown block rendered above the tab strip.
+
+    Renders on every tab. Designed for <10 s "what is this?" parsing:
+    one-sentence project pitch, v1 scope, live progress badge, links to
+    the long-form docs.
+
+    Arguments default to the environment-resolved values (so the live
+    UI matches what the operator's shell sees) but accept overrides
+    for tests.
+    """
+    rdir = results_dir if results_dir is not None else env_dashboard_results_dir()
+    ldir = logs_dir if logs_dir is not None else env_dashboard_logs_dir()
+    if manifest_path is None:
+        # Best-effort: the newest sweep manifest on disk. None is fine.
+        runs = discover_sweep_runs(rdir)
+        manifest_path = runs[0].manifest_path if runs else None
+    counts = compute_manifest_progress(manifest_path)
+    badge = _format_progress_badge(counts)
+
+    policies_str = ", ".join(f"`{p}`" for p in V1_POLICIES)
+    return (
+        "# lerobot-bench -- local operator dashboard\n"
+        "\n"
+        "Public reproducible benchmark of pretrained LeRobot policies "
+        f"({policies_str}) on 6 sim envs (PushT, Aloha-transfer-cube, "
+        "LIBERO x4). "
+        f"**v1 scope:** {V1_RUNNABLE_CELLS} cells x {V1_SEEDS_PER_CELL} "
+        f"seeds x {V1_EPISODES_PER_SEED} episodes "
+        f"({V1_TOTAL_SEED_ENTRIES} seed-entries, ~12 hr sweep on RTX 4060 laptop). "
+        "**Pi0 family deferred to v1.1** (~30 GB cold-load RAM; see Limitations).\n"
+        "\n"
+        f"| Reading results from | `{rdir}` |\n"
+        "|---|---|\n"
+        f"| Reading logs from | `{ldir}` |\n"
+        f"| v1 status | {badge} |\n"
+        "\n"
+        "Reference: "
+        "[`paper/main.tex`](paper/main.tex) (Limitations) - "
+        "[`docs/MDE_TABLE.md`](docs/MDE_TABLE.md) - "
+        "[`docs/FAILURE_TAXONOMY.md`](docs/FAILURE_TAXONOMY.md) - "
+        "see the **About** tab for the 60-second methodology brief."
+    )
+
+
+def resolved_paths_banner_markdown(
+    *,
+    results_dir: Path | None = None,
+    logs_dir: Path | None = None,
+) -> str:
+    """One-line markdown showing the resolved env-var values.
+
+    Sits directly under the persistent header so a misconfigured
+    ``DASHBOARD_RESULTS_DIR`` (the previous footgun: pointing at an
+    empty worktree results dir) is obvious before the operator clicks
+    into a tab and stares at empty tables.
+    """
+    rdir = results_dir if results_dir is not None else env_dashboard_results_dir()
+    ldir = logs_dir if logs_dir is not None else env_dashboard_logs_dir()
+    return f"_Resolved paths_ - `DASHBOARD_RESULTS_DIR={rdir}` - `DASHBOARD_LOGS_DIR={ldir}`"
+
+
+# Per-tab intros. The four entries match the four data tabs by exact
+# label. Strings interpolate the calibration thresholds so the prose
+# stays in sync with ``downscope_reason``. The About tab embeds the
+# same strings so the operator has them in one place.
+def per_tab_intro_markdown(tab: str) -> str:
+    """Return the "What this tab shows" markdown for ``tab``.
+
+    ``tab`` is one of ``{"progress", "calibration", "rollouts",
+    "events"}``. Unknown keys fall back to the empty string; callers
+    should treat that as a bug in the wire-up rather than swallow it.
+    """
+    if tab == "progress":
+        return (
+            "**What this tab shows.** A live grid of every "
+            f"`(policy, env)` cell in the v1 sweep ({V1_RUNNABLE_CELLS} "
+            f"cells x {V1_SEEDS_PER_CELL} seeds = "
+            f"{V1_TOTAL_SEED_ENTRIES} seed-entries). It reads "
+            "`results/<run>/sweep_manifest.json` and rolls the per-seed "
+            "entries up to a per-cell status / seeds-done / ETA row.\n"
+            "\n"
+            "**How to read it.** `status` is the cell-level roll-up: "
+            "`queued` (nothing started), `running` (some seeds in flight), "
+            "`done` (every seed completed or skipped), `failed` (any seed "
+            "failed). Failures sort to the top -- if you see red, that's "
+            "where to look first. `eta_minutes` is the mean wall-clock of "
+            "completed seeds times remaining seeds; rough by design, useful "
+            'for the "leave overnight?" call.\n'
+            "\n"
+            "**Good shape.** Most cells should march `queued -> running -> "
+            "done` in dispatch order without any `failed`. A single failed "
+            "cell does not abort the sweep -- the driver continues so "
+            "you can triage in the morning."
+        )
+    if tab == "calibration":
+        return (
+            "**What is calibration?** Before launching the full sweep, "
+            "`scripts/calibrate.py` runs each `(policy, env)` pair for "
+            "20 steps to measure per-step inference latency and peak "
+            "VRAM. The `auto_downscope` rule then cuts a cell's episode "
+            f"budget when it's too slow (`mean_step_ms > "
+            f"{SLOW_MS_PER_STEP_THRESHOLD:.0f}`) or VRAM-pressured "
+            f"(`vram_peak_mb > {HIGH_VRAM_THRESHOLD_MB:.0f}`), keeping "
+            "the overnight sweep under wall-clock + GPU budget.\n"
+            "\n"
+            "**How to read this table.** Each row is one cell. "
+            "`status=ok` means the calibration succeeded; the "
+            "`reason` column states whether the cell is `within budget`, "
+            "cut on episodes (`mean_step_ms > "
+            f"{SLOW_MS_PER_STEP_THRESHOLD:.0f}` or `vram_peak_mb > "
+            f"{HIGH_VRAM_THRESHOLD_MB:.0f}`), or cut on seeds "
+            f"(`mean_step_ms > {VERY_SLOW_MS_PER_STEP_THRESHOLD:.0f}` "
+            f"or `vram_peak_mb > {VERY_HIGH_VRAM_THRESHOLD_MB:.0f}`). "
+            "`recommended_episodes < 50` means auto-downscope fired and "
+            "trimmed the cell from the default 50.\n"
+            "\n"
+            "**Good shape.** At least one cell per policy passes within "
+            "budget. If many cells are `oom` or have `cut seeds` in the "
+            "reason column, the matrix is too aggressive for this "
+            "hardware and you should re-run calibration on a smaller "
+            "policy roster (or upgrade the GPU)."
+        )
+    if tab == "rollouts":
+        return (
+            "**What this tab shows.** A four-dropdown cascade "
+            "(`policy`, `env`, `seed`, `episode`) into the MP4 archive "
+            "of every episode rendered by the sweep. The file lookup "
+            "scans `results/**/videos/` plus the optional "
+            "Robotics-Data Windows mount; missing combinations show "
+            '"no rollout for this combination" rather than crashing.\n'
+            "\n"
+            "**How to read it.** Pick a policy that interests you and "
+            "skim seed 0 ep 0 of a few envs. The rollout MP4s are the "
+            "single best way to understand why a policy's success rate "
+            "is what it is -- a 0.42 success rate from a policy that "
+            "mostly looks coherent is a different story from 0.42 with "
+            "random thrashing.\n"
+            "\n"
+            "**Good shape.** Every cell on the **Sweep progress** tab "
+            "with `status=done` should have 50 episodes available here. "
+            "If a `done` cell is missing rollouts, video recording was "
+            "disabled at sweep time or the Windows mount is unreachable."
+        )
+    if tab == "events":
+        return (
+            "**What this tab shows.** A tail of the active "
+            "`logs/sweep-*.log` file, colour-coded by line category: "
+            "blue = dispatch, green = success (per-seed `success_rate=`), "
+            "red = error or watchdog BREACH. Refreshes every 2 s; the "
+            "category-filter radio narrows the tail to just the lines "
+            "you care about.\n"
+            "\n"
+            "**How to read it.** Most of the time you want `all`. "
+            "Switch to `error` or `breach` if you're chasing a failure "
+            "or watching for a cgroup OOM (the watchdog emits a BREACH "
+            "line when the WSL2 RAM cap is exceeded). The header above "
+            "the tail counts dispatched / completed / errors / breaches "
+            "across the visible window.\n"
+            "\n"
+            "**Good shape.** Steady cadence of blue `dispatch` lines "
+            "followed by green `success_rate=` summaries, no red. One "
+            "red `FAILED (exit=-9)` is usually an OOM kill -- check "
+            "the **Calibration** tab and consider re-running the "
+            "downscope on that cell."
+        )
+    return ""
+
+
+def methodology_markdown() -> str:
+    """Return the markdown body for the About tab.
+
+    Single source of truth for the explainability prose: pulled in by
+    ``app.py`` for tab 5 and by tests for the H2-headings check. Tracks
+    ``paper/main.tex`` Methods + Limitations sections at a high level
+    -- the paper is the authoritative reference and this tab links out
+    to it rather than restating the LaTeX in markdown.
+    """
+    return f"""## What is lerobot-bench?
+
+lerobot-bench is a public reproducible benchmark of pretrained policies
+from the HuggingFace LeRobot stack. The v1 roster runs
+{len(V1_POLICIES)} policies ({", ".join(V1_POLICIES)}) on
+{len(V1_ENVS)} sim envs (PushT, Aloha-transfer-cube, and the four
+LIBERO task suites: spatial, object, goal, 10). After dropping
+incompatible `(policy, env)` pairs via each policy's declared
+`env_compat`, the v1 sweep covers **{V1_RUNNABLE_CELLS} runnable cells
+x {V1_SEEDS_PER_CELL} seeds x {V1_EPISODES_PER_SEED} episodes per seed
+= {V1_RUNNABLE_CELLS * V1_SEEDS_PER_CELL * V1_EPISODES_PER_SEED}
+binary outcomes**.
+
+The artifact has three parts: this evaluation harness, a public Hub
+dataset (`Theozinh0/lerobot-bench-results-v1`) with every per-episode
+outcome plus an MP4 of every rollout, and a 4-page arXiv writeup.
+This dashboard is the **operator** view: live, local, no Hub fetches.
+The public-facing leaderboard lives separately under `space/`.
+
+## Methodology in 60 seconds
+
+- **Seeding contract.** Each `(policy, env, seed)` cell sets
+  `numpy.random.default_rng(seed)`, `torch.manual_seed(seed)`, and
+  the env's own seed; rollout `i` then derives its episode seed as
+  `seed * 1000 + i`. Re-running any cell reproduces its 50 outcomes
+  to the bit on the same `lerobot==0.5.1` pin.
+- **Confidence intervals.** Per-cell success is reported with two
+  cross-checked 95% CIs: a closed-form Wilson score interval (Wilson,
+  1927) and a percentile bootstrap (Efron, 1979) over the per-episode
+  binary outcomes, 2000 resamples. The two agree to <0.005 across the
+  full N=250 grid; the leaderboard shows Wilson, the forest plot uses
+  bootstrap for visual symmetry.
+- **Minimum detectable effect.** The Wilson half-width at p=0.5,
+  N=250 is **0.0615** (inconclusive band 2.HW = 0.123). The empirical
+  paired-MDE at 80% power is **0.15** at rho in {{0, 0.3}}. Any
+  cross-cell delta below 0.15 is labeled inconclusive on the
+  leaderboard. See [docs/MDE_TABLE.md](docs/MDE_TABLE.md) for the
+  full table.
+- **Paired comparisons.** Cross-policy claims on a shared env use a
+  paired bootstrap on episode-level outcome differences plus a paired
+  Wilcoxon signed-rank test. Headline claims cite only the planned
+  comparisons; exploratory ones are tabulated for transparency.
+
+## How a sweep works
+
+```
+[1] calibrate                 -> results/calibration-YYYYMMDD.json
+        (20-step latency + VRAM probe per cell)
+        |
+        v
+[2] auto_downscope --apply    -> configs/sweep_full.yaml overrides
+        (cuts episode count for slow/VRAM-pressured cells)
+        |
+        v
+[3] run_sweep --config sweep_full.yaml
+        |   per-cell dispatch -> scripts/run_one.py
+        |   writes:
+        |     results/sweep-full/sweep_manifest.json   (this dashboard)
+        |     results/sweep-full/results.parquet       (leaderboard)
+        |     results/sweep-full/videos/*.mp4          (Rollouts tab)
+        |     logs/sweep-YYYYMMDD-HHMMSS.log           (Event log tab)
+        v
+[4] publish_results -> HF Hub dataset
+        (the public Space then renders that dataset)
+```
+
+## v1 scope and known limits
+
+- **Simulation only.** Every number is sim. lerobot-bench is a
+  screening tool, not a substitute for hardware evaluation.
+- **Single-hardware bias on wall-clock.** Latency is measured on a
+  single RTX 4060 laptop (8 GB VRAM). The policy *ranking* is
+  portable; absolute ms/step differs by GPU.
+- **Pi0 family deferred to v1.1.** The pi0 / pi0fast / pi0.5
+  checkpoints (PaliGemma-3B backbone) require ~30 GB host RAM during
+  cold load under HuggingFace Transformers' default `from_pretrained`
+  path. The 32 GB WSL2 laptop used for v1 cannot fit that with other
+  tenants running. v1.1 plans to onboard them with a quantized
+  checkpoint or `accelerate`'s `device_map="auto"` streaming load.
+- **Sparse matrix.** The `(policy, env)` grid is sparse by design --
+  a cell is N/A only when no public Hub checkpoint exists. The
+  shared-env set for paired comparisons is {{LIBERO-spatial, -object,
+  -goal, -10}} for the v1 VLAs.
+- **Episode budget.** N=250 (5 seeds x 50 episodes) is the GPU
+  budget, not a power calculation. The MDE is documented above; the
+  leaderboard labels any delta below the MDE as inconclusive.
+
+## Reading this dashboard
+
+**Sweep progress.** {per_tab_intro_markdown("progress")}
+
+**Calibration inspector.** {per_tab_intro_markdown("calibration")}
+
+**Rollout preview.** {per_tab_intro_markdown("rollouts")}
+
+**Live event log.** {per_tab_intro_markdown("events")}
+"""
+
+
+# Column glossaries -- short one-line "X means Y" notes rendered below
+# each ``gr.Dataframe`` since Gradio's native headers don't support
+# tooltips. Kept here so the prose stays alongside the column
+# constants above.
+def column_glossary_markdown(tab: str) -> str:
+    """Markdown of column glossaries for the named tab.
+
+    ``tab`` is one of ``{"progress", "calibration"}``. Other tabs
+    don't ship dataframes; callers asking for them get ``""``.
+    """
+    if tab == "progress":
+        return (
+            "**Column glossary:** "
+            "`policy` / `env` = the cell key - "
+            "`status` = `queued`/`running`/`done`/`failed`/`skipped` cell roll-up - "
+            f"`seeds_done/seeds_total` = completed seeds out of {V1_SEEDS_PER_CELL} - "
+            "`episodes_done/episodes_total` = approximate; counted from completed seeds "
+            f"(50 each by default) - "
+            "`last_update_utc` = most recent started_utc / finished_utc on any seed in the cell - "
+            "`eta_minutes` = mean wall-clock of completed seeds x remaining seeds (rough)."
+        )
+    if tab == "calibration":
+        return (
+            "**Column glossary:** "
+            "`status` = `ok`/`oom`/`error`/`skipped` from the calibration JSON - "
+            "`mean_step_ms` / `p95_step_ms` = per-step inference latency over the 20-step probe - "
+            "`vram_peak_mb` = peak GPU memory observed during the probe - "
+            "`recommended_seeds` / `recommended_episodes` = output of `auto_downscope` "
+            f"(defaults {V1_SEEDS_PER_CELL} / {V1_EPISODES_PER_SEED}; trimmed for slow / VRAM-pressured cells) - "
+            "`reason` = human-readable explanation derived from the timing thresholds "
+            f"(slow >{SLOW_MS_PER_STEP_THRESHOLD:.0f} ms/step, "
+            f"very slow >{VERY_SLOW_MS_PER_STEP_THRESHOLD:.0f}; "
+            f"high VRAM >{HIGH_VRAM_THRESHOLD_MB:.0f} MB, "
+            f"very high >{VERY_HIGH_VRAM_THRESHOLD_MB:.0f})."
+        )
+    return ""

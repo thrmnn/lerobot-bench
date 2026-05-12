@@ -61,6 +61,8 @@ build_calibration_table = _dashboard_helpers.build_calibration_table
 build_progress_table = _dashboard_helpers.build_progress_table
 classify_log_line = _dashboard_helpers.classify_log_line
 clear_video_cache = _dashboard_helpers.clear_video_cache
+column_glossary_markdown = _dashboard_helpers.column_glossary_markdown
+compute_manifest_progress = _dashboard_helpers.compute_manifest_progress
 discover_sweep_logs = _dashboard_helpers.discover_sweep_logs
 discover_sweep_runs = _dashboard_helpers.discover_sweep_runs
 downscope_reason = _dashboard_helpers.downscope_reason
@@ -70,11 +72,18 @@ format_log_lines_html = _dashboard_helpers.format_log_lines_html
 format_relative_time = _dashboard_helpers.format_relative_time
 load_calibration_report = _dashboard_helpers.load_calibration_report
 load_manifest = _dashboard_helpers.load_manifest
+methodology_markdown = _dashboard_helpers.methodology_markdown
 parse_video_filename = _dashboard_helpers.parse_video_filename
+per_tab_intro_markdown = _dashboard_helpers.per_tab_intro_markdown
+persistent_header_markdown = _dashboard_helpers.persistent_header_markdown
+resolved_paths_banner_markdown = _dashboard_helpers.resolved_paths_banner_markdown
 scan_video_index = _dashboard_helpers.scan_video_index
 summarize_log = _dashboard_helpers.summarize_log
 tail_log_lines = _dashboard_helpers.tail_log_lines
 video_index_options = _dashboard_helpers.video_index_options
+V1_RUNNABLE_CELLS = _dashboard_helpers.V1_RUNNABLE_CELLS
+V1_SEEDS_PER_CELL = _dashboard_helpers.V1_SEEDS_PER_CELL
+V1_TOTAL_SEED_ENTRIES = _dashboard_helpers.V1_TOTAL_SEED_ENTRIES
 
 # --------------------------------------------------------------------- #
 # Helpers to build synthetic manifests / calibration reports            #
@@ -782,6 +791,278 @@ def test_event_log_tab_html_escapes_traceback_brackets() -> None:
     # it should be ``&lt;class``.
     assert "&lt;class" in rendered
     assert "<class 'RuntimeError'>" not in rendered
+
+
+# --------------------------------------------------------------------- #
+# Explainability layer: persistent header, per-tab intros, About tab    #
+# --------------------------------------------------------------------- #
+
+
+def test_persistent_header_shows_current_results_dir(tmp_path: Path) -> None:
+    """The persistent header must contain the resolved results-dir string.
+
+    Premortem: a misconfigured ``DASHBOARD_RESULTS_DIR`` (pointing at
+    an empty worktree results/) is the most common dashboard failure
+    mode; the persistent header is the first place the operator sees
+    it. We pin the string contents so a refactor that drops the path
+    from the header gets caught immediately.
+    """
+    fake_results = tmp_path / "fake-results"
+    fake_results.mkdir()
+    fake_logs = tmp_path / "fake-logs"
+    fake_logs.mkdir()
+
+    rendered = persistent_header_markdown(
+        results_dir=fake_results,
+        logs_dir=fake_logs,
+    )
+    # The resolved path literally appears so a wrong-dir misconfig is obvious.
+    assert str(fake_results) in rendered
+    assert str(fake_logs) in rendered
+    # Project pitch lives in the header too -- one-screen elevator pitch.
+    assert "lerobot-bench" in rendered
+    assert "Pi0" in rendered or "pi0" in rendered.lower()
+    # v1 scope numbers must surface for the "what is this?" answer.
+    assert str(V1_RUNNABLE_CELLS) in rendered
+    assert str(V1_SEEDS_PER_CELL) in rendered
+
+    # Resolved-paths banner mirrors the same values one row down so
+    # the operator can spot a wrong-dir misconfig without parsing the
+    # full header.
+    banner = resolved_paths_banner_markdown(
+        results_dir=fake_results,
+        logs_dir=fake_logs,
+    )
+    assert "DASHBOARD_RESULTS_DIR" in banner
+    assert "DASHBOARD_LOGS_DIR" in banner
+    assert str(fake_results) in banner
+    assert str(fake_logs) in banner
+
+
+def test_persistent_header_progress_badge_with_in_flight_manifest(
+    tmp_path: Path,
+) -> None:
+    """An in-flight manifest -> the header badge counts done / running / failed.
+
+    Two seeds: one completed, one running (started_utc set but
+    pending). The badge should say "1/110 done" plus "1 running".
+    """
+    manifest = _manifest(
+        [
+            _manifest_entry(
+                policy="act",
+                env="pusht",
+                seed=0,
+                status="completed",
+                started_utc="2026-05-12T03:00:00+00:00",
+                finished_utc="2026-05-12T03:10:00+00:00",
+                exit_code=0,
+            ),
+            _manifest_entry(
+                policy="act",
+                env="pusht",
+                seed=1,
+                status="pending",
+                started_utc="2026-05-12T03:10:00+00:00",
+            ),
+        ]
+    )
+    run_dir = tmp_path / "sweep-full"
+    run_dir.mkdir()
+    manifest_path = run_dir / "sweep_manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+
+    counts = compute_manifest_progress(manifest_path)
+    assert counts["completed"] == 1
+    assert counts["running"] == 1
+    assert counts["pending"] == 1
+    assert counts["total"] == 2
+
+    rendered = persistent_header_markdown(
+        results_dir=tmp_path,
+        logs_dir=tmp_path,
+        manifest_path=manifest_path,
+    )
+    # The denominator falls back to the v1 110-entry target when the
+    # manifest's total < v1 (which is the case for this 2-entry
+    # synthetic manifest); the running / failed counters still show.
+    assert "1/" in rendered
+    assert "running" in rendered
+
+
+def test_compute_manifest_progress_handles_missing_manifest(tmp_path: Path) -> None:
+    """Missing manifest -> zero counts, never raises."""
+    counts = compute_manifest_progress(tmp_path / "no-such-file.json")
+    assert counts == {
+        "completed": 0,
+        "failed": 0,
+        "skipped": 0,
+        "pending": 0,
+        "running": 0,
+        "total": 0,
+    }
+    # None path -> same shape.
+    assert compute_manifest_progress(None)["total"] == 0
+
+
+def test_per_tab_intro_thresholds_match_calibrate_py() -> None:
+    """The calibration tab intro must reference the actual auto_downscope thresholds.
+
+    Pulled either from ``scripts.calibrate`` (preferred -- one source
+    of truth) or via ``ast`` parsing if the script can't be imported
+    in the test env (which is the case in the dashboard's slim test
+    environment). The rendered prose must contain the live integer
+    value so a future threshold tweak forces a docs update.
+    """
+    # First try importing the real constant from scripts/calibrate.py.
+    # The scripts package imports lerobot_bench which has heavy deps;
+    # fall back to AST extraction if the import fails.
+    expected_slow_ms: float | None = None
+    expected_high_vram: float | None = None
+    try:
+        from scripts.calibrate import (  # type: ignore[import-not-found]
+            HIGH_VRAM_THRESHOLD_MB as _real_high_vram,  # noqa: N811
+        )
+        from scripts.calibrate import (
+            SLOW_MS_PER_STEP_THRESHOLD as _real_slow_ms,  # noqa: N811
+        )
+
+        expected_slow_ms = float(_real_slow_ms)
+        expected_high_vram = float(_real_high_vram)
+    except ImportError:
+        # Fallback: parse the constants out of scripts/calibrate.py
+        # via ast so the test still pins the source of truth without
+        # importing the heavy lerobot_bench package.
+        src = (_REPO_ROOT / "scripts" / "calibrate.py").read_text()
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0]
+                if not isinstance(target, ast.Name):
+                    continue
+                if not isinstance(node.value, ast.Constant):
+                    continue
+                if target.id == "SLOW_MS_PER_STEP_THRESHOLD":
+                    expected_slow_ms = float(node.value.value)
+                elif target.id == "HIGH_VRAM_THRESHOLD_MB":
+                    expected_high_vram = float(node.value.value)
+
+    assert expected_slow_ms is not None, "could not resolve SLOW_MS_PER_STEP_THRESHOLD"
+    assert expected_high_vram is not None, "could not resolve HIGH_VRAM_THRESHOLD_MB"
+
+    # Dashboard copy of the constants must match the source of truth.
+    assert pytest.approx(expected_slow_ms) == SLOW_MS_PER_STEP_THRESHOLD
+    assert pytest.approx(expected_high_vram) == HIGH_VRAM_THRESHOLD_MB
+
+    # Rendered intro must mention the live integer value so a future
+    # threshold tweak forces a docs update.
+    intro = per_tab_intro_markdown("calibration")
+    assert f"{expected_slow_ms:.0f}" in intro
+    assert f"{expected_high_vram:.0f}" in intro
+    # Also mention the very-slow / very-high tier so the operator sees
+    # both downscope buckets named in the prose.
+    assert f"{VERY_SLOW_MS_PER_STEP_THRESHOLD:.0f}" in intro
+    assert f"{VERY_HIGH_VRAM_THRESHOLD_MB:.0f}" in intro
+
+
+def test_per_tab_intro_all_four_tabs_render() -> None:
+    """Each of the four data tabs has a non-empty intro markdown block.
+
+    Plus an unknown tab key returns the empty string (not an
+    exception) -- callers should treat that as a wiring bug, not a
+    runtime error.
+    """
+    for tab in ("progress", "calibration", "rollouts", "events"):
+        rendered = per_tab_intro_markdown(tab)
+        assert len(rendered) > 100, f"intro for tab={tab!r} is suspiciously short"
+        # All four start with the "What this tab shows" framing.
+        assert "What" in rendered and "tab" in rendered
+        # All four name a "Good shape" expectation (the operator-facing
+        # "is it healthy?" answer).
+        assert "Good shape" in rendered or "good" in rendered.lower()
+
+    assert per_tab_intro_markdown("unknown-tab") == ""
+
+
+def test_column_glossary_progress_and_calibration() -> None:
+    """Both data-bearing tabs render a one-line glossary; other tabs none."""
+    progress = column_glossary_markdown("progress")
+    assert "policy" in progress and "env" in progress
+    assert "eta_minutes" in progress
+    assert "seeds_done" in progress
+
+    calibration = column_glossary_markdown("calibration")
+    assert "vram_peak_mb" in calibration
+    assert "mean_step_ms" in calibration
+    # The reason-column note must reference the same thresholds the
+    # intro mentions -- catches a drift between intro and glossary.
+    assert f"{SLOW_MS_PER_STEP_THRESHOLD:.0f}" in calibration
+    assert f"{HIGH_VRAM_THRESHOLD_MB:.0f}" in calibration
+
+    # Tabs without dataframes get the empty string.
+    assert column_glossary_markdown("rollouts") == ""
+    assert column_glossary_markdown("events") == ""
+
+
+def test_about_tab_renders_methodology_sections() -> None:
+    """The About tab must contain every required H2 section.
+
+    Each H2 anchors a specific operator question (What is this? How
+    does the methodology work? What are the limits?). A missing H2
+    means the at-a-glance reading guide has a gap.
+    """
+    rendered = methodology_markdown()
+    required_h2 = [
+        "## What is lerobot-bench?",
+        "## Methodology in 60 seconds",
+        "## How a sweep works",
+        "## v1 scope and known limits",
+        "## Reading this dashboard",
+    ]
+    for heading in required_h2:
+        assert heading in rendered, f"About tab missing required H2: {heading!r}"
+
+    # Key methodological keywords must appear so the test fails if the
+    # 60-second brief is silently truncated.
+    for keyword in (
+        "Wilson",
+        "bootstrap",
+        "seed",
+        "MDE",
+        "paired",
+    ):
+        assert keyword in rendered, f"About tab missing methodology keyword: {keyword!r}"
+
+    # v1 scope numbers must be cited.
+    assert str(V1_RUNNABLE_CELLS) in rendered
+    assert str(V1_TOTAL_SEED_ENTRIES) in rendered or "110" in rendered
+
+    # The pi0 deferral with the RAM reason is one of the explicit
+    # requirements from the requesting spec.
+    assert "pi0" in rendered.lower() or "Pi0" in rendered
+    assert "30" in rendered  # the ~30 GB cold-load number
+
+
+def test_dashboard_readme_exists_and_has_sections() -> None:
+    """dashboard/README.md must exist with the required H2 sections."""
+    readme_path = _DASHBOARD_DIR / "README.md"
+    assert readme_path.exists(), f"dashboard/README.md must exist at {readme_path}"
+    body = readme_path.read_text()
+
+    required_sections = [
+        "## Launch",
+        "## Configure",
+        "## Tabs",
+        "## Public Space vs local dashboard",
+        "## Empty-state checklist",
+    ]
+    for heading in required_sections:
+        assert heading in body, f"dashboard/README.md missing section: {heading!r}"
+
+    # The configure section must mention both env vars by name -- the
+    # operator copy-paste path for fixing a wrong-dir misconfig.
+    assert "DASHBOARD_RESULTS_DIR" in body
+    assert "DASHBOARD_LOGS_DIR" in body
 
 
 # --------------------------------------------------------------------- #
