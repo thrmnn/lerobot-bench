@@ -92,6 +92,15 @@ def main() -> int:
         help="Require this many consecutive load breaches",
     )
     ap.add_argument(
+        "--breach-seconds",
+        type=float,
+        default=0.0,
+        help=(
+            "Require any breach (RAM/VRAM/load) to persist this long before kill. "
+            "Tolerates transient spikes (e.g. cold model load). 0 = kill on first sample."
+        ),
+    )
+    ap.add_argument(
         "--no-kill",
         action="store_true",
         help="Log only; never signal target (useful for unattended observation)",
@@ -102,6 +111,7 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cpu_count = os.cpu_count() or 1
     load_breach_streak = 0
+    breach_start_ts: float | None = None
     breached = False
 
     print(
@@ -159,7 +169,29 @@ def main() -> int:
             if sustained_load:
                 reasons.append(f"load1 {la1:.1f} sustained over threshold")
 
-            if reasons and not breached:
+            now = sample["ts"]
+            if reasons:
+                if breach_start_ts is None:
+                    breach_start_ts = now
+                    out_f.write(
+                        json.dumps({"event": "breach_start", "reasons": reasons, "ts": now}) + "\n"
+                    )
+                    out_f.flush()
+                    print(
+                        f"watchdog: breach detected — {'; '.join(reasons)} "
+                        f"(grace {args.breach_seconds}s)",
+                        flush=True,
+                    )
+                sustained = (now - breach_start_ts) >= args.breach_seconds
+            else:
+                if breach_start_ts is not None:
+                    out_f.write(json.dumps({"event": "breach_cleared", "ts": now}) + "\n")
+                    out_f.flush()
+                    print("watchdog: breach cleared", flush=True)
+                breach_start_ts = None
+                sustained = False
+
+            if reasons and sustained and not breached:
                 breach_msg = f"watchdog: BREACH — {'; '.join(reasons)}"
                 print(breach_msg, flush=True)
                 out_f.write(json.dumps({"event": "breach", "reasons": reasons}) + "\n")
