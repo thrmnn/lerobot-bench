@@ -26,7 +26,7 @@ configs:
 Public, reproducible evaluation of pretrained [LeRobot](https://github.com/huggingface/lerobot) policies on standard simulation environments. One row per episode; videos for browsable failure analysis.
 
 - **Code**: <https://github.com/thrmnn/lerobot-bench>
-- **Live leaderboard (HF Space)**: <https://huggingface.co/spaces/Theozinh0/lerobot-bench>
+- **Live leaderboard (HF Space)**: <https://huggingface.co/spaces/thrmnn/lerobot-bench>
 - **Methodology**: see `docs/DESIGN.md` § Methodology in the GitHub repo.
 - **Statistical rigor doc**: see `docs/MDE_TABLE.md` for minimum-detectable-difference analysis at N=250.
 - **Failure taxonomy**: see `docs/FAILURE_TAXONOMY.md` for the six-mode rollout labeling rubric.
