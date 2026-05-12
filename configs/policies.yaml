@@ -24,6 +24,7 @@ policies:
       - libero_10
     license: MIT
     notes: "Emits a zero action every step. Floor on the leaderboard."
+    paper_reported_notes: "Baseline — no published reference."
 
   - name: random
     is_baseline: true
@@ -36,6 +37,7 @@ policies:
       - libero_10
     license: MIT
     notes: "Uniformly samples from the action space each step."
+    paper_reported_notes: "Baseline — no published reference."
 
   - name: diffusion_policy
     is_baseline: false
@@ -44,6 +46,21 @@ policies:
     revision_sha: 84a7c23178445c6bbf7e1a884ff497017910f653
     fp_precision: fp32
     license: apache-2.0
+    # The Chi et al. 2023 paper reports Push-T using *target area coverage*
+    # (max-overlap / avg-of-last-10), not the strict binary success metric
+    # (max-overlap >= 95%) that gym-pusht / our bench use. The apples-to-
+    # apples reference is the LeRobot Hub model card, which evaluates the
+    # locked checkpoint on 500 episodes with the binary metric.
+    paper_reported_success:
+      pusht: 0.654
+    paper_reported_notes: >-
+      LeRobot Hub model card for `lerobot/diffusion_pusht` (revision pinned in
+      this file), evaluation section: 65.4% success over 500 episodes on
+      `gym-pusht`, success := max-overlap >= 95%. The original Diffusion Policy
+      paper (Chi et al. 2023, RSS) reports Push-T as target-area coverage
+      (image-policy CNN, Table 2: 0.91 max / 0.84 avg-of-last-10) and is not
+      directly comparable to our binary-success metric. Our re-run uses 5
+      seeds x 50 episodes per cell.
 
   - name: act
     is_baseline: false
@@ -52,6 +69,23 @@ policies:
     revision_sha: ba73b2766f1371cdc133ca4efb97eb090d744625
     fp_precision: fp32
     license: apache-2.0
+    # Zhao et al. 2023 (ACT) Table I reports simulated Transfer Cube with
+    # both scripted and human teleop data. Our checkpoint
+    # (`act_aloha_sim_transfer_cube_human`) matches the human-data column.
+    # The paper measures three subtasks (Touched / Lifted / Transfer); the
+    # "Transfer" subtask is the binary task-success metric gym-aloha exposes.
+    paper_reported_success:
+      aloha_transfer_cube: 0.50
+    paper_reported_notes: >-
+      Zhao et al. 2023, "Learning Fine-Grained Bimanual Manipulation with
+      Low-Cost Hardware" (arXiv:2304.13705), Table I, row "ACT (Ours)",
+      column "Cube Transfer (sim) / Transfer" with human-teleop training data:
+      50% (the format `scripted | human` gives 86 | 50; we use the human
+      column to match our checkpoint). 3 seeds x 50 evaluations. Our re-run
+      uses 5 seeds x 50 episodes. The Hub model card additionally reports
+      83.0% on 500 episodes from a LeRobot retraining; some discrepancy with
+      the paper is acknowledged on the model card and attributed to gym-aloha
+      success heuristics.
 
   # ------------------------------------------------------------------
   # VLA libero policies — 5 entries, all libero suites compatible.
@@ -111,6 +145,24 @@ policies:
     fp_precision: bf16
     license: apache-2.0
     notes: "XVLA LIBERO checkpoint (~3.5k DL)."
+    # X-VLA paper, Table 2 ("Comparison of specialize and generalize models on
+    # simulation benchmarks"), bottom row "X-VLA (Ours), 0.9B" — full-finetune
+    # numbers. The Hub README links to this paper as the original reference;
+    # the LeRobot checkpoint is the LIBERO-specialized 0.9B model.
+    paper_reported_success:
+      libero_spatial: 0.982
+      libero_object: 0.986
+      libero_goal: 0.978
+      libero_10: 0.976
+    paper_reported_notes: >-
+      Bu et al. 2025, "X-VLA: Soft-Prompted Transformer as Scalable
+      Cross-Embodiment Vision-Language-Action Model" (arXiv:2510.10274),
+      Table 2, X-VLA 0.9B row, LIBERO columns: Spatial 98.2 / Object 98.6 /
+      Goal 97.8 / Long 97.6 (Avg 98.1). The paper does not explicitly state
+      episode count for the LIBERO eval, but the underlying LIBERO benchmark
+      uses 10 trials per task across the suite (Liu et al. 2023). Our re-run
+      uses 5 seeds x 50 episodes per cell. Our `libero_10` env name maps to
+      the paper's "Long" (LIBERO-10 long-horizon) suite.
 
   - name: smolvla_libero
     is_baseline: false
@@ -124,3 +176,21 @@ policies:
     fp_precision: bf16
     license: apache-2.0
     notes: "SmolVLA LIBERO finetune (~1.6k DL). Smallest VLA in the matrix — fastest cell turnaround."
+    # SmolVLA paper, Table 2 row "SmolVLA (0.45B), VLA Pt. = No". Our
+    # checkpoint inherits from `lerobot/smolvla_base` (0.45B) per its
+    # config.json `pretrained_path` field, so the 0.45B row is the
+    # apples-to-apples paper number (not the 0.24B or 2.25B variants also
+    # listed in the same table).
+    paper_reported_success:
+      libero_spatial: 0.90
+      libero_object: 0.96
+      libero_goal: 0.92
+      libero_10: 0.71
+    paper_reported_notes: >-
+      Shukor et al. 2025, "SmolVLA" (arXiv:2506.01844), Table 2 "Simulation
+      benchmarks (LIBERO and Meta-World)", row "SmolVLA (0.45B), VLA Pt. = No":
+      Spatial 90 / Object 96 / Goal 92 / Long 71 (Avg 87.3). Paper protocol:
+      10 trials per task, scored binary (1 only if task is fully completed).
+      Our re-run uses 5 seeds x 50 episodes per cell, which is roughly 5x more
+      rollouts; CI width should be smaller than the paper's. Our `libero_10`
+      env name maps to the paper's "Long" suite.

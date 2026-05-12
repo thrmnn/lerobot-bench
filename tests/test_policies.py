@@ -274,3 +274,130 @@ def test_baselines_now_cover_libero_suites() -> None:
     for baseline in ("no_op", "random"):
         spec = registry.get(baseline)
         assert set(spec.env_compat) >= set(_LIBERO_SUITES)
+
+
+# --------------------------------------------------------------------- #
+# Paper-reported success rates (added 2026-05-12).                      #
+# --------------------------------------------------------------------- #
+
+
+def test_baselines_have_no_paper_reported_success() -> None:
+    """no_op / random carry no paper number — the field stays None."""
+    registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    for name in ("no_op", "random"):
+        spec = registry.get(name)
+        assert spec.paper_reported_success is None
+
+
+def test_diffusion_policy_has_pusht_paper_number() -> None:
+    """LeRobot Hub model card: 65.4% success on PushT (500 episodes, binary)."""
+    spec = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML).get("diffusion_policy")
+    assert spec.paper_reported_success == {"pusht": 0.654}
+    assert "65.4" in spec.paper_reported_notes
+
+
+def test_act_has_aloha_paper_number() -> None:
+    """Zhao et al. 2023 Table I, ACT row, Transfer (sim, human data) = 50%."""
+    spec = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML).get("act")
+    assert spec.paper_reported_success == {"aloha_transfer_cube": 0.50}
+
+
+def test_smolvla_libero_has_all_four_suites() -> None:
+    """SmolVLA paper Table 2, 0.45B row: 90/96/92/71 across the 4 LIBERO suites."""
+    spec = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML).get("smolvla_libero")
+    assert spec.paper_reported_success == {
+        "libero_spatial": 0.90,
+        "libero_object": 0.96,
+        "libero_goal": 0.92,
+        "libero_10": 0.71,
+    }
+
+
+def test_xvla_libero_has_all_four_suites() -> None:
+    """X-VLA paper Table 2, 0.9B row: 98.2/98.6/97.8/97.6 across the 4 LIBERO suites."""
+    spec = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML).get("xvla_libero")
+    assert spec.paper_reported_success == {
+        "libero_spatial": 0.982,
+        "libero_object": 0.986,
+        "libero_goal": 0.978,
+        "libero_10": 0.976,
+    }
+
+
+def test_paper_reported_success_must_be_in_unit_interval(tmp_path: Path) -> None:
+    yaml = _write(
+        tmp_path,
+        """
+policies:
+  - name: badnum
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: some/repo
+    revision_sha: abc123
+    fp_precision: fp32
+    paper_reported_success:
+      pusht: 90.0   # forgot to divide by 100
+""",
+    )
+    with pytest.raises(ValueError, match=r"outside \[0, 1\]"):
+        PolicyRegistry.from_yaml(yaml)
+
+
+def test_paper_reported_success_rejects_unknown_env(tmp_path: Path) -> None:
+    yaml = _write(
+        tmp_path,
+        """
+policies:
+  - name: typo
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: some/repo
+    revision_sha: abc123
+    fp_precision: fp32
+    paper_reported_success:
+      pushtt: 0.5   # typo, not in env_compat
+""",
+    )
+    with pytest.raises(ValueError, match=r"not in env_compat"):
+        PolicyRegistry.from_yaml(yaml)
+
+
+def test_paper_reported_success_accepts_null_for_unreported_env(tmp_path: Path) -> None:
+    """A null entry means 'paper does not report this env'. Preserve it."""
+    yaml = _write(
+        tmp_path,
+        """
+policies:
+  - name: partial
+    is_baseline: false
+    env_compat: [pusht, aloha_transfer_cube]
+    repo_id: some/repo
+    revision_sha: abc123
+    fp_precision: fp32
+    paper_reported_success:
+      pusht: 0.6
+      aloha_transfer_cube: null
+    paper_reported_notes: "Paper only reports PushT."
+""",
+    )
+    spec = PolicyRegistry.from_yaml(yaml).get("partial")
+    assert spec.paper_reported_success == {"pusht": 0.6, "aloha_transfer_cube": None}
+    assert spec.paper_reported_notes == "Paper only reports PushT."
+
+
+def test_paper_reported_success_must_be_mapping(tmp_path: Path) -> None:
+    yaml = _write(
+        tmp_path,
+        """
+policies:
+  - name: wrong
+    is_baseline: false
+    env_compat: [pusht]
+    repo_id: some/repo
+    revision_sha: abc123
+    fp_precision: fp32
+    paper_reported_success: 0.5   # should be a mapping, not a scalar
+""",
+    )
+    with pytest.raises(ValueError, match="must be a mapping"):
+        PolicyRegistry.from_yaml(yaml)
