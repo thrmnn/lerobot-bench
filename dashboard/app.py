@@ -35,18 +35,29 @@ import gradio as gr
 import pandas as pd
 from _helpers import (
     CALIBRATION_COLUMNS,
+    DEFAULT_LOG_TAIL_LINES,
     DEFAULT_VIDEO_ROOTS,
     PROGRESS_COLUMNS,
     build_calibration_table,
     build_progress_table,
     clear_video_cache,
+    column_glossary_markdown,
+    discover_sweep_logs,
     discover_sweep_runs,
+    env_dashboard_logs_dir,
     env_dashboard_results_dir,
     find_latest_calibration,
     find_video_path,
+    format_log_lines_html,
     load_calibration_report,
     load_manifest,
+    methodology_markdown,
+    per_tab_intro_markdown,
+    persistent_header_markdown,
+    resolved_paths_banner_markdown,
     scan_video_index,
+    summarize_log,
+    tail_log_lines,
     video_index_options,
 )
 
@@ -243,8 +254,125 @@ def _on_video_select(
 
 
 # --------------------------------------------------------------------- #
+# Tab 4: Live event log                                                 #
+# --------------------------------------------------------------------- #
+#
+# Tails ``logs/sweep-*.log`` and renders the last N lines as colour-coded
+# HTML, with a 2 s polling timer. Pure helpers (line classification,
+# tail, log discovery) live in ``_helpers`` so we can test them without
+# Gradio installed.
+
+LOG_REFRESH_SECONDS = 2.0
+ALL_LOG_CATEGORIES: tuple[str, ...] = ("dispatch", "success", "error", "breach", "other")
+LOG_FILTER_CHOICES: tuple[str, ...] = ("all", "dispatch", "success", "error", "breach")
+
+
+def _log_dropdown_choices() -> tuple[list[tuple[str, str]], str | None]:
+    """Discover ``sweep-*.log`` files; newest first.
+
+    Returns ``(choices, default_value)`` shaped like the sweep-run
+    dropdown so the dropdown shows the basename but the callback gets
+    the absolute path. Default is the newest file (the in-flight sweep,
+    if there is one) -- empty if no logs exist yet.
+    """
+    logs = discover_sweep_logs()
+    if not logs:
+        return [], None
+    choices = [(p.name, str(p)) for p in logs]
+    return choices, str(logs[0])
+
+
+def _filter_categories(filter_value: str) -> tuple[str, ...] | None:
+    """Map the radio choice to the set passed to :func:`format_log_lines_html`.
+
+    ``"all"`` -> ``None`` (no filtering). Any other value is treated as
+    a single-category filter. The unused buckets (``"other"`` when the
+    operator picks a specific filter) are simply omitted.
+    """
+    if filter_value == "all" or not filter_value:
+        return None
+    if filter_value not in ALL_LOG_CATEGORIES:
+        return None
+    return (filter_value,)
+
+
+def refresh_event_log(
+    log_path_str: str | None,
+    filter_value: str,
+    tail_n: int,
+) -> tuple[str, str]:
+    """Re-read the selected log and return ``(html_block, header_md)``.
+
+    Empty / missing log -> empty HTML + a hint above. The HTML is wrapped
+    in a ``<pre>`` so Gradio renders it monospace; the parent component
+    is ``gr.HTML`` so the colour spans take effect (a ``gr.Code`` would
+    HTML-escape them).
+    """
+    if not log_path_str:
+        return "", _no_log_hint()
+    path = Path(log_path_str)
+    lines = tail_log_lines(path, n=tail_n)
+    if not lines:
+        return "", (
+            f"_Log at_ `{log_path_str}` _is empty or missing. Tail will populate "
+            "as the sweep dispatches its first cell._"
+        )
+    categories = _filter_categories(filter_value)
+    body = format_log_lines_html(lines, categories=categories)
+    counts = summarize_log(lines)
+    header = (
+        f"Showing last **{len(lines)}** line(s) from `{path.name}` - "
+        f"**{counts['dispatch']}** dispatched - "
+        f"**{counts['success']}** completed - "
+        f"**{counts['error']}** errors - "
+        f"**{counts['breach']}** breaches"
+    )
+    html_block = (
+        '<pre style="white-space:pre-wrap;font-family:ui-monospace,monospace;'
+        "font-size:12px;line-height:1.35;margin:0;padding:8px;"
+        "background:rgba(0,0,0,0.03);border-radius:6px;max-height:560px;"
+        f'overflow:auto">{body}</pre>'
+    )
+    return html_block, header
+
+
+def _no_log_hint() -> str:
+    """Empty-state for the event-log tab."""
+    return (
+        "_No sweep logs found under_ "
+        f"`{env_dashboard_logs_dir()}`. _Start one with_ `make sweep ARGS=...` "
+        "_or set_ `DASHBOARD_LOGS_DIR` _to point at a different log root._"
+    )
+
+
+def _on_logs_rescan() -> tuple[Any, str, str]:
+    """Re-discover sweep logs on disk; repaint the dropdown + view.
+
+    Returns ``(dropdown_update, html_block, header_md)``. The current
+    filter / tail values are not known here (the rescan button has no
+    inputs); the timer that fires every 2 s will repaint with the
+    current selection a moment later, so we just paint the new
+    default's content with default filter/tail.
+    """
+    choices, default = _log_dropdown_choices()
+    html_block, header = refresh_event_log(default, "all", DEFAULT_LOG_TAIL_LINES)
+    return gr.update(choices=choices, value=default), html_block, header
+
+
+# --------------------------------------------------------------------- #
 # UI construction                                                       #
 # --------------------------------------------------------------------- #
+
+
+def _refresh_persistent_header() -> str:
+    """Re-render the persistent project-context header.
+
+    Wrapped in a function so the header's live "cell N/total" badge
+    repaints on the 5 s timer alongside the progress tab. The header
+    is plain markdown -- the badge is recomputed from the newest
+    manifest under :func:`env_dashboard_results_dir`.
+    """
+    return persistent_header_markdown()
 
 
 def build_app() -> gr.Blocks:
@@ -254,16 +382,30 @@ def build_app() -> gr.Blocks:
     side-effects. The smoke check in ``tests/test_dashboard.py`` only
     imports ``_helpers`` -- ``app.py`` is exercised end-to-end when
     the operator runs ``make dashboard``.
+
+    Layout: a persistent project-context header (markdown) renders
+    above the tab strip on every tab so the reviewer always sees what
+    lerobot-bench is, what the dashboard is doing, and how much of the
+    sweep is done. A one-line resolved-paths banner sits underneath --
+    the previous footgun was a dashboard pointing at an empty worktree
+    ``results/`` and looking broken when it was actually fine.
     """
     with gr.Blocks(
         title="lerobot-bench dashboard (local)",
         theme=gr.themes.Default(),
     ) as demo:
-        gr.Markdown(
-            "# lerobot-bench - local sweep dashboard\n"
-            f"_Reading from disk at_ `{env_dashboard_results_dir()}`. "
-            "_This is the operator tool; the public HF Space lives separately under_ "
-            "`space/`."
+        # Persistent project-context header. Live progress badge inside.
+        header_md = gr.Markdown(persistent_header_markdown())
+        gr.Markdown(resolved_paths_banner_markdown())
+
+        # Repaint the header on the same 5 s cadence as the progress
+        # tab so the in-flight "M/N seeds done" badge stays fresh
+        # regardless of which tab the operator is looking at.
+        header_timer = gr.Timer(value=PROGRESS_REFRESH_SECONDS)
+        header_timer.tick(
+            fn=_refresh_persistent_header,
+            inputs=None,
+            outputs=[header_md],
         )
 
         with gr.Tabs():
@@ -279,12 +421,33 @@ def build_app() -> gr.Blocks:
             with gr.Tab("Rollout preview"):
                 _build_rollout_tab(demo)
 
+            # -------- Tab 4: Live event log --------
+            with gr.Tab("Live event log"):
+                _build_event_log_tab(demo)
+
+            # -------- Tab 5: About --------
+            with gr.Tab("About"):
+                _build_about_tab()
+
     return demo
+
+
+def _build_about_tab() -> None:
+    """Render the About tab -- methodology + scope + reading guide.
+
+    Pure markdown, no interactive widgets; the prose lives in
+    :func:`methodology_markdown` so the test suite covers the H2
+    structure without importing Gradio.
+    """
+    gr.Markdown(methodology_markdown())
 
 
 def _build_progress_tab(demo: gr.Blocks) -> None:
     """Render the sweep-progress tab. Side-effects on ``demo``."""
     initial_choices, initial_default = _runs_dropdown_choices()
+
+    with gr.Accordion("What this tab shows", open=True):
+        gr.Markdown(per_tab_intro_markdown("progress"))
 
     with gr.Row():
         run_dd = gr.Dropdown(
@@ -313,6 +476,7 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
         wrap=True,
         label="Per-(policy, env) cell progress",
     )
+    gr.Markdown(column_glossary_markdown("progress"))
 
     # Initial paint -- on first tab open.
     demo.load(
@@ -347,6 +511,9 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
 
 def _build_calibration_tab(demo: gr.Blocks) -> None:
     """Render the calibration-inspector tab."""
+    with gr.Accordion("What this tab shows", open=True):
+        gr.Markdown(per_tab_intro_markdown("calibration"))
+
     status_md = gr.Markdown("")
     refresh_btn = gr.Button("Reload latest calibration", variant="secondary")
     cal_table = gr.Dataframe(
@@ -366,6 +533,7 @@ def _build_calibration_tab(demo: gr.Blocks) -> None:
         wrap=True,
         label="Calibration cells (auto-downscope recommendations)",
     )
+    gr.Markdown(column_glossary_markdown("calibration"))
 
     demo.load(
         fn=refresh_calibration,
@@ -381,6 +549,9 @@ def _build_calibration_tab(demo: gr.Blocks) -> None:
 
 def _build_rollout_tab(demo: gr.Blocks) -> None:
     """Render the rollout-preview tab."""
+    with gr.Accordion("What this tab shows", open=True):
+        gr.Markdown(per_tab_intro_markdown("rollouts"))
+
     status_md = gr.Markdown("")
     with gr.Row():
         policy_dd = gr.Dropdown(choices=[], label="Policy", interactive=True)
@@ -415,6 +586,130 @@ def _build_rollout_tab(demo: gr.Blocks) -> None:
             inputs=[policy_dd, env_dd, seed_dd, ep_dd],
             outputs=[video, status_md],
         )
+
+
+def _build_event_log_tab(demo: gr.Blocks) -> None:
+    """Render the live-event-log tab.
+
+    Polls the selected ``sweep-*.log`` file every 2 s, tails the last
+    N lines, classifies + colour-codes them, and renders the result in
+    a ``gr.HTML`` block. Auto-scroll is implemented client-side via a
+    ``gr.Checkbox`` that controls the wrapper element's overflow
+    behaviour through a small JavaScript snippet on the tail block.
+
+    Side-effects on ``demo``: wires the timer and click handlers.
+    """
+    initial_choices, initial_default = _log_dropdown_choices()
+
+    with gr.Accordion("What this tab shows", open=True):
+        gr.Markdown(per_tab_intro_markdown("events"))
+
+    with gr.Row():
+        log_dd = gr.Dropdown(
+            choices=initial_choices,
+            value=initial_default,
+            label="Sweep log file",
+            interactive=True,
+            scale=4,
+        )
+        rescan_btn = gr.Button("Re-scan logs", variant="secondary", scale=1)
+
+    with gr.Row():
+        filter_radio = gr.Radio(
+            choices=list(LOG_FILTER_CHOICES),
+            value="all",
+            label="Filter",
+            interactive=True,
+            scale=3,
+        )
+        tail_slider = gr.Slider(
+            minimum=50,
+            maximum=500,
+            value=DEFAULT_LOG_TAIL_LINES,
+            step=10,
+            label="Tail lines",
+            interactive=True,
+            scale=2,
+        )
+        autoscroll = gr.Checkbox(
+            value=True,
+            label="Auto-scroll",
+            interactive=True,
+            scale=1,
+        )
+
+    header_md = gr.Markdown("")
+    log_view = gr.HTML(
+        value="",
+        label="Live log",
+    )
+
+    # Initial paint on first tab open.
+    demo.load(
+        fn=refresh_event_log,
+        inputs=[log_dd, filter_radio, tail_slider],
+        outputs=[log_view, header_md],
+    )
+
+    # Dropdown / filter / slider changes -> immediate repaint.
+    log_dd.change(
+        fn=refresh_event_log,
+        inputs=[log_dd, filter_radio, tail_slider],
+        outputs=[log_view, header_md],
+    )
+    filter_radio.change(
+        fn=refresh_event_log,
+        inputs=[log_dd, filter_radio, tail_slider],
+        outputs=[log_view, header_md],
+    )
+    tail_slider.change(
+        fn=refresh_event_log,
+        inputs=[log_dd, filter_radio, tail_slider],
+        outputs=[log_view, header_md],
+    )
+
+    # Re-scan: re-discover logs from disk; repaint dropdown + view.
+    rescan_btn.click(
+        fn=_on_logs_rescan,
+        inputs=None,
+        outputs=[log_dd, log_view, header_md],
+    )
+
+    # 2 s polling. The timer reads whatever dropdown/filter/tail are
+    # currently selected, so the operator can toggle filters without
+    # the timer overwriting them.
+    timer = gr.Timer(value=LOG_REFRESH_SECONDS)
+    timer.tick(
+        fn=_event_log_tick,
+        inputs=[log_dd, filter_radio, tail_slider, autoscroll],
+        outputs=[log_view, header_md],
+    )
+
+
+def _event_log_tick(
+    log_path_str: str | None,
+    filter_value: str,
+    tail_n: int,
+    autoscroll_on: bool,
+) -> tuple[str, str]:
+    """Timer-driven repaint. Adds an autoscroll script if enabled.
+
+    Auto-scroll is implemented by appending a ``<script>`` tag that
+    scrolls the inner ``<pre>`` to its bottom on render. The tag is
+    re-evaluated by Gradio on every tick (the HTML block is replaced
+    wholesale), so the page stays pinned to the tail while autoscroll
+    is on, and stops being yanked back as soon as the operator
+    unchecks the box.
+    """
+    body, header = refresh_event_log(log_path_str, filter_value, int(tail_n))
+    if not body:
+        return body, header
+    if autoscroll_on:
+        body = (
+            body + "<script>(()=>{const p=document.querySelectorAll('pre');"
+            "if(p.length){const e=p[p.length-1];e.scrollTop=e.scrollHeight;}})();</script>"
+        )
+    return body, header
 
 
 # Built lazily inside ``__main__`` so import-time work stays minimal.
