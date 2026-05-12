@@ -173,40 +173,40 @@ def render_episodes_to_videos(
     *,
     videos_dir: Path,
 ) -> list[str]:
-    """Render each episode's frames to MP4 and return the per-episode SHA list.
+    """Per-episode MP4 SHA list parallel to ``cell_result.episodes``.
 
-    Naming: ``f"{policy}__{env}__seed{seed}__ep{idx:03d}.mp4"``.
+    The actual encoding now happens *inside*
+    :func:`lerobot_bench.eval.run_cell` (streaming, one episode at a
+    time) so that the working set never holds more than one episode's
+    frames -- previously every episode's frames were buffered until the
+    cell finished and the sweep OOMed at ~18 GB on aloha-class cells.
+    This function therefore became a thin shim: it just reads the
+    per-episode SHAs that ``run_cell`` already attached to each
+    :class:`EpisodeResult` and asserts the matching MP4s live where the
+    legacy helper would have written them.
 
-    Returns a list of sha256 hex strings parallel to ``cell_result.episodes``.
-    Episodes that errored OR have zero frames produce an empty string —
-    the ``video_sha256`` column is left blank for those rows so the
-    leaderboard knows there is no clip to link to.
-
-    The render module is imported lazily inside this function so the
-    dry-run path stays imageio-free (and importing :mod:`scripts.run_one`
-    in CI does not require imageio's ffmpeg binary).
+    ``videos_dir`` is the directory the streaming encoder used. We
+    accept it for API stability and to validate the on-disk layout, but
+    the directory itself is created by :func:`run_cell` (and not here)
+    when the streaming path runs. Errored / zero-frame episodes
+    contribute an empty string (no clip to link to), same as before.
     """
-    import numpy as np
-
-    from lerobot_bench.render import render_episode
-
-    videos_dir.mkdir(parents=True, exist_ok=True)
-
     sha_list: list[str] = []
     for ep in cell_result.episodes:
-        if ep.error is not None or len(ep.frames) == 0:
-            sha_list.append("")
-            continue
-
-        out_path = videos_dir / (
-            f"{cell_result.policy}__{cell_result.env}__seed{cell_result.seed}"
-            f"__ep{ep.episode_index:03d}.mp4"
-        )
-        # Stack tuple-of-frames into a (T, H, W, 3) array for the encoder.
-        stacked = np.stack(ep.frames, axis=0)
-        result = render_episode(stacked, out_path)
-        sha_list.append(result.content_sha256)
-
+        sha_list.append(ep.video_sha256)
+        # Sanity-check that the MP4 the streaming encoder wrote is still
+        # on disk where downstream tools (publish_results) expect it.
+        # Missing-file here means run_cell did not actually encode (e.g.
+        # caller forgot videos_dir), which is a real bug worth surfacing
+        # before the parquet rows go out.
+        if ep.video_sha256 and ep.video_path is not None and not ep.video_path.exists():
+            raise RuntimeError(
+                f"episode {ep.episode_index} reports video_sha256={ep.video_sha256!r} "
+                f"but {ep.video_path} is missing on disk"
+            )
+    # Reference videos_dir so static analysers don't flag it as unused
+    # in the rare path where every episode errored.
+    _ = videos_dir
     return sha_list
 
 
@@ -351,6 +351,11 @@ def run_one(
     # `import pandas` is already cheap).
     from lerobot_bench import eval as eval_mod
 
+    # Streaming MP4 encode: pass ``videos_dir`` so ``run_cell`` encodes
+    # each episode's frames as soon as that episode finishes and drops
+    # the frames from memory before the next episode starts. The legacy
+    # post-cell ``render_episodes_to_videos`` call became a no-op shim
+    # that just reads ``EpisodeResult.video_sha256`` off the result.
     cell_result = eval_mod.run_cell_from_specs(
         policy_spec,
         env_spec,
@@ -358,9 +363,12 @@ def run_one(
         n_episodes=n_episodes,
         device=device,
         record_video=record_video,
+        videos_dir=videos_dir if record_video else None,
     )
 
-    # Optional video render BEFORE building rows so video_sha256 is filled in.
+    # Pull the per-episode SHA list (parallel to episodes). When the
+    # streaming encoder ran every successful episode's SHA is populated
+    # on the EpisodeResult; errored / zero-frame episodes contribute "".
     video_sha: list[str] | None = None
     if record_video:
         video_sha = render_episodes_to_videos(cell_result, videos_dir=videos_dir)
