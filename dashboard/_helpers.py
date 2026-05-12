@@ -1426,3 +1426,291 @@ def column_glossary_markdown(tab: str) -> str:
             f"very high >{VERY_HIGH_VRAM_THRESHOLD_MB:.0f})."
         )
     return ""
+
+
+# --------------------------------------------------------------------- #
+# Accordion open-state policy                                           #
+# --------------------------------------------------------------------- #
+#
+# Council audit item 7: the "What this tab shows" accordions should be
+# open on the first visit of a session (so a reviewer sees the framing
+# without hunting for it) but collapsed on subsequent tab switches (so
+# returning operators don't get wall-of-text fatigue every time they
+# flip tabs). The helper below is a pure function that decides the
+# next open-state from a visit counter -- ``app.py`` stores the
+# counter in ``gr.State`` and increments it on every tab render.
+
+
+def should_accordion_be_open(visit_count: int) -> bool:
+    """Return True iff this is the operator's first visit in the session.
+
+    ``visit_count`` is the count *before* this visit -- i.e. ``0`` on
+    the first render of the session. Callers should increment the
+    counter as part of the same callback so the next visit sees ``1``
+    and the accordion stays collapsed.
+
+    The function is intentionally trivial; lifting it to its own
+    helper means the test suite can pin the policy without spinning up
+    Gradio (the test job has no Gradio install).
+    """
+    return visit_count <= 0
+
+
+# --------------------------------------------------------------------- #
+# Sweep-progress row click -> Rollout-preview drill-down                #
+# --------------------------------------------------------------------- #
+#
+# Council audit item 8: clicking a row on the Sweep progress table
+# should jump to the Rollout-preview tab pre-populated with that
+# cell's ``(policy, env)``. The helper below extracts the click
+# target from the Gradio ``SelectData`` payload + table snapshot,
+# tolerating empty / out-of-range / non-actionable rows. Drill-down
+# defaults: seed=0 (every cell has seed 0; we don't try to pick a
+# "representative" seed without rollout data), episode=None (let the
+# rollout tab's own default fire).
+#
+# The handler is parameterised on the column list rather than the
+# index of "policy"/"env" so Agent A's pending column additions
+# don't silently shift the lookup.
+
+
+@dataclass(frozen=True)
+class RowClickTarget:
+    """Result of resolving a Sweep-progress row-click event.
+
+    * ``actionable``: True only when the row has a policy + env and is
+      not in a status (``skipped``) that has no rollouts. Callers use
+      this to decide whether to switch tabs or surface a warning.
+    * ``policy`` / ``env``: extracted from the row; empty strings on
+      non-actionable rows.
+    * ``seed``: drill-down default; currently always ``"0"`` so the
+      rollout-preview dropdowns repopulate to a known-good combination.
+    * ``warning``: empty on success, one-line markdown on failure.
+    """
+
+    actionable: bool
+    policy: str
+    env: str
+    seed: str
+    warning: str
+
+
+# Cell statuses that should not navigate to the rollout-preview tab on
+# row-click. ``skipped`` cells have no rollouts on disk; ``queued`` cells
+# may have none yet but the operator may still want to peek, so we let
+# them through. Failed cells have partial rollouts -- worth a look.
+_NON_ACTIONABLE_ROW_STATUSES: frozenset[str] = frozenset({CELL_STATUS_SKIPPED})
+
+
+def extract_row_click_target(
+    table: pd.DataFrame,
+    row_index: int | None,
+    *,
+    columns: Iterable[str] | None = None,
+) -> RowClickTarget:
+    """Resolve a Sweep-progress row-click into a drill-down target.
+
+    ``row_index`` is the row clicked (from ``gr.SelectData.index[0]``);
+    ``columns`` is the list of column names on the live table -- pass
+    the current column list so Agent A's pending column additions
+    don't break the lookup. Defaults to :data:`PROGRESS_COLUMNS`.
+
+    Returns a :class:`RowClickTarget` with ``actionable=False`` and a
+    populated ``warning`` on every failure mode: empty table, out-of-
+    range index, missing policy / env column, or a row whose status is
+    in :data:`_NON_ACTIONABLE_ROW_STATUSES`.
+    """
+    col_list = list(columns) if columns is not None else list(PROGRESS_COLUMNS)
+
+    if table is None or len(table) == 0:
+        return RowClickTarget(
+            actionable=False,
+            policy="",
+            env="",
+            seed="0",
+            warning="_No rows in the progress table -- nothing to drill into yet._",
+        )
+
+    if row_index is None or row_index < 0 or row_index >= len(table):
+        return RowClickTarget(
+            actionable=False,
+            policy="",
+            env="",
+            seed="0",
+            warning=f"_Row index `{row_index}` is out of range for this table._",
+        )
+
+    # Tolerate either the live DataFrame (columns attribute matches
+    # ``col_list``) or a column-renamed snapshot. We prefer the column
+    # *name* lookup, falling back to positional access on a numpy-style
+    # row when the column isn't present.
+    row = table.iloc[row_index]
+    policy = _row_value(row, "policy", col_list)
+    env = _row_value(row, "env", col_list)
+    status = _row_value(row, "status", col_list)
+
+    if not policy or not env:
+        return RowClickTarget(
+            actionable=False,
+            policy="",
+            env="",
+            seed="0",
+            warning=(
+                "_That row is missing `policy` or `env` -- the manifest may "
+                "be mid-write. Try again in a few seconds._"
+            ),
+        )
+
+    if status in _NON_ACTIONABLE_ROW_STATUSES:
+        return RowClickTarget(
+            actionable=False,
+            policy=policy,
+            env=env,
+            seed="0",
+            warning=(
+                f"_Cell `{policy}` / `{env}` is `{status}` -- no rollouts "
+                "to preview. Pick a `done` / `running` / `failed` row instead._"
+            ),
+        )
+
+    return RowClickTarget(
+        actionable=True,
+        policy=policy,
+        env=env,
+        seed="0",
+        warning="",
+    )
+
+
+def _row_value(row: Any, key: str, col_list: list[str]) -> str:
+    """Pull a string value out of a Series-like row by column name.
+
+    Falls back to positional lookup via ``col_list`` for the case
+    where the caller passed a raw numpy row (from
+    ``df.values[row_index]``) rather than a Series. Returns the empty
+    string on any KeyError / IndexError so the call site can branch
+    on truthiness.
+    """
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        try:
+            idx = col_list.index(key)
+            value = row[idx]
+        except (ValueError, IndexError, TypeError):
+            return ""
+    if value is None:
+        return ""
+    return str(value)
+
+
+# --------------------------------------------------------------------- #
+# Stale-data resilience: last-good cache + warning escalation           #
+# --------------------------------------------------------------------- #
+#
+# Council audit item 9: when ``load_manifest`` / ``find_latest_calibration``
+# / parquet reads fail (mid-write, briefly missing, ArrowInvalid), the
+# progress / calibration tables currently repaint *empty*, which looks
+# like the sweep died. Replace that with a "last-good" cache: on
+# success, the cache is updated and the result rendered; on failure,
+# the cached value is rendered with a small warning markdown, and
+# after three consecutive failures the warning escalates to a louder
+# "filesystem error" message.
+#
+# Test surface: the cache + warning policy are pure (no Gradio). Tests
+# in ``tests/test_dashboard.py`` simulate the failure modes by passing
+# a loader callable that raises -- no real filesystem manipulation.
+
+
+# How many consecutive failures before the warning escalates.
+STALE_DATA_ESCALATE_AFTER = 3
+
+
+@dataclass
+class StaleDataCache:
+    """Last-good-value cache with consecutive-failure tracking.
+
+    One instance per panel that needs the protection (progress table,
+    calibration table). The cache is module-level state in ``app.py``
+    but isolated here so tests can construct a fresh instance per
+    case and pin the escalation rule without leaking state across
+    tests.
+
+    The cache stores the last successfully-loaded value plus its UTC
+    timestamp. On a failed load, callers get back the cached value
+    plus a warning markdown describing the failure -- after
+    :data:`STALE_DATA_ESCALATE_AFTER` consecutive failures the
+    warning gets louder so the operator notices it's not a one-off.
+    """
+
+    last_value: Any = None
+    last_success_utc: str = ""
+    consecutive_failures: int = 0
+
+    def record_success(self, value: Any, *, now_utc: dt.datetime | None = None) -> None:
+        """Update the cache after a successful load."""
+        self.last_value = value
+        now = now_utc or dt.datetime.now(dt.UTC)
+        self.last_success_utc = now.isoformat(timespec="seconds")
+        self.consecutive_failures = 0
+
+    def record_failure(self) -> None:
+        """Increment the failure counter (does not touch ``last_value``)."""
+        self.consecutive_failures += 1
+
+    def warning_markdown(self) -> str:
+        """Return the markdown warning to render below the table.
+
+        Empty string on success (no consecutive failures); soft warning
+        on 1-2 failures; loud warning on 3+. The soft warning interpolates
+        the last-success timestamp so the operator can tell how stale
+        the displayed data is.
+        """
+        if self.consecutive_failures <= 0:
+            return ""
+        if self.consecutive_failures < STALE_DATA_ESCALATE_AFTER:
+            ts = self.last_success_utc or "unknown"
+            return (
+                f"_Last refresh failed (file may be mid-write). Showing "
+                f"data from {ts}; retrying in 5s._"
+            )
+        return "**File system error. Check disk space and try `make dashboard` again.**"
+
+
+def load_with_stale_fallback(
+    cache: StaleDataCache,
+    loader: Any,
+    *,
+    empty_factory: Any | None = None,
+    now_utc: dt.datetime | None = None,
+) -> tuple[Any, str]:
+    """Run ``loader``; on failure return the cache + a warning string.
+
+    ``loader`` is a zero-argument callable returning the loaded value;
+    any exception is caught and the cache's failure counter bumped.
+    ``empty_factory`` produces the value to return when the cache has
+    no prior success (zero-argument callable returning e.g. an empty
+    DataFrame). Returns ``(value_to_render, warning_markdown)``.
+
+    Premortem: ``loader`` exceptions cover the three failure modes
+    cited in the audit (``OSError`` on truncated read, ``JSONDecodeError``
+    on mid-write JSON, ``pyarrow.lib.ArrowInvalid`` on truncated
+    parquet). Catching the broad ``Exception`` here is deliberate --
+    the alternative is a brittle catch list that misses the next
+    surprise from upstream.
+    """
+    try:
+        value = loader()
+    except Exception as exc:
+        logger.warning("stale-data fallback: loader raised %s: %s", type(exc).__name__, exc)
+        cache.record_failure()
+        if cache.last_value is not None:
+            return cache.last_value, cache.warning_markdown()
+        # First-ever load failed; fall through to the empty factory so
+        # the UI still renders a canonical-shape table.
+        if empty_factory is not None:
+            return empty_factory(), cache.warning_markdown()
+        return None, cache.warning_markdown()
+
+    cache.record_success(value, now_utc=now_utc)
+    return value, ""
