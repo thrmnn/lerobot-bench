@@ -59,16 +59,21 @@ VERY_HIGH_VRAM_THRESHOLD_MB = _dashboard_helpers.VERY_HIGH_VRAM_THRESHOLD_MB
 VERY_SLOW_MS_PER_STEP_THRESHOLD = _dashboard_helpers.VERY_SLOW_MS_PER_STEP_THRESHOLD
 build_calibration_table = _dashboard_helpers.build_calibration_table
 build_progress_table = _dashboard_helpers.build_progress_table
+classify_log_line = _dashboard_helpers.classify_log_line
 clear_video_cache = _dashboard_helpers.clear_video_cache
+discover_sweep_logs = _dashboard_helpers.discover_sweep_logs
 discover_sweep_runs = _dashboard_helpers.discover_sweep_runs
 downscope_reason = _dashboard_helpers.downscope_reason
 find_latest_calibration = _dashboard_helpers.find_latest_calibration
 find_video_path = _dashboard_helpers.find_video_path
+format_log_lines_html = _dashboard_helpers.format_log_lines_html
 format_relative_time = _dashboard_helpers.format_relative_time
 load_calibration_report = _dashboard_helpers.load_calibration_report
 load_manifest = _dashboard_helpers.load_manifest
 parse_video_filename = _dashboard_helpers.parse_video_filename
 scan_video_index = _dashboard_helpers.scan_video_index
+summarize_log = _dashboard_helpers.summarize_log
+tail_log_lines = _dashboard_helpers.tail_log_lines
 video_index_options = _dashboard_helpers.video_index_options
 
 # --------------------------------------------------------------------- #
@@ -556,6 +561,227 @@ def test_format_relative_time_renders_recent() -> None:
 def test_format_relative_time_empty_and_invalid_input() -> None:
     assert format_relative_time("") == ""
     assert format_relative_time("garbage") == ""
+
+
+# --------------------------------------------------------------------- #
+# Event log: line classification / discovery / tail / summary           #
+# --------------------------------------------------------------------- #
+
+
+def test_classify_log_line_dispatches() -> None:
+    """Each canonical log shape -> the right bucket.
+
+    The dispatch line shape matches ``scripts/run_sweep.py``'s
+    ``[i/N] dispatch policy/env/seedK`` format; ``success_rate=`` is
+    the run-one summary line; FAILED + Traceback + Killed all bucket
+    as ``"error"``; watchdog ``BREACH`` is its own bucket.
+    """
+    dispatch = (
+        "2026-05-12 17:11:35,207 [INFO] run-sweep: [1/110] dispatch "
+        "act/aloha_transfer_cube/seed0 (n_episodes=50, timeout_s=14400.0)"
+    )
+    assert classify_log_line(dispatch) == "dispatch"
+
+    success = (
+        "2026-05-12 17:25:14,103 [INFO] run-one: success_rate=0.42 (21/50) "
+        "mean_return=12.5 wall_s=684.1"
+    )
+    assert classify_log_line(success) == "success"
+
+    failed = (
+        "2026-05-12 17:23:06,884 [WARNING] run-sweep:     -> FAILED (exit=-9). "
+        "Continuing to next cell."
+    )
+    assert classify_log_line(failed) == "error"
+
+    traceback = 'Traceback (most recent call last):\n  File "x.py", line 1, in <module>'
+    assert classify_log_line(traceback) == "error"
+
+    killed = "2026-05-12 17:30:00,000 [ERROR] run-one: subprocess Killed by OOM"
+    assert classify_log_line(killed) == "error"
+
+    breach = "2026-05-12 17:11:34,001 [INFO] watchdog: BREACH cap=18G used=18.5G"
+    assert classify_log_line(breach) == "breach"
+
+
+def test_classify_log_line_handles_unknown() -> None:
+    """A pre-flight banner / blank line / random text -> "other"."""
+    assert classify_log_line("") == "other"
+    assert classify_log_line("pre-flight: RAM total=32096MB used=3264MB") == "other"
+    assert classify_log_line("----") == "other"
+    assert classify_log_line("2026-05-12 17:00:00 [INFO] config: loaded") == "other"
+
+
+def test_classify_log_line_breach_wins_over_error() -> None:
+    """A BREACH line that *also* contains "error" still buckets as breach.
+
+    Premortem: a watchdog message that mentions an inner Python error
+    string ("BREACH ... last error: ...") must not be miscoloured as
+    a generic ERROR -- the operator distinguishes a cgroup OOM (action:
+    cap-up) from a Python traceback (action: fix code).
+    """
+    line = "2026-05-12 17:00:00,000 [INFO] watchdog: BREACH cap=18G last_error=foo"
+    assert classify_log_line(line) == "breach"
+
+
+def test_discover_sweep_logs_sorts_newest_first(tmp_path: Path) -> None:
+    """Files are mtime-sorted, newest first, regardless of filename order.
+
+    We intentionally use mtimes that don't match lexicographic order so
+    the assertion catches the (wrong) fallback to filename sorting.
+    """
+    logs_dir = tmp_path
+    a = logs_dir / "sweep-A.log"
+    b = logs_dir / "sweep-B.log"
+    c = logs_dir / "sweep-C.log"
+    a.write_text("dispatch act/x/seed0\n")
+    b.write_text("dispatch act/x/seed1\n")
+    c.write_text("dispatch act/x/seed2\n")
+
+    import os as _os
+
+    # B is newest, A is middle, C is oldest -- on purpose alphabet vs mtime mismatch.
+    _os.utime(c, (1, 1000))
+    _os.utime(a, (1, 2000))
+    _os.utime(b, (1, 3000))
+
+    discovered = discover_sweep_logs(logs_dir)
+    assert [p.name for p in discovered] == ["sweep-B.log", "sweep-A.log", "sweep-C.log"]
+
+
+def test_discover_sweep_logs_missing_root_returns_empty(tmp_path: Path) -> None:
+    """Pointing at a non-existent log root -> [] (not an exception)."""
+    assert discover_sweep_logs(tmp_path / "no-such-dir") == []
+
+
+def test_discover_sweep_logs_ignores_non_sweep_files(tmp_path: Path) -> None:
+    """Only ``sweep-*.log`` is picked; other files (calibrate logs, .gz) are dropped."""
+    (tmp_path / "sweep-20260512.log").write_text("x")
+    (tmp_path / "calibrate-20260512.log").write_text("x")
+    (tmp_path / "sweep-20260511.log.gz").write_bytes(b"\x1f\x8b")
+    (tmp_path / "README.md").write_text("x")
+    names = [p.name for p in discover_sweep_logs(tmp_path)]
+    assert names == ["sweep-20260512.log"]
+
+
+def test_tail_log_lines_handles_missing_file_returns_empty(tmp_path: Path) -> None:
+    """Missing file -> [] without raising."""
+    assert tail_log_lines(tmp_path / "nope.log") == []
+    assert tail_log_lines(tmp_path / "nope.log", n=10) == []
+
+
+def test_tail_log_lines_returns_last_n(tmp_path: Path) -> None:
+    """Tail returns exactly the last n lines; smaller files return everything."""
+    log = tmp_path / "sweep.log"
+    log.write_text("\n".join(f"line {i}" for i in range(20)) + "\n")
+
+    assert tail_log_lines(log, n=5) == [f"line {i}" for i in range(15, 20)]
+    assert tail_log_lines(log, n=100) == [f"line {i}" for i in range(20)]
+
+
+def test_tail_log_lines_handles_empty_file(tmp_path: Path) -> None:
+    """An empty log file -> [] (not a list with one empty string)."""
+    log = tmp_path / "sweep.log"
+    log.write_text("")
+    assert tail_log_lines(log, n=10) == []
+
+
+def test_summarize_log_counts() -> None:
+    """Synthetic 10-line log -> expected per-bucket counts.
+
+    Mix: 4 dispatch, 2 success, 2 error, 1 breach, 1 other. The total
+    equals the input length so the header counter never drifts.
+    """
+    lines = [
+        "2026-05-12 17:00:00 [INFO] run-sweep: [1/10] dispatch act/pusht/seed0 (n=50)",
+        "2026-05-12 17:00:01 [INFO] run-sweep: [2/10] dispatch act/pusht/seed1 (n=50)",
+        "2026-05-12 17:00:02 [INFO] run-sweep: [3/10] dispatch act/pusht/seed2 (n=50)",
+        "2026-05-12 17:00:03 [INFO] run-sweep: [4/10] dispatch act/pusht/seed3 (n=50)",
+        "2026-05-12 17:05:00 [INFO] run-one: success_rate=0.42 (21/50)",
+        "2026-05-12 17:05:30 [INFO] run-one: success_rate=0.55 (27/50)",
+        "2026-05-12 17:10:00 [WARNING] run-sweep: -> FAILED (exit=-9)",
+        "2026-05-12 17:11:00 [ERROR] Traceback (most recent call last):",
+        "2026-05-12 17:12:00 [INFO] watchdog: BREACH cap=18G",
+        "----",
+    ]
+    counts = summarize_log(lines)
+    assert counts == {
+        "dispatch": 4,
+        "success": 2,
+        "error": 2,
+        "breach": 1,
+        "other": 1,
+        "total": 10,
+    }
+
+
+def test_summarize_log_empty_returns_zero_counts() -> None:
+    """An empty iterable yields zero counts for every key (never KeyError)."""
+    counts = summarize_log([])
+    assert counts == {
+        "dispatch": 0,
+        "success": 0,
+        "error": 0,
+        "breach": 0,
+        "other": 0,
+        "total": 0,
+    }
+
+
+def test_event_log_tab_renders_synthetic_log() -> None:
+    """Snapshot-style: 3 lines -> colour-wrapped HTML in the expected order.
+
+    The renderer is purely a function of (lines, categories), so this
+    is a deterministic snapshot. We assert each colour appears once and
+    the original (HTML-escaped) text is present in the output.
+    """
+    lines = [
+        "2026-05-12 17:11:35,207 [INFO] run-sweep: [1/110] dispatch act/x/seed0 (n=50)",
+        "2026-05-12 17:25:14,103 [INFO] run-one: success_rate=0.42 (21/50)",
+        "2026-05-12 17:30:00,000 [INFO] watchdog: BREACH cap=18G",
+    ]
+    rendered = format_log_lines_html(lines)
+    # One <span> per line, in order.
+    assert rendered.count("<span") == 3
+    # Each canonical colour appears.
+    assert "#3b82f6" in rendered  # dispatch (blue)
+    assert "#16a34a" in rendered  # success (green)
+    assert "#dc2626" in rendered  # breach (red)
+    # Original line text survives (modulo HTML-escaping, which doesn't
+    # touch this content because there are no <, >, & characters here).
+    for line in lines:
+        assert line in rendered
+
+
+def test_event_log_tab_filters_by_category() -> None:
+    """``categories={"error", "breach"}`` -> only those lines render."""
+    lines = [
+        "dispatch act/x/seed0",
+        "run-one: success_rate=0.5 (5/10)",
+        "watchdog: BREACH cap=18G",
+        "[ERROR] Traceback",
+    ]
+    rendered = format_log_lines_html(lines, categories={"error", "breach"})
+    assert rendered.count("<span") == 2
+    assert "BREACH" in rendered
+    assert "Traceback" in rendered
+    assert "success_rate" not in rendered
+    assert "dispatch" not in rendered
+
+
+def test_event_log_tab_html_escapes_traceback_brackets() -> None:
+    """A Python traceback with ``<class 'X'>`` must not inject markup.
+
+    Premortem: an unescaped traceback line containing ``<script>`` could
+    inject JS into the dashboard. We verify the angle brackets get
+    escaped before the colour span is added.
+    """
+    line = "Traceback: <class 'RuntimeError'>: oh no"
+    rendered = format_log_lines_html([line])
+    # The literal ``<class`` must NOT appear as raw markup in the output;
+    # it should be ``&lt;class``.
+    assert "&lt;class" in rendered
+    assert "<class 'RuntimeError'>" not in rendered
 
 
 # --------------------------------------------------------------------- #

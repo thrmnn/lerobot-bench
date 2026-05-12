@@ -29,15 +29,17 @@ same contract the operator already relies on for resume.
 from __future__ import annotations
 
 import datetime as dt
+import html
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -761,3 +763,213 @@ def env_dashboard_results_dir() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return DEFAULT_RESULTS_DIR
+
+
+# --------------------------------------------------------------------- #
+# Tab 4: Live event log                                                 #
+# --------------------------------------------------------------------- #
+#
+# The sweep driver (``scripts/run_sweep.py``) tees its Python ``logging``
+# output to ``logs/sweep-YYYYMMDD-HHMMSS.log``. The dashboard's event-log
+# tab tails that file, classifies each line into a coarse bucket, and
+# renders it as colour-coded HTML so the operator can watch a long sweep
+# scroll past without flipping back to the terminal.
+#
+# Helpers in this section are gradio-free (same contract as the rest of
+# the module); the Gradio wiring lives in ``app.py`` and only formats
+# the classified output. Patterns are pinned local constants so the
+# colour coding is deterministic across operator machines.
+
+# Default location of sweep logs. The driver writes ``logs/sweep-*.log``
+# at the repo root. ``DASHBOARD_LOGS_DIR`` overrides this for operators
+# who keep their logs on a different disk (mirrors the existing
+# ``DASHBOARD_RESULTS_DIR`` knob).
+DEFAULT_LOGS_DIR = REPO_ROOT / "logs"
+
+# Tail window. 200 lines covers ~the last ~10 cells of a sweep at the
+# current verbosity; long enough to see context around an error without
+# blowing up the textbox the browser has to lay out every 2 s.
+DEFAULT_LOG_TAIL_LINES = 200
+
+# Maximum bytes we'll read off the end of a log file. Sweep logs are
+# typically <10 MB but tracebacks from a stuck cell can balloon them;
+# capping the read keeps the 2 s refresh tick from doing unbounded I/O
+# if the file grows mid-session.
+_LOG_TAIL_MAX_BYTES = 2 * 1024 * 1024  # 2 MB tail window
+
+# Line classification. Order matters: more-specific patterns first
+# (BREACH wins over ERROR even when both substrings appear). Each
+# pattern is matched with ``re.search`` against the full line.
+LogLineCategory = Literal["dispatch", "success", "error", "breach", "other"]
+
+_LOG_BREACH_RE = re.compile(r"\bBREACH\b|\bwatchdog:\s*BREACH\b", re.IGNORECASE)
+_LOG_ERROR_RE = re.compile(
+    r"\bTraceback\b|\bRuntimeError\b|\bOOMError\b|\bKilled\b|\bOOM\b|"
+    r"\[ERROR\]|\bERROR\s*:|\bFAILED\b|\bexit=-?\d+\)",
+    re.IGNORECASE,
+)
+_LOG_DISPATCH_RE = re.compile(
+    r"\bdispatch\b\s+\S+/\S+/seed\d+|\brun-sweep:\s*\[\d+/\d+\]\s+dispatch"
+)
+_LOG_SUCCESS_RE = re.compile(r"success_rate\s*=")
+
+
+def classify_log_line(line: str) -> LogLineCategory:
+    """Bucket a single log line into one of the five categories.
+
+    The buckets feed both the colour coding and the header counters.
+    The classifier is deliberately permissive -- a real error
+    traceback that doesn't match the canonical phrases still falls
+    through to ``"other"`` which the UI renders in the default colour;
+    no exception is raised. Matching is done with ``re.search`` so the
+    timestamp prefix on each line is ignored.
+
+    Premortem: the watchdog's ``BREACH`` log line technically *also*
+    contains the word "error" in some failure paths; we want it
+    bucketed as ``"breach"`` because that's the actionable signal for
+    the operator (cgroup OOM != Python error). Hence the explicit
+    BREACH-first ordering.
+    """
+    if not line:
+        return "other"
+    if _LOG_BREACH_RE.search(line):
+        return "breach"
+    if _LOG_ERROR_RE.search(line):
+        return "error"
+    if _LOG_SUCCESS_RE.search(line):
+        return "success"
+    if _LOG_DISPATCH_RE.search(line):
+        return "dispatch"
+    return "other"
+
+
+def discover_sweep_logs(logs_root: Path | None = None) -> list[Path]:
+    """List every ``sweep-*.log`` under ``logs_root``, newest mtime first.
+
+    Returns ``[]`` if the directory doesn't exist -- a fresh checkout
+    has no sweeps yet, which the dashboard renders as an empty
+    dropdown rather than an exception. Sorting by mtime (not by
+    filename) handles the ``sweep-YYYYMMDD-HHMMSS.log`` schema and
+    also correctly orders pre-2026 logs whose names lack the
+    timestamp suffix.
+    """
+    root = logs_root or env_dashboard_logs_dir()
+    if not root.exists():
+        return []
+    candidates = [p for p in root.glob("sweep-*.log") if p.is_file()]
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates
+
+
+def tail_log_lines(path: Path, n: int = DEFAULT_LOG_TAIL_LINES) -> list[str]:
+    """Return the last ``n`` lines of ``path`` as a list of strings.
+
+    Missing file -> ``[]``. We read at most :data:`_LOG_TAIL_MAX_BYTES`
+    off the tail to bound I/O on a runaway log. Trailing newline on
+    the file is dropped before splitting so the last entry isn't an
+    empty string.
+
+    Premortem: ``Path.read_text().splitlines()[-n:]`` would work but
+    streams the entire file through memory; the seek-from-end approach
+    keeps memory bounded even when an operator points the dashboard at
+    a 500 MB log from a previous failed sweep.
+    """
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        size = path.stat().st_size
+        read_n = min(size, _LOG_TAIL_MAX_BYTES)
+        with path.open("rb") as fh:
+            if size > read_n:
+                fh.seek(size - read_n)
+            blob = fh.read()
+    except OSError as exc:
+        logger.warning("could not tail %s: %s", path, exc)
+        return []
+    text = blob.decode("utf-8", errors="replace")
+    # Drop a leading partial line when we seeked into the middle of one.
+    if path.stat().st_size > _LOG_TAIL_MAX_BYTES:
+        nl = text.find("\n")
+        if nl >= 0:
+            text = text[nl + 1 :]
+    lines = text.splitlines()
+    if n <= 0:
+        return lines
+    return lines[-n:]
+
+
+def summarize_log(lines: Iterable[str]) -> dict[str, int]:
+    """Count each :func:`classify_log_line` bucket across ``lines``.
+
+    Keys are the five literal categories plus ``"total"`` so callers
+    can show ``N dispatched``/``M completed``/``X errors``/``Y breaches``
+    headers without recomputing. Returns zero counts for every key on
+    an empty iterable so the header always renders.
+    """
+    counts: dict[str, int] = {
+        "dispatch": 0,
+        "success": 0,
+        "error": 0,
+        "breach": 0,
+        "other": 0,
+        "total": 0,
+    }
+    for line in lines:
+        counts[classify_log_line(line)] += 1
+        counts["total"] += 1
+    return counts
+
+
+# Colours used by :func:`format_log_lines_html`. Picked to match the
+# usual terminal palette so the screenshots in the operator's notes are
+# readable in both light and dark Gradio themes.
+_LOG_LINE_COLOURS: dict[str, str] = {
+    "dispatch": "#3b82f6",  # blue
+    "success": "#16a34a",  # green
+    "error": "#dc2626",  # red
+    "breach": "#dc2626",  # red (same hue as error -- still actionable)
+    "other": "inherit",
+}
+
+
+def format_log_lines_html(
+    lines: Iterable[str],
+    *,
+    categories: Iterable[str] | None = None,
+) -> str:
+    """Render classified log lines as a single colour-coded HTML string.
+
+    ``categories`` is the set of buckets to *include* in the output --
+    e.g. ``{"error", "breach"}`` to filter to just the actionable lines.
+    ``None`` means "show everything". The returned string is the
+    ``innerHTML`` for a ``gr.HTML`` component (no surrounding ``<pre>``
+    is emitted; the caller wraps the block so the textbox keeps its
+    monospace styling from the parent component).
+
+    Each line is HTML-escaped before colour-wrapping so a Python
+    traceback containing ``<class 'X'>`` doesn't accidentally inject
+    markup into the DOM.
+    """
+    allowed: set[str] | None = set(categories) if categories is not None else None
+    out: list[str] = []
+    for raw_line in lines:
+        cat = classify_log_line(raw_line)
+        if allowed is not None and cat not in allowed:
+            continue
+        colour = _LOG_LINE_COLOURS.get(cat, "inherit")
+        escaped = html.escape(raw_line)
+        out.append(f'<span style="color:{colour}">{escaped}</span>')
+    return "\n".join(out)
+
+
+def env_dashboard_logs_dir() -> Path:
+    """Allow operators to point the dashboard at a non-default logs dir.
+
+    Mirrors :func:`env_dashboard_results_dir`: the ``DASHBOARD_LOGS_DIR``
+    environment variable overrides the default. Defaults to the repo
+    root's ``logs/`` directory.
+    """
+    override = os.environ.get("DASHBOARD_LOGS_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
+    return DEFAULT_LOGS_DIR
