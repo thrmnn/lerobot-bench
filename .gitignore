@@ -93,3 +93,7 @@ mlruns/
 scratch/
 tmp/
 .tmp/
+
+# Runtime calibration/sweep logs (live in results/ for the report; raw logs are local-only)
+logs/
+.claude/scheduled_tasks.lock
