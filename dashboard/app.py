@@ -38,6 +38,7 @@ from _helpers import (
     DEFAULT_LOG_TAIL_LINES,
     DEFAULT_VIDEO_ROOTS,
     PROGRESS_COLUMNS,
+    StaleDataCache,
     build_calibration_table,
     build_progress_table,
     clear_video_cache,
@@ -51,6 +52,7 @@ from _helpers import (
     format_log_lines_html,
     load_calibration_report,
     load_manifest,
+    load_with_stale_fallback,
     methodology_markdown,
     per_tab_intro_markdown,
     persistent_header_markdown,
@@ -68,6 +70,34 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 # sweep; the manifest writer flushes every cell boundary, so anything
 # tighter would just burn battery without showing fresher data.
 PROGRESS_REFRESH_SECONDS = 5.0
+
+# --------------------------------------------------------------------- #
+# Stale-data resilience caches (audit item 9)                           #
+# --------------------------------------------------------------------- #
+#
+# One :class:`StaleDataCache` per data-loading panel that needs to keep
+# showing last-known-good values when the underlying file is mid-write.
+# Module-level state is fine here: the dashboard is single-tenant by
+# design (one operator, one browser, one sweep) and the cache contents
+# are derived purely from disk -- a process restart re-warms them on
+# the first successful refresh.
+_progress_cache = StaleDataCache()
+_calibration_cache = StaleDataCache()
+
+
+def reset_stale_caches() -> None:
+    """Reset the module-level caches.
+
+    Test seam: ``tests/test_dashboard.py`` swaps in its own
+    :class:`StaleDataCache` instances by calling the underlying helper
+    directly; this function exists so an operator running the
+    dashboard in a long-lived session can clear the cache manually if
+    they ever need to (currently unwired but kept for parity with the
+    other ``clear_*`` helpers in ``_helpers``).
+    """
+    global _progress_cache, _calibration_cache
+    _progress_cache = StaleDataCache()
+    _calibration_cache = StaleDataCache()
 
 
 # --------------------------------------------------------------------- #
@@ -92,28 +122,51 @@ def _runs_dropdown_choices() -> tuple[list[tuple[str, str]], str | None]:
 
 def refresh_progress(
     manifest_path_str: str | None,
-) -> tuple[pd.DataFrame, str]:
+) -> tuple[pd.DataFrame, str, str]:
     """Re-read the manifest and recompute the progress table.
 
     Called by the 5 s timer and the manual Refresh button. Returns
-    ``(table_df, status_markdown)``. Status is empty on success or a
-    helpful hint when no manifest is selected.
+    ``(table_df, status_markdown, stale_warning_markdown)``. Status is
+    empty on success or a helpful hint when no manifest is selected;
+    the stale-warning slot is populated by :func:`load_with_stale_fallback`
+    when the manifest file is mid-write (audit item 9).
     """
     if not manifest_path_str:
         empty = pd.DataFrame({c: [] for c in PROGRESS_COLUMNS})
-        return empty, _no_sweep_hint()
+        # No manifest selected isn't a "stale" failure -- it's just the
+        # empty initial state. Don't bump the failure counter.
+        return empty, _no_sweep_hint(), ""
 
-    manifest = load_manifest(Path(manifest_path_str))
-    if not manifest:
-        empty = pd.DataFrame({c: [] for c in PROGRESS_COLUMNS})
-        return empty, (
-            f"_Manifest at `{manifest_path_str}` is missing or unreadable. "
-            "Has the sweep started yet?_"
-        )
+    def _loader() -> pd.DataFrame:
+        # Wrapped in a callable so ``load_with_stale_fallback`` can
+        # catch a partial-read OSError / JSONDecodeError mid-write
+        # without us having to duplicate the try/except in every panel.
+        manifest = load_manifest(Path(manifest_path_str))
+        if not manifest:
+            # Treat an empty/unreadable manifest like a failure so the
+            # cache falls back to the last-good table. ``load_manifest``
+            # itself swallows the OSError; raising here re-surfaces it
+            # to the stale-data layer.
+            raise FileNotFoundError(f"manifest at {manifest_path_str} unreadable or empty")
+        return build_progress_table(manifest)
 
-    table = build_progress_table(manifest)
+    def _empty() -> pd.DataFrame:
+        return pd.DataFrame({c: [] for c in PROGRESS_COLUMNS})
+
+    table, warning = load_with_stale_fallback(
+        _progress_cache,
+        _loader,
+        empty_factory=_empty,
+    )
+    if warning:
+        # On a stale-data event, still surface the friendly summary
+        # line above the table (so the operator's eye doesn't lose
+        # context); the warning sits below.
+        summary = _summarise_progress(table)
+        return table, summary, warning
+
     summary = _summarise_progress(table)
-    return table, summary
+    return table, summary, ""
 
 
 def _no_sweep_hint() -> str:
@@ -138,24 +191,87 @@ def _summarise_progress(table: pd.DataFrame) -> str:
     return " · ".join(parts)
 
 
-def _on_run_selected(manifest_path_str: str | None) -> tuple[pd.DataFrame, str]:
-    """Dropdown change -> re-render the progress table for that run."""
+def _on_run_selected(manifest_path_str: str | None) -> tuple[pd.DataFrame, str, str]:
+    """Dropdown change -> re-render the progress table for that run.
+
+    Returns the 3-tuple shape (table, summary, stale_warning) so the
+    timer + dropdown handlers can share a wiring with the stale-data
+    fallback (audit item 9).
+    """
     return refresh_progress(manifest_path_str)
 
 
-def _on_runs_refresh() -> tuple[Any, pd.DataFrame, str]:
+def _on_runs_refresh() -> tuple[Any, pd.DataFrame, str, str]:
     """Re-scan disk for new runs and re-render the table for the newest.
 
     Wired to the "Re-scan runs" button. Returns
-    ``(dropdown_update, table_df, status_markdown)``.
+    ``(dropdown_update, table_df, status_markdown, stale_warning_markdown)``.
     """
     choices, default = _runs_dropdown_choices()
-    table, summary = refresh_progress(default)
+    table, summary, warning = refresh_progress(default)
     return (
         gr.update(choices=choices, value=default),
         table,
         summary,
+        warning,
     )
+
+
+def _on_progress_row_click(
+    table: pd.DataFrame,
+    evt: gr.SelectData,
+) -> tuple[Any, str, str, Any, Any, Any]:
+    """Drill-down handler for clicks on the Sweep-progress dataframe.
+
+    Wired to ``gr.Dataframe.select`` on the progress table (audit item
+    8). Returns a 6-tuple:
+
+    1. ``tabs_update``: ``gr.update(selected=...)`` to flip the active
+       tab to "Rollout preview" on success, or a no-op on failure.
+    2. ``status_md``: unchanged (no overwrite) on success, a one-line
+       warning on a non-actionable click. We piggy-back on the
+       progress-tab summary widget so the warning shows up where the
+       operator's mouse already is.
+    3. ``warning_md``: same as ``status_md`` -- exposed separately so
+       the test suite can introspect the helper return without a
+       Gradio event loop.
+    4-6. ``policy_update`` / ``env_update`` / ``seed_update``:
+       ``gr.update(value=...)`` for the rollout-tab dropdowns. No-op
+       on non-actionable rows.
+    """
+    row_index = evt.index[0] if evt.index else None
+    target = extract_row_click_target(
+        table,
+        row_index,
+        columns=list(table.columns) if hasattr(table, "columns") else None,
+    )
+    if not target.actionable:
+        return (
+            gr.update(),
+            target.warning,
+            target.warning,
+            gr.update(),
+            gr.update(),
+            gr.update(),
+        )
+    return (
+        gr.update(selected=ROLLOUT_TAB_ID),
+        "",
+        "",
+        gr.update(value=target.policy),
+        gr.update(value=target.env),
+        gr.update(value=target.seed),
+    )
+
+
+# Stable tab IDs for the ``gr.Tabs`` container. Strings rather than
+# ints so the row-click handler can pass a meaningful selector;
+# Gradio matches on either an ``id`` attribute or the label.
+PROGRESS_TAB_ID = "progress"
+CALIBRATION_TAB_ID = "calibration"
+ROLLOUT_TAB_ID = "rollouts"
+EVENTS_TAB_ID = "events"
+ABOUT_TAB_ID = "about"
 
 
 # --------------------------------------------------------------------- #
@@ -446,7 +562,7 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
     """Render the sweep-progress tab. Side-effects on ``demo``."""
     initial_choices, initial_default = _runs_dropdown_choices()
 
-    with gr.Accordion("What this tab shows", open=True):
+    with gr.Accordion("What this tab shows", open=False):
         gr.Markdown(per_tab_intro_markdown("progress"))
 
     with gr.Row():
@@ -511,7 +627,7 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
 
 def _build_calibration_tab(demo: gr.Blocks) -> None:
     """Render the calibration-inspector tab."""
-    with gr.Accordion("What this tab shows", open=True):
+    with gr.Accordion("What this tab shows", open=False):
         gr.Markdown(per_tab_intro_markdown("calibration"))
 
     status_md = gr.Markdown("")
@@ -549,7 +665,7 @@ def _build_calibration_tab(demo: gr.Blocks) -> None:
 
 def _build_rollout_tab(demo: gr.Blocks) -> None:
     """Render the rollout-preview tab."""
-    with gr.Accordion("What this tab shows", open=True):
+    with gr.Accordion("What this tab shows", open=False):
         gr.Markdown(per_tab_intro_markdown("rollouts"))
 
     status_md = gr.Markdown("")
@@ -601,7 +717,7 @@ def _build_event_log_tab(demo: gr.Blocks) -> None:
     """
     initial_choices, initial_default = _log_dropdown_choices()
 
-    with gr.Accordion("What this tab shows", open=True):
+    with gr.Accordion("What this tab shows", open=False):
         gr.Markdown(per_tab_intro_markdown("events"))
 
     with gr.Row():

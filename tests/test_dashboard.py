@@ -1095,3 +1095,121 @@ def test_helpers_does_not_import_gradio() -> None:
     assert not offenders, (
         f"dashboard/_helpers.py must not import gradio at module load; found {offenders}"
     )
+
+
+# --------------------------------------------------------------------- #
+# Council audit P0 item 7 / 8 / 9 — UX wins                             #
+# --------------------------------------------------------------------- #
+
+
+def test_should_accordion_be_open_first_visit_only() -> None:
+    """``should_accordion_be_open`` returns True only on the first visit
+    of a session; subsequent calls (visit_count >= 1) return False so
+    revisit users do not see the wall-of-text framing again."""
+    fn = _dashboard_helpers.should_accordion_be_open
+    assert fn(0) is True
+    assert fn(1) is False
+    assert fn(5) is False
+    assert fn(-1) is True  # defensive: negative behaves like first visit
+
+
+def test_extract_row_click_target_resolves_policy_env_on_normal_row() -> None:
+    """A click on a row with ``policy``/``env``/``status=running`` resolves
+    to an actionable RowClickTarget with seed='0' default."""
+    import pandas as pd
+
+    extract = _dashboard_helpers.extract_row_click_target
+    table = pd.DataFrame(
+        [
+            {"policy": "act", "env": "aloha_transfer_cube", "status": CELL_STATUS_RUNNING},
+            {"policy": "smolvla_libero", "env": "libero_spatial", "status": CELL_STATUS_DONE},
+        ],
+        columns=list(PROGRESS_COLUMNS),
+    )
+    target = extract(table, row_index=1)
+    assert target.actionable is True
+    assert target.policy == "smolvla_libero"
+    assert target.env == "libero_spatial"
+    assert target.seed == "0"
+    assert target.warning == ""
+
+
+def test_extract_row_click_target_skipped_row_is_non_actionable() -> None:
+    """Skipped cells have no rollouts on disk; the handler should not
+    navigate, and should surface a warning."""
+    import pandas as pd
+
+    extract = _dashboard_helpers.extract_row_click_target
+    table = pd.DataFrame(
+        [{"policy": "act", "env": "pusht", "status": CELL_STATUS_SKIPPED}],
+        columns=list(PROGRESS_COLUMNS),
+    )
+    target = extract(table, row_index=0)
+    assert target.actionable is False
+    assert "skipped" in target.warning.lower() or "no rollouts" in target.warning.lower() or target.warning
+
+
+def test_extract_row_click_target_out_of_range_returns_warning() -> None:
+    """Clicking an out-of-range or empty index yields a non-actionable
+    result with a clear warning instead of an IndexError."""
+    import pandas as pd
+
+    extract = _dashboard_helpers.extract_row_click_target
+    empty_table = pd.DataFrame(columns=list(PROGRESS_COLUMNS))
+    assert extract(empty_table, row_index=0).actionable is False
+
+    one_row = pd.DataFrame(
+        [{"policy": "act", "env": "pusht", "status": CELL_STATUS_QUEUED}],
+        columns=list(PROGRESS_COLUMNS),
+    )
+    target = extract(one_row, row_index=99)
+    assert target.actionable is False
+    assert "out of range" in target.warning.lower() or target.warning
+
+
+def test_stale_data_cache_falls_back_to_last_good_on_loader_failure() -> None:
+    """``load_with_stale_fallback`` returns the cache + soft warning on
+    a loader exception, after a prior success has been recorded."""
+    cache = _dashboard_helpers.StaleDataCache()
+    load = _dashboard_helpers.load_with_stale_fallback
+
+    def good_loader() -> str:
+        return "good-value"
+
+    def bad_loader() -> str:
+        raise OSError("file mid-write")
+
+    value, warning = load(cache, good_loader)
+    assert value == "good-value"
+    assert warning == ""
+
+    value, warning = load(cache, bad_loader)
+    assert value == "good-value"  # last-good
+    assert "Last refresh failed" in warning
+
+
+def test_stale_data_cache_escalates_after_three_failures() -> None:
+    """After ``STALE_DATA_ESCALATE_AFTER`` consecutive failures the
+    warning escalates to the loud "filesystem error" message."""
+    cache = _dashboard_helpers.StaleDataCache()
+    load = _dashboard_helpers.load_with_stale_fallback
+
+    threshold = _dashboard_helpers.STALE_DATA_ESCALATE_AFTER
+
+    def good_loader() -> str:
+        return "v"
+
+    def bad_loader() -> str:
+        raise OSError("nope")
+
+    # Seed cache with a good value first so we can see the cache survive.
+    load(cache, good_loader)
+
+    for i in range(threshold):
+        _, warning = load(cache, bad_loader)
+        if i < threshold - 1:
+            assert "Last refresh failed" in warning
+        else:
+            assert "File system error" in warning, (
+                f"escalated warning expected at failure #{i + 1}, got: {warning!r}"
+            )
