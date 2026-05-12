@@ -47,8 +47,17 @@ def _fake_episode(
     success: bool,
     error: str | None = None,
     with_frame: bool = True,
+    video_sha256: str = "",
+    video_path: Path | None = None,
 ) -> EpisodeResult:
-    """Build one EpisodeResult; success=False + error sets the crash row shape."""
+    """Build one EpisodeResult; success=False + error sets the crash row shape.
+
+    After the streaming-encode refactor, ``EpisodeResult.frames`` is
+    typically empty in production results -- the renderer runs inside
+    :func:`run_cell` and drops frames before each episode returns. The
+    ``video_sha256`` / ``video_path`` fields carry the publish-time
+    references. Tests can populate them explicitly via the kwargs.
+    """
     if error is not None:
         return EpisodeResult(
             episode_index=idx,
@@ -71,6 +80,8 @@ def _fake_episode(
         frames=frames,
         final_reward=1.0 if success else 0.0,
         error=None,
+        video_path=video_path,
+        video_sha256=video_sha256,
     )
 
 
@@ -482,6 +493,65 @@ def test_run_one_records_video_sha_when_record_video_true(
     df = pd.read_parquet(out_parquet)
     # Order is preserved by to_rows -> append_cell_rows.
     assert df["video_sha256"].tolist() == fake_shas
+
+
+def test_run_one_streaming_encode_reads_sha_from_episode_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end with the post-refactor flow: the stub ``run_cell_from_specs``
+    returns ``EpisodeResult``s that already carry ``video_sha256`` (as if
+    the streaming encoder ran inside the cell loop), and ``run_one``
+    folds those SHAs straight into the parquet without re-encoding.
+    """
+    # Pre-write fake MP4s on disk so the shim's existence sanity-check passes.
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    pre_paths = []
+    for i in range(3):
+        p = videos_dir / f"random__pusht__seed0__ep{i:03d}.mp4"
+        p.write_bytes(b"FAKE")
+        pre_paths.append(p)
+
+    eps = tuple(
+        _fake_episode(
+            idx=i,
+            success=(i < 2),
+            with_frame=False,
+            video_sha256=f"streamed-sha-{i}",
+            video_path=pre_paths[i],
+        )
+        for i in range(3)
+    )
+    cell = CellResult(
+        policy="random",
+        env="pusht",
+        seed=0,
+        episodes=eps,
+        code_sha="deadbeef",
+        lerobot_version="0.5.1",
+        timestamp_utc="2026-05-01T00:00:00+00:00",
+    )
+    _patch_run_cell(monkeypatch, cell)
+    _patch_lerobot_available(monkeypatch)
+
+    out_parquet = tmp_path / "results.parquet"
+    outcome = ro.run_one(
+        policy_name="random",
+        env_name="pusht",
+        seed=0,
+        n_episodes=3,
+        out_parquet=out_parquet,
+        videos_dir=videos_dir,
+        record_video=True,
+        device="cpu",
+        policies_yaml=DEFAULT_POLICIES_YAML,
+        envs_yaml=DEFAULT_ENVS_YAML,
+        dry_run=False,
+    )
+    assert outcome.exit_code == 0
+    df = pd.read_parquet(out_parquet)
+    assert df["video_sha256"].tolist() == [f"streamed-sha-{i}" for i in range(3)]
 
 
 def test_run_one_no_record_video_skips_render(
