@@ -104,8 +104,21 @@ class EpisodeResult:
 
     ``frames`` is a tuple (immutable / hashable) of ``(H, W, 3)`` uint8
     arrays collected via ``env.render()``. Empty tuple when
-    ``record_video=False``. Order: the first frame is from the post-reset
-    ``render()`` call; subsequent frames follow each ``step()``.
+    ``record_video=False`` OR when ``videos_dir`` was set on
+    :func:`run_cell` (frames are encoded inline and dropped from memory
+    before the next episode starts -- the on-disk MP4 lives at
+    ``video_path`` and its SHA in ``video_sha256``). Order, when
+    populated: the first frame is from the post-reset ``render()`` call;
+    subsequent frames follow each ``step()``.
+
+    ``video_path`` is the absolute path to the encoded MP4 when the
+    streaming-encode path produced one; ``None`` otherwise (record_video
+    off, no videos_dir provided, episode errored, or zero frames
+    collected).
+
+    ``video_sha256`` is the hex SHA-256 of the encoded MP4 bytes when
+    available; ``""`` otherwise. The parquet's ``video_sha256`` column
+    is filled from this field in the streaming-encode flow.
 
     ``error`` is ``None`` for successful (or cleanly-failed) episodes
     and a short stringified exception for crashes. When ``error`` is
@@ -121,6 +134,8 @@ class EpisodeResult:
     frames: tuple[NDArray[np.uint8], ...]
     final_reward: float
     error: str | None = None
+    video_path: Path | None = None
+    video_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -145,12 +160,15 @@ class CellResult:
         """Convert to a DataFrame matching :data:`RESULT_SCHEMA`.
 
         ``video_sha256_per_episode`` is parallel to ``self.episodes``;
-        if ``None``, the column is filled with empty strings (the same
-        default that :mod:`render` uses when video rendering is off).
+        if ``None``, the column is filled from each
+        :attr:`EpisodeResult.video_sha256` (populated by the streaming
+        per-episode encoder in :func:`run_cell`). When the streaming
+        encoder was not used the per-episode SHAs are empty strings,
+        matching the legacy "no video" default.
         """
         n = len(self.episodes)
         if video_sha256_per_episode is None:
-            video_sha = [""] * n
+            video_sha = [ep.video_sha256 for ep in self.episodes]
         else:
             if len(video_sha256_per_episode) != n:
                 raise ValueError(
@@ -1104,6 +1122,7 @@ def run_cell(
     seed_idx: int,
     n_episodes: int,
     record_video: bool = True,
+    videos_dir: Path | None = None,
     code_sha: str | None = None,
     lerobot_version: str | None = None,
 ) -> CellResult:
@@ -1123,6 +1142,23 @@ def run_cell(
     ``EpisodeResult.error``; the cell continues. A whole-cell exception
     (e.g. ``env.reset`` itself crashes on the first attempt) propagates.
 
+    **Streaming MP4 encode** (memory-safety contract). If ``record_video``
+    and ``videos_dir`` are both set, each episode's frames are encoded
+    to an MP4 at ``videos_dir / "{policy}__{env}__seed{seed}__ep{K:03d}.mp4"``
+    immediately after the episode's last step, and the in-memory frame
+    tuple is then dropped (``EpisodeResult.frames`` becomes ``()`` for
+    that episode). This bounds the peak working set to one episode's
+    frames at a time; previous behaviour buffered every episode's frames
+    for the whole cell and OOMed on long-horizon envs (aloha, libero).
+    The encoded path + SHA land in ``EpisodeResult.video_path`` and
+    ``EpisodeResult.video_sha256`` respectively. ``videos_dir`` is
+    created if missing.
+
+    When ``record_video=True`` but ``videos_dir is None`` the old
+    behaviour is preserved: frames are kept on ``EpisodeResult`` and
+    the caller is responsible for encoding them later. The streaming
+    path is the new default for any callers passing ``videos_dir``.
+
     ``code_sha`` and ``lerobot_version`` default to autodetection
     (``git rev-parse HEAD`` and ``lerobot.__version__``); pass them
     explicitly when the orchestrator already has them in hand.
@@ -1139,6 +1175,13 @@ def run_cell(
         lerobot_version = _detect_lerobot_version()
     timestamp_utc = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 
+    stream_encode = bool(record_video and videos_dir is not None)
+    if stream_encode:
+        # Caller-provided dir; mkdir parents for ergonomics (same shape as
+        # the legacy render_episodes_to_videos used to do).
+        assert videos_dir is not None  # narrowing for mypy
+        videos_dir.mkdir(parents=True, exist_ok=True)
+
     episodes: list[EpisodeResult] = []
     for e in range(n_episodes):
         episode_seed = base_seed + e
@@ -1151,6 +1194,15 @@ def run_cell(
             success_threshold=env_spec.success_threshold,
             record_video=record_video,
         )
+        if stream_encode and episode.error is None and len(episode.frames) > 0:
+            assert videos_dir is not None
+            episode = _encode_and_drop_frames(
+                episode,
+                videos_dir=videos_dir,
+                policy_name=policy_name,
+                env_name=env_spec.name,
+                seed_idx=seed_idx,
+            )
         episodes.append(episode)
 
     return CellResult(
@@ -1161,6 +1213,55 @@ def run_cell(
         code_sha=code_sha,
         lerobot_version=lerobot_version,
         timestamp_utc=timestamp_utc,
+    )
+
+
+def _encode_and_drop_frames(
+    episode: EpisodeResult,
+    *,
+    videos_dir: Path,
+    policy_name: str,
+    env_name: str,
+    seed_idx: int,
+) -> EpisodeResult:
+    """Encode this episode's frames to MP4, return a new EpisodeResult with frames dropped.
+
+    Filename convention matches the legacy
+    ``render_episodes_to_videos`` helper: ``{policy}__{env}__seed{N}__ep{K:03d}.mp4``.
+
+    Lazy-imports :mod:`lerobot_bench.render` so the eval module stays
+    importable in CI fast (no imageio/ffmpeg required). The frame stack
+    is materialized as a single ``(T, H, W, 3)`` numpy array, handed to
+    :func:`render_episode`, and then immediately released by the
+    function-local ``stacked`` going out of scope. The returned dataclass
+    has ``frames=()`` so the cell-result tuple does not hold the source
+    frames for the rest of the cell.
+
+    If the encode itself raises (e.g. :class:`RenderSizeError` from the
+    long-episode fallback path), we propagate — that is a real bug to
+    investigate, not something to swallow. The partial MP4 (if any) is
+    already cleaned up by :func:`render_episode` itself.
+    """
+    from lerobot_bench.render import render_episode
+
+    out_path = (
+        videos_dir / f"{policy_name}__{env_name}__seed{seed_idx}__ep{episode.episode_index:03d}.mp4"
+    )
+    stacked = np.stack(episode.frames, axis=0)
+    result = render_episode(stacked, out_path)
+    # Drop the intermediate numpy stack as soon as the encoder returns.
+    del stacked
+    return EpisodeResult(
+        episode_index=episode.episode_index,
+        success=episode.success,
+        return_=episode.return_,
+        n_steps=episode.n_steps,
+        wallclock_s=episode.wallclock_s,
+        frames=(),
+        final_reward=episode.final_reward,
+        error=episode.error,
+        video_path=out_path,
+        video_sha256=result.content_sha256,
     )
 
 
@@ -1233,6 +1334,7 @@ def run_cell_from_specs(
     n_episodes: int,
     device: str = "cuda",
     record_video: bool = True,
+    videos_dir: Path | None = None,
 ) -> CellResult:
     """Convenience: load policy + env from specs, then :func:`run_cell`.
 
@@ -1241,6 +1343,12 @@ def run_cell_from_specs(
     baseline policy construction. The caller is responsible for
     ``env.close()`` -- this function does not own the env's lifecycle
     once it returns.
+
+    ``videos_dir`` is forwarded to :func:`run_cell`; when set together
+    with ``record_video=True`` the streaming per-episode MP4 encode
+    happens inside the cell loop and ``EpisodeResult.frames`` is dropped
+    after each episode's encode. See :func:`run_cell` for the full
+    contract.
     """
     env = load_env(env_spec)
     # gymnasium envs expose .action_space; we read its shape for baselines.
@@ -1261,4 +1369,5 @@ def run_cell_from_specs(
         seed_idx=seed_idx,
         n_episodes=n_episodes,
         record_video=record_video,
+        videos_dir=videos_dir,
     )

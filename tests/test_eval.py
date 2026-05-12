@@ -269,6 +269,133 @@ def test_run_cell_skips_frames_when_record_video_false(env_spec: EnvSpec) -> Non
         assert ep.frames == ()
 
 
+def test_run_cell_drops_frames_after_per_episode_encode(
+    env_spec: EnvSpec,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Streaming MP4 encode path: with ``videos_dir`` set, frames must be
+    dropped from each :class:`EpisodeResult` as soon as that episode's
+    MP4 has been written -- the bug we fixed was 50 episodes worth of
+    frames pinned in memory until the end of the cell. This test stubs
+    the actual encoder so it runs imageio-free, then asserts every
+    post-cell ``ep.frames`` tuple is empty and that each successful
+    episode carries a ``video_path`` + ``video_sha256``.
+    """
+    from lerobot_bench import eval as eval_mod
+    from lerobot_bench.render import RenderResult
+
+    encoded_paths: list[Path] = []
+
+    def _fake_render(stacked: np.ndarray, out_path: Path) -> RenderResult:
+        # Touch the file so the on-disk sanity check in run_one's shim
+        # passes (and so this test mirrors what the real encoder does).
+        out_path.write_bytes(b"FAKE-MP4")
+        encoded_paths.append(out_path)
+        from lerobot_bench.render import EncoderSettings
+
+        return RenderResult(
+            path=out_path,
+            bytes_written=len(b"FAKE-MP4"),
+            frame_count=int(stacked.shape[0]),
+            encoder_settings=EncoderSettings(
+                fps=10, size=256, codec="libx264", pixel_format="yuv420p", crf=23, rung_index=0
+            ),
+            content_sha256=f"sha-{out_path.name}",
+        )
+
+    # Replace render_episode at the module the streaming encode imports
+    # from, not at eval's namespace -- the import is inside the helper.
+    import lerobot_bench.render as render_mod
+
+    monkeypatch.setattr(render_mod, "render_episode", _fake_render)
+
+    env = MockEnv(max_steps=5, success_at_step=3)
+    policy = MockPolicy()
+    result = run_cell(
+        policy,
+        env,
+        policy_name="mock",
+        env_spec=env_spec,
+        seed_idx=7,
+        n_episodes=4,
+        record_video=True,
+        videos_dir=tmp_path / "videos",
+    )
+
+    # Every episode encoded -> frames dropped, MP4 written, SHA set.
+    assert len(encoded_paths) == 4
+    for ep in result.episodes:
+        assert ep.frames == ()
+        assert ep.video_path is not None
+        assert ep.video_path.exists()
+        # Filename convention: {policy}__{env}__seed{N}__ep{K:03d}.mp4
+        assert ep.video_path.name == f"mock__mock_env__seed7__ep{ep.episode_index:03d}.mp4"
+        assert ep.video_sha256 == f"sha-{ep.video_path.name}"
+
+    # to_rows() with no explicit override pulls the SHA from each
+    # EpisodeResult -- the new streaming-path contract.
+    df = result.to_rows()
+    assert df["video_sha256"].tolist() == [
+        f"sha-mock__mock_env__seed7__ep{i:03d}.mp4" for i in range(4)
+    ]
+    # And the videos directory the caller passed in really got created.
+    assert (tmp_path / "videos").is_dir()
+    # Reference unused parameter to silence linters.
+    _ = eval_mod
+
+
+def test_run_cell_streaming_skips_errored_and_zero_frame_episodes(
+    env_spec: EnvSpec,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Errored episodes contribute no MP4 (matches the legacy behaviour)."""
+    from lerobot_bench import render as render_mod
+
+    calls: list[Path] = []
+
+    def _fake_render(stacked: np.ndarray, out_path: Path) -> Any:
+        out_path.write_bytes(b"x")
+        calls.append(out_path)
+        from lerobot_bench.render import EncoderSettings, RenderResult
+
+        return RenderResult(
+            path=out_path,
+            bytes_written=1,
+            frame_count=int(stacked.shape[0]),
+            encoder_settings=EncoderSettings(
+                fps=10, size=256, codec="libx264", pixel_format="yuv420p", crf=23, rung_index=0
+            ),
+            content_sha256="sha-ok",
+        )
+
+    monkeypatch.setattr(render_mod, "render_episode", _fake_render)
+
+    # Episode 1 crashes mid-step.
+    env = MockEnv(max_steps=5, success_at_step=3, step_raises_on_episode=1)
+    policy = MockPolicy()
+    result = run_cell(
+        policy,
+        env,
+        policy_name="mock",
+        env_spec=env_spec,
+        seed_idx=0,
+        n_episodes=3,
+        record_video=True,
+        videos_dir=tmp_path / "videos",
+    )
+
+    assert result.episodes[1].error is not None
+    assert result.episodes[1].video_path is None
+    assert result.episodes[1].video_sha256 == ""
+
+    # Episodes 0 and 2 succeeded -> got MP4s.
+    assert result.episodes[0].video_sha256 == "sha-ok"
+    assert result.episodes[2].video_sha256 == "sha-ok"
+    assert len(calls) == 2  # the crashed episode never reached the encoder
+
+
 def test_run_cell_per_episode_exception_recorded(env_spec: EnvSpec) -> None:
     # Episode 1 (0-indexed) crashes during step.
     env = MockEnv(max_steps=5, success_at_step=3, step_raises_on_episode=1)
