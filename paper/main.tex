@@ -432,15 +432,27 @@ Cohen's $h$ effect size band.}
     latency is from a single RTX~4060 laptop (8\,GB VRAM ceiling).
     Absolute ms/step on different GPUs will differ; the policy
     \emph{ranking} on a single GPU is what the auto-downscope rule
-    consumes and that ranking is portable. The 8\,GB ceiling
-    excludes some VLA classes (e.g.\ PaliGemma-3B-base $\approx$\,6\,GB
-    activations under fp16 inference) from v1.
+    consumes and that ranking is portable.
+    \item \textbf{Host-RAM cold-load excludes $\boldsymbol{\pi_0}$
+    family in v1.} The $\pi_0$, $\pi_0$fast, and $\pi_0$.5 checkpoints
+    (PaliGemma-3B-backbone) require approximately 30\,GB of host CPU
+    RAM during cold load --- not from steady-state activations
+    ($<\,4$\,GB peak VRAM), but from the
+    \texttt{from\_pretrained} weight-conversion staging buffers under
+    HuggingFace Transformers' default load path. On the 32\,GB WSL2
+    laptop used for v1 calibration this exceeds the headroom
+    available with other tenant workloads running. We defer the
+    $\pi_0$ family to v1.1, where we expect to use a quantized
+    checkpoint (4-bit or 8-bit GPTQ) or
+    \texttt{accelerate}'s \texttt{device\_map="auto"} streaming load
+    to bring cold-load RAM under 12\,GB.
     \item \textbf{Sparse matrix coverage.} The
     \textit{(policy, env)} grid is sparse by design: a cell is N/A
     only when no public Hub checkpoint exists, so cross-policy
     comparisons are valid only within shared envs. The shared-env
-    set is $\{$LIBERO-spatial, -object, -goal, -10$\}$ for the five
-    VLAs; PushT and Aloha are single-policy cells.
+    set is $\{$LIBERO-spatial, -object, -goal, -10$\}$ for the v1
+    VLAs (SmolVLA and XVLA; $\pi_0$ family deferred as above);
+    PushT and Aloha are single-policy cells.
     \item \textbf{Episode budget.} $N{=}250$ is chosen for the GPU
     budget --- not because it suffices to resolve every interesting
     delta. We document the MDE bound explicitly
@@ -456,11 +468,14 @@ Cohen's $h$ effect size band.}
 
 \subsection{Future work}
 
-Three paths. (1)~Drop the 4-hour LIBERO install cap and add the
-remaining task variants (LIBERO has 10 tasks per suite; v1 locks
-\texttt{task\_id=0}). (2)~Onboard new policies as they appear on the
-Hub --- the contribution path is one PR adding a row to
-\texttt{configs/policies.yaml}. (3)~Re-run on hardware with the
+Four paths. (1)~Onboard the $\pi_0$ family using quantized weights
+or \texttt{accelerate} streaming load (see Limitations) --- this
+restores the policy axis to the originally targeted five VLAs in
+v1.1. (2)~Drop the 4-hour LIBERO install cap and add the remaining
+task variants (LIBERO has 10 tasks per suite; v1 locks
+\texttt{task\_id=0}). (3)~Onboard new policies as they appear on
+the Hub --- the contribution path is one PR adding a row to
+\texttt{configs/policies.yaml}. (4)~Re-run on hardware with the
 sim-to-real bridge of choice and report the gap. The eval pipeline is
 structured for upstream adoption as \texttt{lerobot.eval.multi\_seed};
 a draft PR is in flight at
