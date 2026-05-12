@@ -1,0 +1,18 @@
+# Pins for the local-first sweep dashboard.
+#
+# This file is for the operator running ``make dashboard`` on their
+# laptop. It is *not* deployed to HF Spaces -- the public Space pins
+# live in ``space/requirements.txt``. Most of what's listed below is
+# already in the project's main dependencies (pandas, pyarrow); they
+# are repeated here so a stripped-down ``pip install -r
+# dashboard/requirements.txt`` boots the dashboard without forcing the
+# operator to install the project's full ``[all]`` extras (which pull
+# torch + lerobot + sim envs).
+#
+# Gradio is the only thing not in the project's main deps -- it lives
+# in the ``[space]`` extra, which the public Space pins on. Re-listing
+# here keeps the dashboard installable in a minimal venv.
+
+gradio>=5,<6
+pandas>=2.2,<3.0
+pyarrow>=18.0
