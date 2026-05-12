@@ -47,7 +47,7 @@ all: lint typecheck test  ## Lint + typecheck + test
 
 # --- bench-specific ---
 
-.PHONY: calibrate sweep-mini sweep-full publish space-deploy
+.PHONY: calibrate sweep-mini sweep-full publish space-deploy dashboard
 
 calibrate:  ## Day 0b: per-policy step latency probe
 	$(PYTHON) scripts/calibrate.py
@@ -69,3 +69,6 @@ publish:  ## Push results to HF Hub dataset: pass `ARGS="--results-path ... --ma
 
 space-deploy:  ## Push the Spaces app to HF Spaces git remote
 	cd space && git push hf-space main
+
+dashboard:  ## Launch the local-first operator sweep dashboard (Gradio)
+	$(PYTHON) dashboard/app.py
