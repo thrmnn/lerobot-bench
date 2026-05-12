@@ -78,7 +78,7 @@ Full seeding contract in `docs/DESIGN.md` § Methodology.
 ## Deploy
 
 - **GitHub repo**: `thrmnn/lerobot-bench` — code, this repo.
-- **HF Hub dataset**: `Theozinh0/lerobot-bench-results-v1` — parquet + videos.
+- **HF Hub dataset**: `thrmnn/lerobot-bench-results-v1` — parquet + videos.
 - **HF Space**: `huggingface.co/spaces/thrmnn/lerobot-bench` — its own git remote.
   `space/` ships via `make space-deploy` which runs `git push hf-space main`.
 

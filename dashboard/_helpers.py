@@ -1305,7 +1305,7 @@ x {V1_SEEDS_PER_CELL} seeds x {V1_EPISODES_PER_SEED} episodes per seed
 binary outcomes**.
 
 The artifact has three parts: this evaluation harness, a public Hub
-dataset (`Theozinh0/lerobot-bench-results-v1`) with every per-episode
+dataset (`thrmnn/lerobot-bench-results-v1`) with every per-episode
 outcome plus an MP4 of every rollout, and a 4-page arXiv writeup.
 This dashboard is the **operator** view: live, local, no Hub fetches.
 The public-facing leaderboard lives separately under `space/`.

@@ -158,7 +158,7 @@ def _make_fake_api() -> MagicMock:
     """
     api = MagicMock(name="HfApi")
     api.whoami.return_value = {"name": "test-user"}
-    api.repo_info.return_value = MagicMock(id="Theozinh0/lerobot-bench-results-v1")
+    api.repo_info.return_value = MagicMock(id="thrmnn/lerobot-bench-results-v1")
     api.upload_folder.return_value = MagicMock(commit_url="https://hf.co/fake/commit")
     return api
 

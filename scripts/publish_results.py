@@ -4,7 +4,7 @@
 The last hop in the bench stack: :mod:`scripts.run_sweep` produces
 ``results.parquet`` + ``sweep_manifest.json`` + a per-cell MP4 corpus
 under ``videos/``; this script bundles those artefacts and uploads them
-to ``Theozinh0/lerobot-bench-results-v1`` so the public Space can read
+to ``thrmnn/lerobot-bench-results-v1`` so the public Space can read
 from the Hub instead of the dev box.
 
 **Idempotence.** ``HfApi.upload_folder`` is content-addressed: re-running
@@ -72,7 +72,7 @@ logger = logging.getLogger("publish-results")
 # Defaults                                                              #
 # --------------------------------------------------------------------- #
 
-DEFAULT_HUB_REPO = "Theozinh0/lerobot-bench-results-v1"
+DEFAULT_HUB_REPO = "thrmnn/lerobot-bench-results-v1"
 DEFAULT_REVISION = "main"
 DEFAULT_MAX_VIDEO_MIB = 2.0  # mirrors the render ladder cap in DESIGN.md
 

@@ -96,7 +96,7 @@ make publish SWEEP=results/sweep-YYYYMMDD
 
 `scripts/publish_results.py` is idempotent: files already on Hub with
 matching SHA are skipped. The dataset repo is
-`Theozinh0/lerobot-bench-results-v1`. Bump to `-v2` only on a breaking
+`thrmnn/lerobot-bench-results-v1`. Bump to `-v2` only on a breaking
 schema change.
 
 ## Deploy + roll back the Space
@@ -127,7 +127,7 @@ CI runs the same boot test on every push to `space/**` via
 # Pulls the manifest from the published dataset, picks one
 # (policy, env, seed_idx, episode_idx), reruns, compares success.
 python scripts/verify_repro.py \
-  --dataset Theozinh0/lerobot-bench-results-v1 \
+  --dataset thrmnn/lerobot-bench-results-v1 \
   --sweep YYYYMMDD \
   --policy diffusion_policy --env pusht --seed 0 --episode 0
 ```

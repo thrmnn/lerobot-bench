@@ -90,7 +90,7 @@ fields~\cite{henderson2018deep,agarwal2021deep}.
 
 We fill that gap with \emph{lerobot-bench}. The artifact has three
 release surfaces: open data (a public Hub dataset
-\texttt{Theozinh0/lerobot-bench-results-v1} of every per-episode
+\texttt{thrmnn/lerobot-bench-results-v1} of every per-episode
 outcome plus an MP4 of every rollout, indexed by \textit{(policy, env,
 seed, episode)}); open eval (a pinned, scriptable evaluation pipeline
 that re-derives any single parquet row in $<1$\,h on commodity
@@ -275,7 +275,7 @@ Every entry in \texttt{configs/policies.yaml} is locked to a fixed
 time, 2026-05-03); the eval loop refuses to load a policy without one.
 A single row is replayable end-to-end with
 \texttt{python scripts/run\_one.py --policy P --env E --seed S}. The
-Hub dataset (\texttt{Theozinh0/lerobot-bench-results-v1}) is the data
+Hub dataset (\texttt{thrmnn/lerobot-bench-results-v1}) is the data
 source for the public Space and for every figure below. The full
 sweep took \todo{N hours} of GPU time on the reference hardware.
 
