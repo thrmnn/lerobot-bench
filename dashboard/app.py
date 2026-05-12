@@ -41,6 +41,7 @@ from _helpers import (
     build_calibration_table,
     build_progress_table,
     clear_video_cache,
+    column_glossary_markdown,
     discover_sweep_logs,
     discover_sweep_runs,
     env_dashboard_logs_dir,
@@ -50,6 +51,10 @@ from _helpers import (
     format_log_lines_html,
     load_calibration_report,
     load_manifest,
+    methodology_markdown,
+    per_tab_intro_markdown,
+    persistent_header_markdown,
+    resolved_paths_banner_markdown,
     scan_video_index,
     summarize_log,
     tail_log_lines,
@@ -359,6 +364,17 @@ def _on_logs_rescan() -> tuple[Any, str, str]:
 # --------------------------------------------------------------------- #
 
 
+def _refresh_persistent_header() -> str:
+    """Re-render the persistent project-context header.
+
+    Wrapped in a function so the header's live "cell N/total" badge
+    repaints on the 5 s timer alongside the progress tab. The header
+    is plain markdown -- the badge is recomputed from the newest
+    manifest under :func:`env_dashboard_results_dir`.
+    """
+    return persistent_header_markdown()
+
+
 def build_app() -> gr.Blocks:
     """Construct the Gradio Blocks app.
 
@@ -366,16 +382,30 @@ def build_app() -> gr.Blocks:
     side-effects. The smoke check in ``tests/test_dashboard.py`` only
     imports ``_helpers`` -- ``app.py`` is exercised end-to-end when
     the operator runs ``make dashboard``.
+
+    Layout: a persistent project-context header (markdown) renders
+    above the tab strip on every tab so the reviewer always sees what
+    lerobot-bench is, what the dashboard is doing, and how much of the
+    sweep is done. A one-line resolved-paths banner sits underneath --
+    the previous footgun was a dashboard pointing at an empty worktree
+    ``results/`` and looking broken when it was actually fine.
     """
     with gr.Blocks(
         title="lerobot-bench dashboard (local)",
         theme=gr.themes.Default(),
     ) as demo:
-        gr.Markdown(
-            "# lerobot-bench - local sweep dashboard\n"
-            f"_Reading from disk at_ `{env_dashboard_results_dir()}`. "
-            "_This is the operator tool; the public HF Space lives separately under_ "
-            "`space/`."
+        # Persistent project-context header. Live progress badge inside.
+        header_md = gr.Markdown(persistent_header_markdown())
+        gr.Markdown(resolved_paths_banner_markdown())
+
+        # Repaint the header on the same 5 s cadence as the progress
+        # tab so the in-flight "M/N seeds done" badge stays fresh
+        # regardless of which tab the operator is looking at.
+        header_timer = gr.Timer(value=PROGRESS_REFRESH_SECONDS)
+        header_timer.tick(
+            fn=_refresh_persistent_header,
+            inputs=None,
+            outputs=[header_md],
         )
 
         with gr.Tabs():
@@ -395,12 +425,29 @@ def build_app() -> gr.Blocks:
             with gr.Tab("Live event log"):
                 _build_event_log_tab(demo)
 
+            # -------- Tab 5: About --------
+            with gr.Tab("About"):
+                _build_about_tab()
+
     return demo
+
+
+def _build_about_tab() -> None:
+    """Render the About tab -- methodology + scope + reading guide.
+
+    Pure markdown, no interactive widgets; the prose lives in
+    :func:`methodology_markdown` so the test suite covers the H2
+    structure without importing Gradio.
+    """
+    gr.Markdown(methodology_markdown())
 
 
 def _build_progress_tab(demo: gr.Blocks) -> None:
     """Render the sweep-progress tab. Side-effects on ``demo``."""
     initial_choices, initial_default = _runs_dropdown_choices()
+
+    with gr.Accordion("What this tab shows", open=True):
+        gr.Markdown(per_tab_intro_markdown("progress"))
 
     with gr.Row():
         run_dd = gr.Dropdown(
@@ -429,6 +476,7 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
         wrap=True,
         label="Per-(policy, env) cell progress",
     )
+    gr.Markdown(column_glossary_markdown("progress"))
 
     # Initial paint -- on first tab open.
     demo.load(
@@ -463,6 +511,9 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
 
 def _build_calibration_tab(demo: gr.Blocks) -> None:
     """Render the calibration-inspector tab."""
+    with gr.Accordion("What this tab shows", open=True):
+        gr.Markdown(per_tab_intro_markdown("calibration"))
+
     status_md = gr.Markdown("")
     refresh_btn = gr.Button("Reload latest calibration", variant="secondary")
     cal_table = gr.Dataframe(
@@ -482,6 +533,7 @@ def _build_calibration_tab(demo: gr.Blocks) -> None:
         wrap=True,
         label="Calibration cells (auto-downscope recommendations)",
     )
+    gr.Markdown(column_glossary_markdown("calibration"))
 
     demo.load(
         fn=refresh_calibration,
@@ -497,6 +549,9 @@ def _build_calibration_tab(demo: gr.Blocks) -> None:
 
 def _build_rollout_tab(demo: gr.Blocks) -> None:
     """Render the rollout-preview tab."""
+    with gr.Accordion("What this tab shows", open=True):
+        gr.Markdown(per_tab_intro_markdown("rollouts"))
+
     status_md = gr.Markdown("")
     with gr.Row():
         policy_dd = gr.Dropdown(choices=[], label="Policy", interactive=True)
@@ -545,6 +600,9 @@ def _build_event_log_tab(demo: gr.Blocks) -> None:
     Side-effects on ``demo``: wires the timer and click handlers.
     """
     initial_choices, initial_default = _log_dropdown_choices()
+
+    with gr.Accordion("What this tab shows", open=True):
+        gr.Markdown(per_tab_intro_markdown("events"))
 
     with gr.Row():
         log_dd = gr.Dropdown(
