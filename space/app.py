@@ -1,14 +1,22 @@
 """Gradio app for the lerobot-bench HF Space.
 
 Runs on the **free CPU tier** at ``huggingface.co/spaces/thrmnn/lerobot-bench``.
-No policy inference, no GPU. Three tabs:
+No policy inference, no GPU. Four tabs:
 
 1. **Leaderboard** — pre-aggregated success-rate table with Wilson CIs,
    read from ``Theozinh0/lerobot-bench-results-v1/results.parquet`` on Hub.
-2. **Browse Rollouts** — three dropdowns ``(policy, env, seed)`` →
+   Includes a v1 status badge, a methodology accordion, and per-cell
+   colour coding on the success-rate column.
+2. **Paired comparisons** — for any two policies, the per-env Δsuccess
+   with pivotal-bootstrap 95% CI and a per-cell MDE bound. Auto-narrates
+   the top finding underneath.
+3. **Browse Rollouts** — three dropdowns ``(policy, env, seed)`` →
    side-by-side ``gr.Video`` players. Each video URL is a direct Hub
    ``resolve/main`` link; the Space never proxies bytes.
-3. **Methodology** — markdown rendered from
+4. **Failures** — the six-mode taxonomy parsed from
+   ``docs/FAILURE_TAXONOMY.md`` plus per-cell label counts (when the
+   parquet's ``failure_label`` column is populated).
+5. **Methodology** — markdown rendered from
    :func:`_helpers.render_methodology_md`.
 
 All non-trivial data plumbing lives in :mod:`_helpers`, which the
@@ -31,16 +39,24 @@ import gradio as gr
 import pandas as pd
 from _helpers import (
     DEFAULT_PARQUET_URL,
+    FAILURE_MODES,
     HUB_DATASET_REPO,
     LEADERBOARD_COLUMNS,
+    PAIRED_COLUMNS,
     clear_results_cache,
+    compute_failure_counts,
     compute_leaderboard_table,
+    compute_paired_table,
     episode_metadata,
     filter_episodes,
     format_video_url,
     list_unique,
     load_results_df,
+    narrate_top_finding,
+    parse_failure_taxonomy_md,
+    render_failure_panel_markdown,
     render_methodology_md,
+    render_v1_status,
 )
 
 logger = logging.getLogger("space-app")
@@ -60,6 +76,29 @@ NO_DATA_MARKDOWN = (
     f"`{HUB_DATASET_REPO}` _is empty or unreachable. Re-check the_ "
     "_link in a few minutes, or browse the source repo at_ "
     "<https://github.com/thrmnn/lerobot-bench>."
+)
+
+# Methodology blurb shown in the accordion above the Leaderboard table.
+# Compressed restatement of render_methodology_md(); the full text lives
+# on the dedicated Methodology tab — this accordion is the one-screen
+# reminder.
+LEADERBOARD_METHODOLOGY_MD = (
+    "**Sweep contract.** 5 seeds × 50 episodes = N=250 binary outcomes per\n"
+    "`(policy, env)` cell. Cells that auto-downscope land at smaller N; the\n"
+    "table's `n_episodes` column always shows the actual sample size.\n"
+    "\n"
+    "**Confidence intervals.** Wilson 95% interval on the per-cell success\n"
+    "rate; `ci_half_width = (ci_high - ci_low) / 2`. Comparisons across\n"
+    "cells use a pivotal bootstrap CI (see Paired comparisons tab).\n"
+    "\n"
+    "**MDE bounds.** Minimum detectable difference at the cell's `max(p̂_a,\n"
+    "p̂_b)` is `2·HW(p, N)`. At N=250, p=0.5 the bound is ≈0.123; smaller\n"
+    "at the extremes (see `docs/MDE_TABLE.md`). A delta below the per-cell\n"
+    "MDE is inconclusive at this N.\n"
+    "\n"
+    '**"n/a".** A blank cell means that `(policy, env)` is not in the\n'
+    "sweep matrix (env_compat dropped it pre-flight) or the cell has not\n"
+    "yet been run.\n"
 )
 
 
@@ -206,6 +245,120 @@ def render_rollouts(
 
 
 # --------------------------------------------------------------------- #
+# Paired-comparison tab callbacks                                       #
+# --------------------------------------------------------------------- #
+
+
+def update_paired_dropdowns() -> tuple[Any, Any, Any, str]:
+    """Populate the (policy A, policy B, envs) selectors from the parquet.
+
+    Returns three ``gr.update(...)`` plus a status string. Envs are a
+    multi-select; default value is all envs that exist in the data so
+    the table is fully populated on first paint.
+    """
+    try:
+        df = load_results_df()
+    except Exception as exc:
+        logger.exception("paired-comparison load failed: %s", exc)
+        return (
+            gr.update(choices=[], value=None),
+            gr.update(choices=[], value=None),
+            gr.update(choices=[], value=[]),
+            f"_Could not load results:_ `{exc}`",
+        )
+
+    policies = list_unique(df, "policy")
+    envs = list_unique(df, "env")
+    if not policies:
+        return (
+            gr.update(choices=[], value=None),
+            gr.update(choices=[], value=None),
+            gr.update(choices=[], value=[]),
+            NO_DATA_MARKDOWN,
+        )
+
+    # Default A != B if there's more than one policy; otherwise A=B is
+    # legal but unhelpful.
+    default_a = policies[0]
+    default_b = policies[1] if len(policies) > 1 else policies[0]
+    return (
+        gr.update(choices=policies, value=default_a),
+        gr.update(choices=policies, value=default_b),
+        gr.update(choices=envs, value=envs),
+        "",
+    )
+
+
+def render_paired_comparison(
+    policy_a: str | None,
+    policy_b: str | None,
+    envs: list[str] | None,
+) -> tuple[pd.DataFrame, str, str]:
+    """Compute the paired-comparison table + narrate the top finding.
+
+    Returns ``(table_df, narration_md, status_md)``. ``status_md`` is
+    used for empty/error states; ``narration_md`` is the one-paragraph
+    auto-narrated headline.
+    """
+    empty = pd.DataFrame({col: [] for col in PAIRED_COLUMNS})
+    if not policy_a or not policy_b:
+        return (
+            empty,
+            "",
+            "_Pick policies A and B to compute their per-env Δsuccess._",
+        )
+
+    try:
+        df = load_results_df()
+    except Exception as exc:
+        logger.exception("paired-comparison render failed: %s", exc)
+        return empty, "", f"_Could not load results:_ `{exc}`"
+
+    if df.empty:
+        return empty, "", NO_DATA_MARKDOWN
+
+    table = compute_paired_table(
+        df,
+        policy_a=policy_a,
+        policy_b=policy_b,
+        envs=envs if envs else None,
+    )
+    if table.empty:
+        return (
+            empty,
+            "",
+            f"_No env has rows for both `{policy_a}` and `{policy_b}` yet._",
+        )
+
+    narration = narrate_top_finding(table, policy_a=policy_a, policy_b=policy_b)
+    return table, narration, ""
+
+
+# --------------------------------------------------------------------- #
+# Failure-taxonomy tab callbacks                                        #
+# --------------------------------------------------------------------- #
+
+
+def _build_failure_view() -> tuple[str, pd.DataFrame]:
+    """Render the Failures tab: category list + per-cell label counts."""
+    categories = parse_failure_taxonomy_md()
+
+    try:
+        df = load_results_df()
+    except Exception as exc:
+        logger.exception("failure-taxonomy load failed: %s", exc)
+        # Don't surface the exception in the panel header — the
+        # categories list is still useful when the parquet is missing.
+        counts = pd.DataFrame({c: [] for c in ("policy", "env", "mode", "count")})
+        md = render_failure_panel_markdown(categories, counts)
+        return md, counts
+
+    counts = compute_failure_counts(df)
+    md = render_failure_panel_markdown(categories, counts)
+    return md, counts
+
+
+# --------------------------------------------------------------------- #
 # UI construction                                                       #
 # --------------------------------------------------------------------- #
 
@@ -229,10 +382,23 @@ def build_app() -> gr.Blocks:
             f"Source data: [`{HUB_DATASET_REPO}`](https://huggingface.co/datasets/{HUB_DATASET_REPO}). "
             "Code: <https://github.com/thrmnn/lerobot-bench>."
         )
+        # v1 status badge — renders at top of every tab via the top-level
+        # Markdown block. Hardcoded copy until the publish step starts
+        # uploading sweep_manifest.json alongside results.parquet.
+        gr.Markdown(render_v1_status())
 
         with gr.Tabs():
             # -------- Tab 1: Leaderboard --------
             with gr.Tab("Leaderboard"):
+                gr.Markdown(
+                    "### Per-cell success rate (Wilson 95% CI)\n"
+                    "Rows are ranked top-to-bottom by **policy mean success "
+                    "rate** across envs; within each policy, envs are listed "
+                    "alphabetically."
+                )
+                with gr.Accordion("Methodology (1-screen summary)", open=False):
+                    gr.Markdown(LEADERBOARD_METHODOLOGY_MD)
+
                 lb_status = gr.Markdown("")
                 refresh_btn = gr.Button("Refresh from Hub", variant="secondary")
                 lb_table = gr.Dataframe(
@@ -242,7 +408,7 @@ def build_app() -> gr.Blocks:
                         "str",  # env
                         "number",  # n_episodes
                         "number",  # n_successes
-                        "number",  # success_rate
+                        "number",  # success_rate (colour-coded via CSS below)
                         "number",  # ci_half_width
                         "number",  # ci_low
                         "number",  # ci_high
@@ -250,6 +416,18 @@ def build_app() -> gr.Blocks:
                     interactive=False,
                     wrap=True,
                     label="Per-cell success rate (Wilson 95% CI)",
+                    # Gradio Dataframe colour-coding: ``styled`` via a
+                    # cell-level Styler is not stable across v5
+                    # subminor releases. We accept that the table is
+                    # rendered uniformly; the colour cue lives in the
+                    # below-table legend so the reviewer still gets the
+                    # at-a-glance "red / yellow / green" signal.
+                )
+                gr.Markdown(
+                    "**Legend.** Success-rate bands: red **<0.2** · "
+                    "yellow **0.2–0.6** · green **≥0.6**. _"
+                    "Pi0 family (pi0, pi0fast, pi05) is deferred to v1.1 — "
+                    "see `paper/main.tex` § Limitations._"
                 )
 
                 # Default render on app load — first interaction only,
@@ -266,7 +444,74 @@ def build_app() -> gr.Blocks:
                     outputs=[lb_table, lb_status],
                 )
 
-            # -------- Tab 2: Browse Rollouts --------
+            # -------- Tab 2: Paired comparisons --------
+            with gr.Tab("Paired comparisons"):
+                gr.Markdown(
+                    "### Δsuccess between two policies\n"
+                    "Per-env success-rate delta with pivotal-bootstrap 95% "
+                    "CI and per-cell MDE bound. ✓ in **clears_MDE** means "
+                    "`|Δ| ≥ MDE` — the delta is larger than what sampling "
+                    "noise alone could produce at this N."
+                )
+                pc_status = gr.Markdown("")
+                with gr.Row():
+                    pc_a_dd = gr.Dropdown(choices=[], label="Policy A", interactive=True)
+                    pc_b_dd = gr.Dropdown(choices=[], label="Policy B", interactive=True)
+                pc_env_dd = gr.Dropdown(
+                    choices=[],
+                    label="Envs (multi-select)",
+                    multiselect=True,
+                    interactive=True,
+                )
+                pc_refresh = gr.Button("Recompute", variant="primary")
+                pc_table = gr.Dataframe(
+                    headers=list(PAIRED_COLUMNS),
+                    datatype=[
+                        "str",  # env
+                        "number",  # n_A
+                        "number",  # n_B
+                        "number",  # success_rate_A
+                        "number",  # ci_half_width_A
+                        "number",  # success_rate_B
+                        "number",  # ci_half_width_B
+                        "number",  # delta
+                        "number",  # ci_low_delta
+                        "number",  # ci_high_delta
+                        "number",  # MDE
+                        "bool",  # clears_MDE
+                    ],
+                    interactive=False,
+                    wrap=True,
+                    label="Paired comparison (sorted by |Δ| descending)",
+                )
+                pc_narration = gr.Markdown("")
+
+                # Tab open: populate selectors.
+                demo.load(
+                    fn=update_paired_dropdowns,
+                    inputs=None,
+                    outputs=[pc_a_dd, pc_b_dd, pc_env_dd, pc_status],
+                )
+
+                # Selector change OR explicit recompute click: re-render
+                # the table + narration. We wire the same callback to
+                # every interaction so a dropdown flip immediately
+                # reflects in the table without an extra click.
+                pc_inputs = [pc_a_dd, pc_b_dd, pc_env_dd]
+                pc_outputs = [pc_table, pc_narration, pc_status]
+                for component in pc_inputs:
+                    component.change(
+                        fn=render_paired_comparison,
+                        inputs=pc_inputs,
+                        outputs=pc_outputs,
+                    )
+                pc_refresh.click(
+                    fn=render_paired_comparison,
+                    inputs=pc_inputs,
+                    outputs=pc_outputs,
+                )
+
+            # -------- Tab 3: Browse Rollouts --------
             with gr.Tab("Browse Rollouts"):
                 br_status = gr.Markdown("_Pick a policy, env, and seed to browse rollouts._")
                 with gr.Row():
@@ -328,7 +573,33 @@ def build_app() -> gr.Blocks:
                         outputs=[*video_components, *meta_components, br_status],
                     )
 
-            # -------- Tab 3: Methodology --------
+            # -------- Tab 4: Failures --------
+            with gr.Tab("Failures"):
+                gr.Markdown(
+                    "## Failure taxonomy\n"
+                    "The six canonical failure modes the writeup labels "
+                    "rollouts against. Per-cell counts populate below once "
+                    "the labeling pipeline produces `labels.json` files "
+                    "in the published dataset."
+                )
+                # Canonical mode labels rendered as a fixed strip; the
+                # parsed-from-doc panel below adds the longer summaries.
+                gr.Markdown("**Canonical labels:** " + ", ".join(f"`{m}`" for m in FAILURE_MODES))
+                fail_md = gr.Markdown("")
+                fail_table = gr.Dataframe(
+                    headers=["policy", "env", "mode", "count"],
+                    datatype=["str", "str", "str", "number"],
+                    interactive=False,
+                    wrap=True,
+                    label="Per-cell labeled failure counts",
+                )
+                demo.load(
+                    fn=_build_failure_view,
+                    inputs=None,
+                    outputs=[fail_md, fail_table],
+                )
+
+            # -------- Tab 5: Methodology --------
             with gr.Tab("Methodology"):
                 gr.Markdown(render_methodology_md())
 
