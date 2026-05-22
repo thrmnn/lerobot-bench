@@ -1,4 +1,4 @@
-.PHONY: help install install-dev lint format typecheck test test-fast test-cov clean all pre-commit hooks
+.PHONY: help install install-dev dev-setup lint format typecheck test test-fast test-cov clean all pre-commit hooks
 
 PYTHON ?= python
 PIP ?= pip
@@ -11,6 +11,8 @@ install:  ## Editable install with all extras
 
 install-dev:  ## Editable install with dev extras only
 	$(PIP) install -e ".[dev]"
+
+dev-setup: install hooks  ## One-shot contributor setup: install[all] + pre-commit hooks
 
 lint:  ## Run ruff check
 	$(PYTHON) -m ruff check src tests scripts
