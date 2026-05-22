@@ -34,9 +34,10 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -44,6 +45,17 @@ from typing import Any, Literal
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# Reuse the audited Wilson primitives from ``src/lerobot_bench/stats.py``
+# rather than reimplementing the score interval here. The dashboard runs
+# from the repo so ``src/`` is importable; in the slim test env it is put
+# on the path by ``conftest`` / ``PYTHONPATH``. We add it defensively so
+# ``python dashboard/app.py`` works from inside the dir too.
+_SRC_DIR = Path(__file__).resolve().parent.parent / "src"
+if _SRC_DIR.is_dir() and str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from lerobot_bench.stats import wilson_ci, wilson_halfwidth_at_p  # noqa: E402
 
 # --------------------------------------------------------------------- #
 # Constants                                                             #
@@ -96,7 +108,41 @@ VERY_SLOW_MS_PER_STEP_THRESHOLD = 500.0
 HIGH_VRAM_THRESHOLD_MB = 5500.0
 VERY_HIGH_VRAM_THRESHOLD_MB = 7000.0
 
+# --------------------------------------------------------------------- #
+# Statistical-rigor constants (council audit P0)                        #
+# --------------------------------------------------------------------- #
+#
+# A Wilson score interval at small N spans most of [0, 1] and misleads
+# the operator into reading noise as signal. Below this many episodes
+# the success-rate / CI columns render "—" instead of a number. The
+# threshold is a judgement call, not a power calculation: at n=25 the
+# Wilson half-width at p=0.5 is ~0.18, wide but no longer absurd.
+MIN_N_FOR_SUCCESS_RATE = 25
+
+# Placeholder rendered wherever a statistic is suppressed (small-N gate,
+# missing raw data). A single constant so the UI is uniform.
+STAT_PLACEHOLDER = "—"
+
+# Per-seed dispersion above which the 5-seed budget is likely too small
+# to pin the cell's success rate. Flagged red in the progress table.
+SEED_SPREAD_FLAG_THRESHOLD = 0.2
+
+# Wilson "inconclusive band" 2·HW at p=0.5, N=250 -- the v1 reference
+# line on the half-width-vs-N plot. Sourced from ``docs/MDE_TABLE.md``
+# § TL;DR ("Wilson inconclusive band 2·HW at p=0.5, N=250 = 0.1230").
+# This is the smallest paired Δ two N=250 cells could produce from
+# sampling noise alone; a running cell whose *single-cell* half-width
+# is still above half of this is nowhere near resolving a real effect.
+V1_INCONCLUSIVE_BAND = 0.123
+
+# Latency-skew flag for the calibration table. The auto-downscope rule
+# keys on the *mean* step time; when the p95/mean ratio is large the
+# mean understates the tail and the budget derived from it is fragile.
+LATENCY_SKEW_FLAG_RATIO = 3.0
+
 # Progress-table columns. Wired into the Gradio Dataframe in ``app.py``.
+# The three rigor columns (success_rate_so_far, wilson_ci_so_far,
+# seed_spread) come from ``results.parquet``; the rest are manifest-only.
 PROGRESS_COLUMNS: tuple[str, ...] = (
     "policy",
     "env",
@@ -105,18 +151,25 @@ PROGRESS_COLUMNS: tuple[str, ...] = (
     "seeds_total",
     "episodes_done",
     "episodes_total",
+    "success_rate_so_far",
+    "wilson_ci_so_far",
+    "seed_spread",
     "last_update_utc",
     "eta_minutes",
 )
 
 # Calibration-table columns. ``reason`` is derived locally; everything
-# else is straight from the CellTiming dataclass on disk.
+# else is straight from the CellTiming dataclass on disk. ``std_step_ms``
+# and ``latency_skew`` are the council rigor additions.
 CALIBRATION_COLUMNS: tuple[str, ...] = (
     "policy",
     "env",
     "status",
     "mean_step_ms",
     "p95_step_ms",
+    "std_step_ms",
+    "n_steps",
+    "latency_skew",
     "vram_peak_mb",
     "recommended_seeds",
     "recommended_episodes",
@@ -218,6 +271,307 @@ def load_manifest(manifest_path: Path) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------- #
+# Per-episode results parquet (with stale-data fallback)                #
+# --------------------------------------------------------------------- #
+#
+# ``results.parquet`` is appended to *while the sweep runs*, so a read
+# can race a write and surface a truncated / invalid file. PR #42's
+# intent was a shared ``StaleDataCache``; it never landed, so this
+# module ships its own tiny last-good cache: a read failure falls back
+# to the last successfully parsed frame for that path rather than
+# blanking the rigor columns mid-sweep.
+
+
+@dataclass
+class _StaleDataCache:
+    """Per-path cache of the last successfully read DataFrame.
+
+    Keyed on the absolute parquet path. ``load_results_parquet`` writes
+    a fresh frame on every clean read and reads back the last-good frame
+    when pyarrow chokes on a half-written file. Module-level singleton
+    (:data:`_RESULTS_CACHE`); the dashboard is single-process so no lock
+    is needed.
+    """
+
+    by_path: dict[str, pd.DataFrame] = field(default_factory=dict)
+
+
+_RESULTS_CACHE = _StaleDataCache()
+
+
+def load_results_parquet(results_path: Path | None) -> pd.DataFrame | None:
+    """Read a per-episode ``results.parquet``, tolerating a mid-write file.
+
+    The sweep appends rows to the parquet as cells finish, so a read on
+    the dashboard's 5 s tick can land on a partially flushed file.
+    pyarrow raises ``ArrowInvalid`` (an ``OSError`` subclass in recent
+    builds, but we catch both) on such a file; we then fall back to the
+    last frame this function returned cleanly for the same path.
+
+    Args:
+        results_path: path to ``results.parquet`` (or ``None`` -- a
+            sweep that just started has a manifest but no parquet yet).
+
+    Returns:
+        The per-episode DataFrame, or ``None`` when no good read has
+        ever succeeded for this path (cold start, parquet absent).
+    """
+    if results_path is None:
+        return None
+    key = str(results_path)
+    if not results_path.exists():
+        return _RESULTS_CACHE.by_path.get(key)
+    try:
+        df = pd.read_parquet(results_path)
+    except Exception as exc:
+        # pyarrow.lib.ArrowInvalid is not importable without pinning the
+        # pyarrow internal module path; it subclasses Exception (and on
+        # some builds OSError). Catch broadly, log, and serve last-good.
+        cached = _RESULTS_CACHE.by_path.get(key)
+        logger.warning(
+            "results parquet %s unreadable (%s); %s",
+            results_path,
+            exc,
+            "serving last-good frame" if cached is not None else "no last-good frame",
+        )
+        return cached
+    _RESULTS_CACHE.by_path[key] = df
+    return df
+
+
+def clear_results_cache() -> None:
+    """Drop the stale-parquet last-good cache. Used by tests for isolation."""
+    _RESULTS_CACHE.by_path.clear()
+
+
+@dataclass(frozen=True)
+class CellEpisodeStats:
+    """Episode-level success summary for one ``(policy, env)`` cell.
+
+    Computed from the *flat list of per-episode outcomes* -- the unit is
+    the episode, never the per-seed mean (DESIGN.md § Methodology,
+    "pseudo-replication" guard). ``wilson_lo/hi`` is the closed-form
+    Wilson 95% score interval from :func:`lerobot_bench.stats.wilson_ci`.
+
+    ``seed_spread`` is ``max - min`` of the per-seed success rates and
+    is only defined once two or more seeds have episodes on disk;
+    ``None`` below that.
+    """
+
+    n_episodes: int
+    n_success: int
+    success_rate: float
+    wilson_lo: float
+    wilson_hi: float
+    n_seeds: int
+    seed_spread: float | None
+
+
+def compute_cell_episode_stats(
+    df: pd.DataFrame | None,
+    *,
+    policy: str,
+    env: str,
+) -> CellEpisodeStats | None:
+    """Summarise the per-episode outcomes for one cell from the parquet.
+
+    Slices ``df`` to ``(policy, env)`` and computes the episode-level
+    success rate, the Wilson 95% CI over the flat outcome list, and the
+    per-seed spread. Returns ``None`` when the cell has no rows yet.
+
+    The Wilson CI is over **all** episodes in the cell pooled across
+    seeds -- not a CI on the 5 per-seed means. ``seed_spread`` carries
+    the per-seed dispersion separately so the operator still sees
+    between-seed variance without it contaminating the CI.
+
+    Args:
+        df: the per-episode results frame (schema: ``policy, env, seed,
+            episode_index, success, ...``).
+        policy: cell policy key.
+        env: cell env key.
+
+    Returns:
+        A :class:`CellEpisodeStats`, or ``None`` if the cell is absent
+        from ``df`` (no episodes written yet).
+    """
+    if df is None or df.empty:
+        return None
+    needed = {"policy", "env", "seed", "success"}
+    if not needed.issubset(df.columns):
+        return None
+    cell = df[(df["policy"] == policy) & (df["env"] == env)]
+    n = len(cell)
+    if n == 0:
+        return None
+
+    outcomes = cell["success"].astype(bool)
+    n_success = int(outcomes.sum())
+    success_rate = n_success / n
+    wilson_lo, wilson_hi = wilson_ci(n_success, n)
+
+    # Per-seed spread: max - min of each seed's success rate. Defined
+    # only with >= 2 seeds; one seed has zero dispersion by construction.
+    per_seed = cell.groupby("seed")["success"].mean()
+    n_seeds = int(per_seed.size)
+    seed_spread: float | None = None
+    if n_seeds >= 2:
+        seed_spread = float(per_seed.max() - per_seed.min())
+
+    return CellEpisodeStats(
+        n_episodes=n,
+        n_success=n_success,
+        success_rate=float(success_rate),
+        wilson_lo=float(wilson_lo),
+        wilson_hi=float(wilson_hi),
+        n_seeds=n_seeds,
+        seed_spread=seed_spread,
+    )
+
+
+def format_success_rate_cell(stats: CellEpisodeStats | None) -> str:
+    """Render the ``success_rate_so_far`` column value.
+
+    Small-N gate: below :data:`MIN_N_FOR_SUCCESS_RATE` episodes the
+    point estimate is suppressed to :data:`STAT_PLACEHOLDER`. A success
+    rate is *never* shown without its CI in :func:`format_wilson_ci_cell`
+    -- the two columns gate on the same threshold so they appear and
+    disappear together (council veto: "never a rate without a CI").
+    """
+    if stats is None or stats.n_episodes < MIN_N_FOR_SUCCESS_RATE:
+        return STAT_PLACEHOLDER
+    return f"{stats.success_rate:.2f} ({stats.n_success}/{stats.n_episodes})"
+
+
+def format_wilson_ci_cell(stats: CellEpisodeStats | None) -> str:
+    """Render the ``wilson_ci_so_far`` column as ``[lo, hi]`` to 2 dp.
+
+    Gated identically to :func:`format_success_rate_cell`: a Wilson CI
+    at n<25 spans ~0.5 of the unit interval and misleads, so it shows
+    :data:`STAT_PLACEHOLDER` until the cell has enough episodes.
+    """
+    if stats is None or stats.n_episodes < MIN_N_FOR_SUCCESS_RATE:
+        return STAT_PLACEHOLDER
+    return f"[{stats.wilson_lo:.2f}, {stats.wilson_hi:.2f}]"
+
+
+def format_seed_spread_cell(stats: CellEpisodeStats | None) -> str:
+    """Render the ``seed_spread`` column, flagging high between-seed spread.
+
+    ``seed_spread`` is ``max - min`` of the per-seed success rates and
+    is only meaningful once >= 2 seeds have episodes on disk; below that
+    it shows :data:`STAT_PLACEHOLDER`. When the spread exceeds
+    :data:`SEED_SPREAD_FLAG_THRESHOLD` a ``⚠`` prefix flags that the
+    5-seed budget is likely too small to pin this cell's rate.
+
+    Returns a plain string; the Gradio Dataframe styles the warning
+    via the ``⚠`` glyph rather than CSS (the component does not expose
+    per-cell colour without a styler, and the glyph survives copy-paste
+    into the operator's notes).
+    """
+    if stats is None or stats.seed_spread is None:
+        return STAT_PLACEHOLDER
+    spread = stats.seed_spread
+    if spread > SEED_SPREAD_FLAG_THRESHOLD:
+        return f"⚠ {spread:.2f}"
+    return f"{spread:.2f}"
+
+
+# --------------------------------------------------------------------- #
+# Wilson CI half-width vs N plot                                        #
+# --------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class HalfWidthCurve:
+    """Data for the "Wilson CI half-width vs N" plot of one cell.
+
+    ``n_values`` / ``halfwidths`` are the closed-form Wilson 95%
+    half-widths at the cell's *current* p-hat for every N from 1 to
+    :attr:`n_current`. The curve is what the operator's CI will look
+    like as the cell accrues episodes, assuming the success rate holds.
+
+    ``is_running`` distinguishes the live cell from the fallback case
+    (no cell running -> most recently completed cell), which the plot
+    title states explicitly so the operator is not misled.
+    """
+
+    policy: str
+    env: str
+    p_hat: float
+    n_current: int
+    n_values: list[int]
+    halfwidths: list[float]
+    is_running: bool
+
+
+def select_plot_cell(
+    table: pd.DataFrame,
+    results_df: pd.DataFrame | None,
+) -> tuple[str, str, bool] | None:
+    """Pick the cell for the half-width plot: running, else most-recent-done.
+
+    Prefers the first ``running`` cell that has *episodes on disk*
+    (failures sort above running, so the first such running row is the
+    live one). A cell flips to ``running`` the moment its first seed
+    dispatches -- before any episode is written -- so a running cell
+    with zero parquet rows is skipped and the selector falls back to
+    the most recently completed cell. Returns ``(policy, env,
+    is_running)`` or ``None`` when no cell has episodes yet.
+    """
+    if table.empty or results_df is None or results_df.empty:
+        return None
+
+    def _has_episodes(policy: str, env: str) -> bool:
+        return compute_cell_episode_stats(results_df, policy=policy, env=env) is not None
+
+    running = table[table["status"] == CELL_STATUS_RUNNING]
+    for row in running.itertuples(index=False):
+        if _has_episodes(str(row.policy), str(row.env)):
+            return str(row.policy), str(row.env), True
+
+    done = table[table["status"] == CELL_STATUS_DONE]
+    for row in reversed(list(done.itertuples(index=False))):
+        if _has_episodes(str(row.policy), str(row.env)):
+            return str(row.policy), str(row.env), False
+
+    return None
+
+
+def build_halfwidth_curve(
+    table: pd.DataFrame,
+    results_df: pd.DataFrame | None,
+) -> HalfWidthCurve | None:
+    """Build the half-width-vs-N curve for the running (or last-done) cell.
+
+    Picks the cell via :func:`select_plot_cell`, reads its current
+    success rate from the parquet, and evaluates
+    :func:`lerobot_bench.stats.wilson_halfwidth_at_p` at that fixed
+    ``p_hat`` for every ``N`` in ``1..n_current``. Returns ``None`` when
+    no cell qualifies (cold start, empty parquet) -- the caller then
+    renders an empty-state message instead of a plot.
+    """
+    selected = select_plot_cell(table, results_df)
+    if selected is None:
+        return None
+    policy, env, is_running = selected
+    stats = compute_cell_episode_stats(results_df, policy=policy, env=env)
+    if stats is None:
+        return None
+
+    n_values = list(range(1, stats.n_episodes + 1))
+    halfwidths = [wilson_halfwidth_at_p(stats.success_rate, n) for n in n_values]
+    return HalfWidthCurve(
+        policy=policy,
+        env=env,
+        p_hat=stats.success_rate,
+        n_current=stats.n_episodes,
+        n_values=n_values,
+        halfwidths=halfwidths,
+        is_running=is_running,
+    )
+
+
+# --------------------------------------------------------------------- #
 # Sweep progress aggregation                                            #
 # --------------------------------------------------------------------- #
 
@@ -226,6 +580,7 @@ def build_progress_table(
     manifest: dict[str, Any],
     *,
     now_utc: dt.datetime | None = None,
+    results_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Roll the manifest's per-seed cells up to one row per ``(policy, env)``.
 
@@ -242,6 +597,14 @@ def build_progress_table(
     finish faster than a successful seed). The estimate is rough by
     design; it's accurate enough for an operator deciding "should I
     leave this overnight or kill it".
+
+    When ``results_df`` (the per-episode parquet) is supplied, three
+    rigor columns are filled per cell from the *episode-level* outcomes:
+    ``success_rate_so_far``, ``wilson_ci_so_far`` (closed-form Wilson
+    95% interval), and ``seed_spread``. Cells with fewer than
+    :data:`MIN_N_FOR_SUCCESS_RATE` episodes show :data:`STAT_PLACEHOLDER`
+    -- a Wilson CI at small N misleads. ``results_df=None`` leaves all
+    three as the placeholder (cold start, parquet not on disk yet).
     """
     cells = manifest.get("cells", [])
     if not isinstance(cells, list) or not cells:
@@ -265,7 +628,12 @@ def build_progress_table(
 
     rows: list[dict[str, Any]] = []
     for (policy, env), seeds in by_cell.items():
-        rows.append(_summarise_cell(policy=policy, env=env, seeds=seeds, now=now))
+        stats = (
+            compute_cell_episode_stats(results_df, policy=policy, env=env)
+            if results_df is not None
+            else None
+        )
+        rows.append(_summarise_cell(policy=policy, env=env, seeds=seeds, now=now, stats=stats))
 
     out = pd.DataFrame(rows, columns=list(PROGRESS_COLUMNS))
     # Sort: failures first (operator wants to see those), then running,
@@ -292,8 +660,14 @@ def _summarise_cell(
     env: str,
     seeds: list[dict[str, Any]],
     now: dt.datetime,
+    stats: CellEpisodeStats | None = None,
 ) -> dict[str, Any]:
-    """Roll up the per-seed manifest entries for one (policy, env) cell."""
+    """Roll up the per-seed manifest entries for one (policy, env) cell.
+
+    ``stats`` carries the episode-level success summary from the parquet
+    (``None`` when the parquet is absent); it fills the three rigor
+    columns. The manifest alone drives status / seeds / ETA.
+    """
     n_total = len(seeds)
     statuses = [str(s.get("status", "")) for s in seeds]
     n_failed = sum(1 for s in statuses if s == STATUS_FAILED)
@@ -341,6 +715,9 @@ def _summarise_cell(
         "seeds_total": n_total,
         "episodes_done": episodes_done,
         "episodes_total": episodes_total,
+        "success_rate_so_far": format_success_rate_cell(stats),
+        "wilson_ci_so_far": format_wilson_ci_cell(stats),
+        "seed_spread": format_seed_spread_cell(stats),
         "last_update_utc": last_update_utc,
         "eta_minutes": eta_minutes,
     }
@@ -465,6 +842,46 @@ def load_calibration_report(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _calibration_std_step_ms(cell: dict[str, Any]) -> str:
+    """Render the ``std_step_ms`` column from a calibration cell.
+
+    Returns the std-dev of per-step latency when the cell carries raw
+    step times, else :data:`STAT_PLACEHOLDER`.
+
+    TODO(scripts/calibrate.py): the calibration JSON currently records
+    only ``mean_ms_per_step`` / ``p95_ms_per_step`` -- not the raw
+    per-step list -- so ``std_step_ms`` cannot be computed and shows
+    ``"—"``. Persisting a ``step_ms`` array (or a precomputed
+    ``std_ms_per_step``) from the latency probe in ``calibrate.py``
+    would let this column light up without a dashboard change.
+    """
+    raw = cell.get("step_ms")
+    if isinstance(raw, list) and len(raw) >= 2:
+        series = pd.Series([float(x) for x in raw], dtype="float64")
+        return f"{float(series.std(ddof=1)):.2f}"
+    precomputed = cell.get("std_ms_per_step")
+    if isinstance(precomputed, (int, float)):
+        return f"{float(precomputed):.2f}"
+    return STAT_PLACEHOLDER
+
+
+def _latency_skew_flag(*, mean_ms: float, p95_ms: float) -> str:
+    """Flag ``⚠ skewed`` when the p95/mean latency ratio is large.
+
+    The auto-downscope rule keys the seed/episode budget on the *mean*
+    step time. When ``p95/mean > LATENCY_SKEW_FLAG_RATIO`` the mean
+    badly understates the tail, so a budget derived from it can blow
+    the wall-clock estimate on the slow episodes. Returns the empty
+    string when latency is well-behaved (or mean is zero, which means
+    the cell never ran -- nothing to flag).
+    """
+    if mean_ms <= 0.0:
+        return ""
+    if p95_ms / mean_ms > LATENCY_SKEW_FLAG_RATIO:
+        return "⚠ skewed"
+    return ""
+
+
 def build_calibration_table(report: dict[str, Any]) -> pd.DataFrame:
     """Project a calibration report's ``cells`` list into a table.
 
@@ -475,6 +892,16 @@ def build_calibration_table(report: dict[str, Any]) -> pd.DataFrame:
     The ``reason`` column is derived locally via :func:`downscope_reason`
     -- the JSON itself does not carry a reason field; the auto-downscope
     rule's bucket is reverse-engineered from the timing thresholds.
+
+    Rigor columns: ``std_step_ms`` is the per-step latency std-dev;
+    ``n_steps`` is the probe length the mean/p95 are computed over (a
+    20-step probe is a thin sample, so the operator should see it); and
+    ``latency_skew`` flags ``⚠ skewed`` when ``p95/mean > 3``, meaning
+    the auto-downscope rule -- which keys on the *mean* -- understates
+    the tail. The calibration JSON shipped by ``scripts/calibrate.py``
+    currently records only ``mean_ms_per_step`` / ``p95_ms_per_step`` /
+    ``n_steps_measured``, not the raw per-step times, so ``std_step_ms``
+    renders :data:`STAT_PLACEHOLDER` until that script persists them.
     """
     cells = report.get("cells", [])
     if not isinstance(cells, list) or not cells:
@@ -487,13 +914,18 @@ def build_calibration_table(report: dict[str, Any]) -> pd.DataFrame:
         recommended = cell.get("recommended") if isinstance(cell.get("recommended"), dict) else None
         seeds = int(recommended["seeds"]) if recommended and "seeds" in recommended else 0
         episodes = int(recommended["episodes"]) if recommended and "episodes" in recommended else 0
+        mean_ms = float(cell.get("mean_ms_per_step") or 0.0)
+        p95_ms = float(cell.get("p95_ms_per_step") or 0.0)
         rows.append(
             {
                 "policy": str(cell.get("policy", "")),
                 "env": str(cell.get("env", "")),
                 "status": str(cell.get("status", "")),
-                "mean_step_ms": float(cell.get("mean_ms_per_step") or 0.0),
-                "p95_step_ms": float(cell.get("p95_ms_per_step") or 0.0),
+                "mean_step_ms": mean_ms,
+                "p95_step_ms": p95_ms,
+                "std_step_ms": _calibration_std_step_ms(cell),
+                "n_steps": int(cell.get("n_steps_measured") or 0),
+                "latency_skew": _latency_skew_flag(mean_ms=mean_ms, p95_ms=p95_ms),
                 "vram_peak_mb": float(cell.get("vram_peak_mb") or 0.0),
                 "recommended_seeds": seeds,
                 "recommended_episodes": episodes,
@@ -1408,6 +1840,13 @@ def column_glossary_markdown(tab: str) -> str:
             f"`seeds_done/seeds_total` = completed seeds out of {V1_SEEDS_PER_CELL} - "
             "`episodes_done/episodes_total` = approximate; counted from completed seeds "
             f"(50 each by default) - "
+            "`success_rate_so_far` = episode-level success over the parquet rows on disk "
+            f"(`—` until n >= {MIN_N_FOR_SUCCESS_RATE}; a Wilson CI at smaller N misleads) - "
+            "`wilson_ci_so_far` = closed-form Wilson 95% interval `[lo, hi]` over the flat "
+            "per-episode outcomes (never a rate without its CI) - "
+            "`seed_spread` = `max - min` of the per-seed success rates once >= 2 seeds have "
+            f"episodes; **`⚠` flags `seed_spread > {SEED_SPREAD_FLAG_THRESHOLD:.1f}` -> "
+            "5-seed budget likely insufficient for this cell** - "
             "`last_update_utc` = most recent started_utc / finished_utc on any seed in the cell - "
             "`eta_minutes` = mean wall-clock of completed seeds x remaining seeds (rough)."
         )
@@ -1415,7 +1854,13 @@ def column_glossary_markdown(tab: str) -> str:
         return (
             "**Column glossary:** "
             "`status` = `ok`/`oom`/`error`/`skipped` from the calibration JSON - "
-            "`mean_step_ms` / `p95_step_ms` = per-step inference latency over the 20-step probe - "
+            "`mean_step_ms` / `p95_step_ms` = per-step inference latency over the probe - "
+            "`std_step_ms` = per-step latency std-dev (`—` until `scripts/calibrate.py` "
+            "persists raw step times) - "
+            "`n_steps` = probe length the mean/p95 are computed over (a 20-step probe is a "
+            "thin sample) - "
+            f"`latency_skew` = **`⚠ skewed` when `p95/mean > {LATENCY_SKEW_FLAG_RATIO:.0f}` -> "
+            "auto-downscope keys on the mean and may be fragile** - "
             "`vram_peak_mb` = peak GPU memory observed during the probe - "
             "`recommended_seeds` / `recommended_episodes` = output of `auto_downscope` "
             f"(defaults {V1_SEEDS_PER_CELL} / {V1_EPISODES_PER_SEED}; trimmed for slow / VRAM-pressured cells) - "

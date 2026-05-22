@@ -16,3 +16,5 @@
 gradio>=5,<6
 pandas>=2.2,<3.0
 pyarrow>=18.0
+# Wilson CI half-width vs N plot on the progress tab (gr.Plot figure).
+matplotlib>=3.8

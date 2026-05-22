@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import pytest
 
 # dashboard/ and space/ both ship a top-level ``_helpers`` module --
@@ -58,8 +59,19 @@ SLOW_MS_PER_STEP_THRESHOLD = _dashboard_helpers.SLOW_MS_PER_STEP_THRESHOLD
 VERY_HIGH_VRAM_THRESHOLD_MB = _dashboard_helpers.VERY_HIGH_VRAM_THRESHOLD_MB
 VERY_SLOW_MS_PER_STEP_THRESHOLD = _dashboard_helpers.VERY_SLOW_MS_PER_STEP_THRESHOLD
 build_calibration_table = _dashboard_helpers.build_calibration_table
+build_halfwidth_curve = _dashboard_helpers.build_halfwidth_curve
 build_progress_table = _dashboard_helpers.build_progress_table
 classify_log_line = _dashboard_helpers.classify_log_line
+clear_results_cache = _dashboard_helpers.clear_results_cache
+compute_cell_episode_stats = _dashboard_helpers.compute_cell_episode_stats
+format_seed_spread_cell = _dashboard_helpers.format_seed_spread_cell
+format_success_rate_cell = _dashboard_helpers.format_success_rate_cell
+format_wilson_ci_cell = _dashboard_helpers.format_wilson_ci_cell
+load_results_parquet = _dashboard_helpers.load_results_parquet
+select_plot_cell = _dashboard_helpers.select_plot_cell
+MIN_N_FOR_SUCCESS_RATE = _dashboard_helpers.MIN_N_FOR_SUCCESS_RATE
+SEED_SPREAD_FLAG_THRESHOLD = _dashboard_helpers.SEED_SPREAD_FLAG_THRESHOLD
+STAT_PLACEHOLDER = _dashboard_helpers.STAT_PLACEHOLDER
 clear_video_cache = _dashboard_helpers.clear_video_cache
 column_glossary_markdown = _dashboard_helpers.column_glossary_markdown
 compute_manifest_progress = _dashboard_helpers.compute_manifest_progress
@@ -1063,6 +1075,317 @@ def test_dashboard_readme_exists_and_has_sections() -> None:
     # operator copy-paste path for fixing a wrong-dir misconfig.
     assert "DASHBOARD_RESULTS_DIR" in body
     assert "DASHBOARD_LOGS_DIR" in body
+
+
+# --------------------------------------------------------------------- #
+# Statistical-rigor: per-episode parquet stats, CI columns, plots        #
+# --------------------------------------------------------------------- #
+
+
+def _results_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    """Build a synthetic per-episode results frame (parquet schema subset)."""
+    return pd.DataFrame(rows, columns=["policy", "env", "seed", "episode_index", "success"])
+
+
+def _cell_rows(
+    *,
+    policy: str,
+    env: str,
+    per_seed_successes: list[int],
+    n_episodes_per_seed: int,
+) -> list[dict[str, Any]]:
+    """Synthesise per-episode rows: ``per_seed_successes[k]`` wins for seed k."""
+    rows: list[dict[str, Any]] = []
+    for seed, n_success in enumerate(per_seed_successes):
+        for ep in range(n_episodes_per_seed):
+            rows.append(
+                {
+                    "policy": policy,
+                    "env": env,
+                    "seed": seed,
+                    "episode_index": ep,
+                    "success": ep < n_success,
+                }
+            )
+    return rows
+
+
+def test_compute_cell_episode_stats_pools_episodes_not_seed_means() -> None:
+    """The Wilson CI is over the flat episode list, not the 5 per-seed means.
+
+    Council veto: bootstrapping / CIs over per-seed means is
+    pseudo-replication. We assert n_episodes == 5*10 (the flat count)
+    and that the success rate equals total_successes / total_episodes.
+    """
+    df = _results_frame(
+        _cell_rows(
+            policy="act",
+            env="pusht",
+            per_seed_successes=[2, 4, 6, 8, 10],
+            n_episodes_per_seed=10,
+        )
+    )
+    stats = compute_cell_episode_stats(df, policy="act", env="pusht")
+    assert stats is not None
+    assert stats.n_episodes == 50  # flat 5*10, NOT 5 seed-means
+    assert stats.n_success == 30
+    assert stats.success_rate == pytest.approx(0.6)
+    # Wilson CI brackets the point estimate and is a sub-interval of [0,1].
+    assert 0.0 <= stats.wilson_lo < stats.success_rate < stats.wilson_hi <= 1.0
+    # seed_spread = max(1.0) - min(0.2) = 0.8 over the 5 per-seed rates.
+    assert stats.n_seeds == 5
+    assert stats.seed_spread == pytest.approx(0.8)
+
+
+def test_compute_cell_episode_stats_absent_cell_returns_none() -> None:
+    """A cell with no rows in the parquet yields None (cold start)."""
+    df = _results_frame(
+        _cell_rows(policy="act", env="pusht", per_seed_successes=[5], n_episodes_per_seed=10)
+    )
+    assert compute_cell_episode_stats(df, policy="xvla", env="pusht") is None
+    assert compute_cell_episode_stats(None, policy="act", env="pusht") is None
+
+
+def test_success_rate_and_ci_columns_gated_below_min_n() -> None:
+    """Small-N gate: below MIN_N_FOR_SUCCESS_RATE both columns show "—".
+
+    A success rate is never shown without its CI; the two columns gate
+    on the same threshold, so they appear and disappear together.
+    """
+    # 1 seed x (MIN_N - 1) episodes -> just under the gate.
+    n_below = MIN_N_FOR_SUCCESS_RATE - 1
+    df_small = _results_frame(
+        _cell_rows(policy="act", env="pusht", per_seed_successes=[3], n_episodes_per_seed=n_below)
+    )
+    small = compute_cell_episode_stats(df_small, policy="act", env="pusht")
+    assert small is not None and small.n_episodes == n_below
+    assert format_success_rate_cell(small) == STAT_PLACEHOLDER
+    assert format_wilson_ci_cell(small) == STAT_PLACEHOLDER
+
+    # At exactly MIN_N the columns light up.
+    df_ok = _results_frame(
+        _cell_rows(
+            policy="act",
+            env="pusht",
+            per_seed_successes=[MIN_N_FOR_SUCCESS_RATE // 2],
+            n_episodes_per_seed=MIN_N_FOR_SUCCESS_RATE,
+        )
+    )
+    ok = compute_cell_episode_stats(df_ok, policy="act", env="pusht")
+    assert ok is not None
+    rate_cell = format_success_rate_cell(ok)
+    ci_cell = format_wilson_ci_cell(ok)
+    assert rate_cell != STAT_PLACEHOLDER
+    assert ci_cell != STAT_PLACEHOLDER
+    # CI is formatted "[lo, hi]" to 2 decimals.
+    assert ci_cell.startswith("[") and ci_cell.endswith("]") and ci_cell.count(",") == 1
+    lo_str, hi_str = ci_cell.strip("[]").split(", ")
+    assert len(lo_str.split(".")[1]) == 2 and len(hi_str.split(".")[1]) == 2
+
+    # None stats (no parquet) -> placeholder, never a bare number.
+    assert format_success_rate_cell(None) == STAT_PLACEHOLDER
+    assert format_wilson_ci_cell(None) == STAT_PLACEHOLDER
+
+
+def test_seed_spread_red_flag_threshold() -> None:
+    """seed_spread > 0.2 gets the ⚠ flag; <= 0.2 and <2 seeds do not."""
+    # Two seeds, spread = 1.0 - 0.0 = 1.0 -> flagged.
+    df_wide = _results_frame(
+        _cell_rows(policy="act", env="pusht", per_seed_successes=[0, 10], n_episodes_per_seed=10)
+    )
+    wide = compute_cell_episode_stats(df_wide, policy="act", env="pusht")
+    assert wide is not None and wide.seed_spread == pytest.approx(1.0)
+    flagged = format_seed_spread_cell(wide)
+    assert "⚠" in flagged
+
+    # Two seeds, spread = 0.1 (5 vs 6 of 10) -> below threshold, no flag.
+    df_tight = _results_frame(
+        _cell_rows(policy="act", env="pusht", per_seed_successes=[5, 6], n_episodes_per_seed=10)
+    )
+    tight = compute_cell_episode_stats(df_tight, policy="act", env="pusht")
+    assert tight is not None and tight.seed_spread == pytest.approx(0.1)
+    assert tight.seed_spread <= SEED_SPREAD_FLAG_THRESHOLD
+    assert "⚠" not in format_seed_spread_cell(tight)
+
+    # One seed -> seed_spread undefined -> placeholder, no flag.
+    df_one = _results_frame(
+        _cell_rows(policy="act", env="pusht", per_seed_successes=[5], n_episodes_per_seed=10)
+    )
+    one = compute_cell_episode_stats(df_one, policy="act", env="pusht")
+    assert one is not None and one.seed_spread is None
+    assert format_seed_spread_cell(one) == STAT_PLACEHOLDER
+
+
+def test_build_progress_table_fills_rigor_columns_from_parquet() -> None:
+    """build_progress_table wires the three rigor columns from results_df."""
+    manifest = _manifest(
+        [
+            _manifest_entry(
+                policy="act",
+                env="pusht",
+                seed=s,
+                status="completed",
+                started_utc="2026-05-12T03:00:00+00:00",
+                finished_utc="2026-05-12T03:10:00+00:00",
+                exit_code=0,
+            )
+            for s in range(5)
+        ]
+    )
+    df = _results_frame(
+        _cell_rows(
+            policy="act",
+            env="pusht",
+            per_seed_successes=[10, 10, 10, 10, 10],
+            n_episodes_per_seed=10,
+        )
+    )
+    table = build_progress_table(manifest, results_df=df)
+    row = table.iloc[0]
+    assert "success_rate_so_far" in table.columns
+    assert "wilson_ci_so_far" in table.columns
+    assert "seed_spread" in table.columns
+    # 50/50 successes -> rate 1.00, all seeds identical -> spread 0.00.
+    assert row["success_rate_so_far"].startswith("1.00")
+    assert row["wilson_ci_so_far"].startswith("[")
+    assert row["seed_spread"] == "0.00"
+
+    # results_df=None leaves all three columns as the placeholder.
+    table_no_df = build_progress_table(manifest)
+    assert table_no_df.iloc[0]["success_rate_so_far"] == STAT_PLACEHOLDER
+    assert table_no_df.iloc[0]["wilson_ci_so_far"] == STAT_PLACEHOLDER
+    assert table_no_df.iloc[0]["seed_spread"] == STAT_PLACEHOLDER
+
+
+def test_calibration_table_skew_flag_and_std_placeholder(tmp_path: Path) -> None:
+    """Latency-skew flag fires on p95/mean > 3; std_step_ms is "—" without raw times."""
+    report = {
+        "timestamp_utc": "2026-05-12T03:00:00+00:00",
+        "git_sha": "abc123",
+        "cells": [
+            # p95/mean = 1500/200 = 7.5 -> skewed.
+            _cal_cell(policy="dp", env="pusht", mean_ms=200.0, p95_ms=1500.0),
+            # p95/mean = 60/50 = 1.2 -> not skewed.
+            _cal_cell(policy="cheap", env="pusht", mean_ms=50.0, p95_ms=60.0),
+        ],
+    }
+    path = tmp_path / "calibration-20260512.json"
+    path.write_text(json.dumps(report))
+    table = build_calibration_table(load_calibration_report(path))
+
+    assert "std_step_ms" in table.columns
+    assert "n_steps" in table.columns
+    assert "latency_skew" in table.columns
+
+    dp = table[table["policy"] == "dp"].iloc[0]
+    cheap = table[table["policy"] == "cheap"].iloc[0]
+    assert "skewed" in dp["latency_skew"]
+    assert cheap["latency_skew"] == ""
+    # n_steps comes straight from n_steps_measured (20 in _cal_cell).
+    assert dp["n_steps"] == 20
+    # The calibration JSON carries no raw step times -> std is "—".
+    assert dp["std_step_ms"] == STAT_PLACEHOLDER
+    assert cheap["std_step_ms"] == STAT_PLACEHOLDER
+
+
+def test_calibration_table_std_step_ms_from_raw_step_times(tmp_path: Path) -> None:
+    """When a cell carries raw ``step_ms``, std_step_ms is computed."""
+    cell = _cal_cell(policy="p", env="e", mean_ms=10.0, p95_ms=12.0)
+    cell["step_ms"] = [8.0, 10.0, 12.0, 10.0, 10.0]
+    report = {"cells": [cell]}
+    table = build_calibration_table(report)
+    std_cell = table.iloc[0]["std_step_ms"]
+    assert std_cell != STAT_PLACEHOLDER
+    # Sample std (ddof=1) of [8,10,12,10,10] is ~1.41.
+    assert float(std_cell) == pytest.approx(1.41, abs=0.05)
+
+
+def test_load_results_parquet_stale_fallback(tmp_path: Path) -> None:
+    """A mid-write (corrupt) parquet falls back to the last-good frame."""
+    clear_results_cache()
+    parquet = tmp_path / "results.parquet"
+    df = _results_frame(
+        _cell_rows(policy="act", env="pusht", per_seed_successes=[5], n_episodes_per_seed=10)
+    )
+    df.to_parquet(parquet)
+
+    good = load_results_parquet(parquet)
+    assert good is not None and len(good) == 10
+
+    # Simulate a half-written file: overwrite with garbage bytes.
+    parquet.write_bytes(b"PAR1\x00\x00not-a-valid-parquet")
+    stale = load_results_parquet(parquet)
+    # The corrupt read serves the last-good frame, not None / not a crash.
+    assert stale is not None and len(stale) == 10
+
+    # Cold start (no good read ever) -> None, no crash.
+    clear_results_cache()
+    assert load_results_parquet(tmp_path / "never-existed.parquet") is None
+    assert load_results_parquet(None) is None
+
+
+def test_build_halfwidth_curve_falls_back_when_no_cell_running() -> None:
+    """No running cell with episodes -> the plot uses the last done cell.
+
+    Also covers the cold-start case: no cell with episodes at all -> None,
+    so the caller renders an empty-state plot rather than crashing.
+    """
+    manifest = _manifest(
+        [
+            _manifest_entry(
+                policy="act",
+                env="pusht",
+                seed=s,
+                status="completed",
+                started_utc="2026-05-12T03:00:00+00:00",
+                finished_utc="2026-05-12T03:10:00+00:00",
+                exit_code=0,
+            )
+            for s in range(5)
+        ]
+        # A running cell with no episodes on disk yet.
+        + [
+            _manifest_entry(
+                policy="xvla",
+                env="pusht",
+                seed=0,
+                status="pending",
+                started_utc="2026-05-12T03:20:00+00:00",
+            )
+        ]
+    )
+    df = _results_frame(
+        _cell_rows(
+            policy="act",
+            env="pusht",
+            per_seed_successes=[6, 6, 6, 6, 6],
+            n_episodes_per_seed=10,
+        )
+    )
+    table = build_progress_table(manifest, results_df=df)
+
+    # xvla is "running" but has zero parquet rows -> selector falls back.
+    selected = select_plot_cell(table, df)
+    assert selected is not None
+    policy, env, is_running = selected
+    assert (policy, env) == ("act", "pusht")
+    assert is_running is False  # the fallback (done) cell, not the running one
+
+    curve = build_halfwidth_curve(table, df)
+    assert curve is not None
+    assert curve.n_current == 50
+    assert curve.is_running is False
+    assert len(curve.n_values) == len(curve.halfwidths) == 50
+    # Half-width shrinks ~1/sqrt(N): it ends well below its start. It is
+    # NOT strictly monotone -- wilson_halfwidth_at_p discretises via
+    # round(p*n), so small-N rounding produces local bumps; we only
+    # assert the trend, which is the operator-facing claim.
+    assert curve.halfwidths[-1] < curve.halfwidths[0] / 2.0
+
+    # Cold start: parquet present but empty -> no curve, no crash.
+    empty_df = _results_frame([])
+    assert build_halfwidth_curve(table, empty_df) is None
+    assert build_halfwidth_curve(table, None) is None
 
 
 # --------------------------------------------------------------------- #

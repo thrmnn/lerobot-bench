@@ -38,8 +38,11 @@ from _helpers import (
     DEFAULT_LOG_TAIL_LINES,
     DEFAULT_VIDEO_ROOTS,
     PROGRESS_COLUMNS,
+    V1_INCONCLUSIVE_BAND,
+    HalfWidthCurve,
     StaleDataCache,
     build_calibration_table,
+    build_halfwidth_curve,
     build_progress_table,
     clear_video_cache,
     column_glossary_markdown,
@@ -47,11 +50,13 @@ from _helpers import (
     discover_sweep_runs,
     env_dashboard_logs_dir,
     env_dashboard_results_dir,
+    extract_row_click_target,
     find_latest_calibration,
     find_video_path,
     format_log_lines_html,
     load_calibration_report,
     load_manifest,
+    load_results_parquet,
     load_with_stale_fallback,
     methodology_markdown,
     per_tab_intro_markdown,
@@ -62,6 +67,7 @@ from _helpers import (
     tail_log_lines,
     video_index_options,
 )
+from matplotlib.figure import Figure
 
 logger = logging.getLogger("dashboard-app")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -122,33 +128,50 @@ def _runs_dropdown_choices() -> tuple[list[tuple[str, str]], str | None]:
 
 def refresh_progress(
     manifest_path_str: str | None,
-) -> tuple[pd.DataFrame, str, str]:
-    """Re-read the manifest and recompute the progress table.
+) -> tuple[pd.DataFrame, str, str, Figure]:
+    """Re-read the manifest + parquet and recompute the progress view.
 
-    Called by the 5 s timer and the manual Refresh button. Returns
-    ``(table_df, status_markdown, stale_warning_markdown)``. Status is
-    empty on success or a helpful hint when no manifest is selected;
-    the stale-warning slot is populated by :func:`load_with_stale_fallback`
-    when the manifest file is mid-write (audit item 9).
+    Called by the 5 s timer and the manual Refresh button. Returns the
+    4-tuple ``(table_df, status_markdown, stale_warning_markdown,
+    halfwidth_figure)``:
+
+    * ``status_markdown`` is empty on success or a helpful hint when no
+      manifest is selected.
+    * ``stale_warning_markdown`` is populated by
+      :func:`load_with_stale_fallback` when the manifest file is
+      mid-write (audit item 9); the table then falls back to the last
+      known-good snapshot.
+    * ``halfwidth_figure`` is the Wilson CI half-width vs N plot for the
+      running (or most-recently-completed) cell.
+
+    The per-episode ``results.parquet`` sits next to the manifest and is
+    read through :func:`load_results_parquet`, which tolerates a
+    mid-write file by serving the last-good frame.
     """
     if not manifest_path_str:
         empty = pd.DataFrame({c: [] for c in PROGRESS_COLUMNS})
         # No manifest selected isn't a "stale" failure -- it's just the
         # empty initial state. Don't bump the failure counter.
-        return empty, _no_sweep_hint(), ""
+        return empty, _no_sweep_hint(), "", _halfwidth_figure(None)
+
+    manifest_path = Path(manifest_path_str)
+    # The parquet read has its own last-good cache (``_RESULTS_CACHE`` in
+    # ``_helpers``); the manifest read goes through ``_progress_cache``
+    # below. Two caches because the two files fail independently.
+    results_df = load_results_parquet(manifest_path.parent / "results.parquet")
 
     def _loader() -> pd.DataFrame:
         # Wrapped in a callable so ``load_with_stale_fallback`` can
         # catch a partial-read OSError / JSONDecodeError mid-write
         # without us having to duplicate the try/except in every panel.
-        manifest = load_manifest(Path(manifest_path_str))
+        manifest = load_manifest(manifest_path)
         if not manifest:
             # Treat an empty/unreadable manifest like a failure so the
             # cache falls back to the last-good table. ``load_manifest``
             # itself swallows the OSError; raising here re-surfaces it
             # to the stale-data layer.
             raise FileNotFoundError(f"manifest at {manifest_path_str} unreadable or empty")
-        return build_progress_table(manifest)
+        return build_progress_table(manifest, results_df=results_df)
 
     def _empty() -> pd.DataFrame:
         return pd.DataFrame({c: [] for c in PROGRESS_COLUMNS})
@@ -158,15 +181,81 @@ def refresh_progress(
         _loader,
         empty_factory=_empty,
     )
-    if warning:
-        # On a stale-data event, still surface the friendly summary
-        # line above the table (so the operator's eye doesn't lose
-        # context); the warning sits below.
-        summary = _summarise_progress(table)
-        return table, summary, warning
-
+    # On a stale-data event the friendly summary line still sits above
+    # the table (so the operator's eye doesn't lose context); the
+    # warning sits below in its own component.
     summary = _summarise_progress(table)
-    return table, summary, ""
+    curve = build_halfwidth_curve(table, results_df)
+    return table, summary, warning, _halfwidth_figure(curve)
+
+
+def _halfwidth_figure(curve: HalfWidthCurve | None) -> Figure:
+    """Render the Wilson CI half-width vs N plot as a matplotlib Figure.
+
+    X is N (1..current); Y is the closed-form Wilson 95% half-width at
+    the cell's running p-hat. A horizontal reference line marks the v1
+    Wilson inconclusive band (2*HW at p=0.5, N=250 = 0.123 from
+    ``docs/MDE_TABLE.md``) -- a cell whose single-cell half-width is
+    still above that is nowhere near resolving a real effect.
+
+    ``curve=None`` (cold start, no cell with episodes on disk) renders
+    a centred "no data yet" placeholder so the ``gr.Plot`` slot is
+    never blank.
+    """
+    fig = Figure(figsize=(6.4, 3.4), dpi=100)
+    ax = fig.add_subplot(111)
+
+    if curve is None:
+        ax.text(
+            0.5,
+            0.5,
+            "No running or completed cell with episodes on disk yet.",
+            ha="center",
+            va="center",
+            fontsize=10,
+            color="#666",
+        )
+        ax.set_axis_off()
+        fig.tight_layout()
+        return fig
+
+    ax.plot(curve.n_values, curve.halfwidths, color="#2563eb", lw=1.8)
+    ax.axhline(
+        V1_INCONCLUSIVE_BAND,
+        color="#dc2626",
+        ls="--",
+        lw=1.2,
+        label=f"v1 inconclusive band 2·HW = {V1_INCONCLUSIVE_BAND:.3f}",
+    )
+    ax.scatter(
+        [curve.n_current],
+        [curve.halfwidths[-1]],
+        color="#2563eb",
+        zorder=5,
+        s=28,
+    )
+    state = "currently running" if curve.is_running else "most recently completed"
+    ax.set_title(
+        f"Wilson CI half-width vs N — {curve.policy} / {curve.env} ({state})",
+        fontsize=10,
+    )
+    ax.set_xlabel("N (episodes)")
+    ax.set_ylabel("Wilson 95% half-width")
+    ax.text(
+        0.98,
+        0.92,
+        f"p̂ = {curve.p_hat:.2f}, N = {curve.n_current}, HW = {curve.halfwidths[-1]:.3f}",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=8,
+        color="#444",
+    )
+    ax.set_ylim(bottom=0.0)
+    ax.legend(fontsize=8, loc="upper right", bbox_to_anchor=(0.98, 0.82))
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+    return fig
 
 
 def _no_sweep_hint() -> str:
@@ -191,29 +280,30 @@ def _summarise_progress(table: pd.DataFrame) -> str:
     return " · ".join(parts)
 
 
-def _on_run_selected(manifest_path_str: str | None) -> tuple[pd.DataFrame, str, str]:
-    """Dropdown change -> re-render the progress table for that run.
+def _on_run_selected(manifest_path_str: str | None) -> tuple[pd.DataFrame, str, str, Figure]:
+    """Dropdown change -> re-render the progress view for that run.
 
-    Returns the 3-tuple shape (table, summary, stale_warning) so the
-    timer + dropdown handlers can share a wiring with the stale-data
-    fallback (audit item 9).
+    Returns the 4-tuple shape (table, summary, stale_warning, halfwidth
+    figure) so the timer + dropdown handlers share one wiring with both
+    the stale-data fallback (audit item 9) and the half-width plot.
     """
     return refresh_progress(manifest_path_str)
 
 
-def _on_runs_refresh() -> tuple[Any, pd.DataFrame, str, str]:
-    """Re-scan disk for new runs and re-render the table for the newest.
+def _on_runs_refresh() -> tuple[Any, pd.DataFrame, str, str, Figure]:
+    """Re-scan disk for new runs and re-render the view for the newest.
 
-    Wired to the "Re-scan runs" button. Returns
-    ``(dropdown_update, table_df, status_markdown, stale_warning_markdown)``.
+    Wired to the "Re-scan runs" button. Returns ``(dropdown_update,
+    table_df, status_markdown, stale_warning_markdown, halfwidth_figure)``.
     """
     choices, default = _runs_dropdown_choices()
-    table, summary, warning = refresh_progress(default)
+    table, summary, warning, fig = refresh_progress(default)
     return (
         gr.update(choices=choices, value=default),
         table,
         summary,
         warning,
+        fig,
     )
 
 
@@ -585,6 +675,9 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
             "number",  # seeds_total
             "number",  # episodes_done
             "number",  # episodes_total
+            "str",  # success_rate_so_far (formatted; "—" below n=25)
+            "str",  # wilson_ci_so_far ("[lo, hi]" or "—")
+            "str",  # seed_spread ("⚠ 0.NN" / "0.NN" / "—")
             "str",  # last_update_utc
             "number",  # eta_minutes
         ],
@@ -592,27 +685,40 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
         wrap=True,
         label="Per-(policy, env) cell progress",
     )
+    # Stale-data warning slot (audit item 9). Sits directly below the
+    # table so a mid-write manifest surfaces "showing last-good data"
+    # right where the operator is reading. Empty string on a clean read.
+    stale_warning_md = gr.Markdown("")
     gr.Markdown(column_glossary_markdown("progress"))
+
+    # Wilson CI half-width vs N plot for the running (or last-done) cell.
+    halfwidth_plot = gr.Plot(
+        label="Wilson CI half-width vs N — currently-running cell",
+    )
+
+    # All four handlers feed the same 4 outputs in ``refresh_progress``
+    # order: table, summary, stale-warning, half-width plot.
+    progress_outputs = [table, summary_md, stale_warning_md, halfwidth_plot]
 
     # Initial paint -- on first tab open.
     demo.load(
         fn=lambda: refresh_progress(initial_default),
         inputs=None,
-        outputs=[table, summary_md],
+        outputs=progress_outputs,
     )
 
     # Run dropdown change -> repaint table for the selected manifest.
     run_dd.change(
         fn=_on_run_selected,
         inputs=[run_dd],
-        outputs=[table, summary_md],
+        outputs=progress_outputs,
     )
 
     # Re-scan: re-discover runs from disk and repaint.
     rescan_btn.click(
         fn=_on_runs_refresh,
         inputs=None,
-        outputs=[run_dd, table, summary_md],
+        outputs=[run_dd, *progress_outputs],
     )
 
     # 5 s polling. gr.Timer is the Gradio 5 way; the click stays for
@@ -621,7 +727,7 @@ def _build_progress_tab(demo: gr.Blocks) -> None:
     timer.tick(
         fn=_on_run_selected,
         inputs=[run_dd],
-        outputs=[table, summary_md],
+        outputs=progress_outputs,
     )
 
 
@@ -640,6 +746,9 @@ def _build_calibration_tab(demo: gr.Blocks) -> None:
             "str",  # status
             "number",  # mean_step_ms
             "number",  # p95_step_ms
+            "str",  # std_step_ms (formatted; "—" when raw step times absent)
+            "number",  # n_steps
+            "str",  # latency_skew ("⚠ skewed" or "")
             "number",  # vram_peak_mb
             "number",  # recommended_seeds
             "number",  # recommended_episodes
