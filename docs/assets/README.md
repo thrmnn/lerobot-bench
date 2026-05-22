@@ -26,13 +26,37 @@ rsvg-convert -w 256  -h 256 docs/assets/mark.svg        -o docs/assets/mark.png
 ## Screenshots — TODO checklist
 
 These are **not yet captured**. The README references them as image slots that
-degrade gracefully while absent. The project maintainer captures them once the
-apps are running locally — this directory just holds the slots and this index.
+degrade gracefully while absent. The maintainer captures them in one pass once
+both apps run locally — this directory holds the slots and this index.
 
-- [ ] `leaderboard.png` — HF Space leaderboard tab (`thrmnn/lerobot-bench`). README hero image.
-- [ ] `dashboard-progress.png` — local operator dashboard, live sweep-progress tab (`make dashboard`).
-- [ ] `dashboard-rollout.png` — local operator dashboard, rollout video-preview tab.
-- [ ] `rollout-still.png` — a representative frame from an episode rollout MP4.
+Two apps, captured separately:
 
-Capture at 2× device pixel ratio where possible, trim to content, and keep each
-PNG under ~500 KB.
+- **Space** — public leaderboard, 5 tabs (Leaderboard, Paired comparisons,
+  Rollouts, Failures, About). Run with `python space/app.py`.
+- **Dashboard** — local operator view, 7 tabs (Sweep progress, Calibration
+  inspector, Rollout preview, Live event log, Policies, Envs, About). Run with
+  `make dashboard`.
+
+### Capture list
+
+| File | App / tab | Recommended size | Referenced by |
+|---|---|---|---|
+| `leaderboard.png` | Space — Leaderboard tab | 1600×1000 | README hero image |
+| `space-paired.png` | Space — Paired comparisons tab | 1600×1000 | README "Comparing policies" section |
+| `space-rollouts.png` | Space — Rollouts tab (videos loaded) | 1600×1000 | README "Browsing rollouts" section |
+| `dashboard-progress.png` | Dashboard — Sweep progress tab | 1600×1000 | README "Operator dashboard" section |
+| `dashboard-rollout.png` | Dashboard — Rollout preview tab | 1600×1000 | README "Operator dashboard" section |
+| `dashboard-calibration.png` | Dashboard — Calibration inspector tab | 1600×1000 | docs/RUNBOOK.md calibration step |
+| `dashboard-events.png` | Dashboard — Live event log tab | 1600×1000 | docs/RUNBOOK.md monitoring step |
+| `rollout-still.png` | Single frame from an episode rollout MP4 | native (e.g. 640×480) | README hero / social card backdrop |
+
+### Capture notes
+
+- Capture at 2× device pixel ratio where possible, then trim to content.
+- Keep each PNG under ~500 KB (downscale or `pngquant` if needed).
+- Use the default Gradio theme — the Space ships `gr.themes.Soft()`, the
+  dashboard `gr.themes.Default()`; capture each as it renders, do not restyle.
+- For tab screenshots, wait for the data tables / videos to finish loading so
+  the slot shows real content, not an empty-state hint.
+- The hero image (`leaderboard.png`) is the most visible asset — capture it
+  last, with a populated results parquet, so the leaderboard table is full.
