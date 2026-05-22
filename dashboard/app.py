@@ -32,7 +32,9 @@ environment (Gradio is in the ``[space]`` extras but not ``[dev]``).
 
 from __future__ import annotations
 
+import html
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -45,17 +47,26 @@ from _helpers import (
     EPISODE_SELECT_BEST,
     EPISODE_SELECT_FIRST,
     EPISODE_SELECT_REPRESENTATIVE,
+    HEALTH_AMBER,
+    HEALTH_GREEN,
+    HEALTH_RED,
+    LEADERBOARD_COLUMNS,
     PROGRESS_COLUMNS,
     V1_INCONCLUSIVE_BAND,
+    AnomalyReport,
     HalfWidthCurve,
+    MissionKPIs,
     StaleDataCache,
+    ThrottleState,
     build_calibration_table,
     build_env_card_markdown,
     build_halfwidth_curve,
+    build_live_leaderboard,
     build_policy_card_markdown,
     build_progress_table,
     clear_video_cache,
     column_glossary_markdown,
+    compute_mission_kpis,
     discover_sweep_logs,
     discover_sweep_runs,
     env_dashboard_logs_dir,
@@ -64,7 +75,9 @@ from _helpers import (
     extract_row_click_target,
     find_latest_calibration,
     find_video_path,
+    format_bytes_gb,
     format_log_lines_html,
+    leaderboard_dataframe,
     load_calibration_report,
     load_manifest,
     load_results_parquet,
@@ -73,7 +86,10 @@ from _helpers import (
     per_tab_intro_markdown,
     persistent_header_markdown,
     policy_dropdown_choices,
+    read_system_memory,
+    read_throttle_state,
     resolved_paths_banner_markdown,
+    run_anomaly_review,
     scan_video_index,
     select_representative_episode,
     summarize_log,
@@ -370,6 +386,7 @@ def _on_progress_row_click(
 # Stable tab IDs for the ``gr.Tabs`` container. Strings rather than
 # ints so the row-click handler can pass a meaningful selector;
 # Gradio matches on either an ``id`` attribute or the label.
+MISSION_TAB_ID = "mission"
 PROGRESS_TAB_ID = "progress"
 CALIBRATION_TAB_ID = "calibration"
 ROLLOUT_TAB_ID = "rollouts"
@@ -718,6 +735,10 @@ def build_app() -> gr.Blocks:
         )
 
         with gr.Tabs():
+            # -------- Tab 0: Mission Control (default landing) --------
+            with gr.Tab("Mission Control", id=MISSION_TAB_ID):
+                _build_mission_control_tab(demo)
+
             # -------- Tab 1: Sweep progress --------
             with gr.Tab("Sweep progress"):
                 _build_progress_tab(demo)
@@ -853,6 +874,228 @@ def _build_about_tab() -> None:
     structure without importing Gradio.
     """
     gr.Markdown(methodology_markdown())
+
+
+# --------------------------------------------------------------------- #
+# Tab 0: Mission Control (default landing tab)                          #
+# --------------------------------------------------------------------- #
+#
+# One glanceable screen the operator leaves open on a tablet to
+# supervise the ~20 h sweep. Four stacked sections, large text, colour,
+# auto-refreshing every 5 s. All the data shaping lives in
+# ``_helpers.py``; the functions below only format the helper output
+# into HTML / Dataframe / Markdown components.
+
+# Health-banner colours. Keyed on the _helpers HEALTH_* severities.
+_HEALTH_BANNER_STYLE: dict[str, tuple[str, str, str]] = {
+    # severity -> (background, text colour, leading glyph)
+    HEALTH_GREEN: ("#16a34a", "#ffffff", "✓"),
+    HEALTH_AMBER: ("#d97706", "#ffffff", "⚠"),
+    HEALTH_RED: ("#dc2626", "#ffffff", "⚠"),
+}
+
+
+def _kpi_tile_html(label: str, value: str, *, danger: bool = False) -> str:
+    """Render one big KPI tile. ``danger`` paints the value red."""
+    value_colour = "#dc2626" if danger else "inherit"
+    return (
+        '<div style="flex:1;min-width:130px;padding:12px 16px;'
+        'background:rgba(0,0,0,0.04);border-radius:10px;text-align:center">'
+        f'<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;'
+        f'color:#666;margin-bottom:4px">{html.escape(label)}</div>'
+        f'<div style="font-size:26px;font-weight:700;line-height:1.1;'
+        f'color:{value_colour}">{html.escape(value)}</div></div>'
+    )
+
+
+def _render_health_banner(kpis: MissionKPIs) -> str:
+    """Render the prominent green/amber/red health banner as HTML."""
+    bg, fg, glyph = _HEALTH_BANNER_STYLE.get(kpis.health, _HEALTH_BANNER_STYLE[HEALTH_AMBER])
+    return (
+        f'<div style="padding:16px 20px;border-radius:12px;background:{bg};'
+        f"color:{fg};font-size:22px;font-weight:700;text-align:center;"
+        f'margin-bottom:4px">{glyph}&nbsp;&nbsp;{html.escape(kpis.health_message)}</div>'
+    )
+
+
+def _render_kpi_strip(kpis: MissionKPIs) -> str:
+    """Render the KPI tile strip as a flexbox HTML row."""
+    tiles = [
+        _kpi_tile_html(
+            "Cells done",
+            f"{kpis.cells_done}/{kpis.denom}  ({kpis.percent_done:.0f}%)",
+        ),
+        _kpi_tile_html("Cells failed", str(kpis.cells_failed), danger=kpis.cells_failed > 0),
+        _kpi_tile_html("Running now", kpis.running_label),
+        _kpi_tile_html("Elapsed", kpis.elapsed_label),
+        _kpi_tile_html("ETA", kpis.eta_label),
+        _kpi_tile_html(
+            "Sweep state",
+            kpis.state,
+            danger=kpis.state == "THROTTLED-frozen",
+        ),
+    ]
+    return '<div style="display:flex;flex-wrap:wrap;gap:10px">' + "".join(tiles) + "</div>"
+
+
+def _render_anomaly_panel(report: AnomalyReport) -> str:
+    """Render the anomaly-alerts section: green clean / red flagged list."""
+    if report.error:
+        return (
+            '<div style="padding:12px 16px;border-radius:10px;'
+            'background:rgba(0,0,0,0.04);color:#666;font-size:14px">'
+            f"Anomaly review: {html.escape(report.error)}.</div>"
+        )
+    if report.ok:
+        return (
+            '<div style="padding:14px 18px;border-radius:10px;background:#16a34a;'
+            'color:#fff;font-size:16px;font-weight:600">✓ No anomalies — '
+            f"all {report.n_cells_reviewed} reviewed cell(s) look healthy.</div>"
+        )
+    items = "".join(f'<li style="margin:2px 0">{html.escape(line)}</li>' for line in report.lines)
+    return (
+        '<div style="padding:14px 18px;border-radius:10px;background:#dc2626;'
+        'color:#fff;font-size:14px">'
+        f'<div style="font-size:16px;font-weight:700;margin-bottom:6px">'
+        f"⚠ {report.n_cells_flagged} cell(s) flagged "
+        f"({report.n_cells_reviewed} reviewed)</div>"
+        f'<ul style="margin:0;padding-left:20px">{items}</ul></div>'
+    )
+
+
+def _memory_bar(label: str, used: int | None, total: int | None) -> str:
+    """Render a labelled used/total memory bar; ``—`` when undiscoverable."""
+    if used is None or total is None or total <= 0:
+        return (
+            f'<div style="margin:6px 0"><b>{html.escape(label)}:</b> '
+            "&mdash; <i>(not discoverable)</i></div>"
+        )
+    pct = min(100.0, used / total * 100.0)
+    bar_colour = "#dc2626" if pct >= 90 else ("#d97706" if pct >= 75 else "#16a34a")
+    return (
+        f'<div style="margin:6px 0"><b>{html.escape(label)}:</b> '
+        f"{format_bytes_gb(used)} / {format_bytes_gb(total)} ({pct:.0f}%)"
+        '<div style="height:10px;border-radius:5px;background:rgba(0,0,0,0.08);'
+        'margin-top:3px">'
+        f'<div style="height:100%;width:{pct:.0f}%;border-radius:5px;'
+        f'background:{bar_colour}"></div></div></div>'
+    )
+
+
+def _render_resource_panel(throttle: ThrottleState) -> str:
+    """Render the resource + throttle section as HTML."""
+    mem = read_system_memory()
+    if mem is None:
+        host_block = (
+            '<div style="margin:6px 0"><b>Host RAM:</b> &mdash; '
+            "<i>(/proc/meminfo unreadable)</i></div>"
+        )
+    else:
+        host_block = _memory_bar("Host RAM", mem.used_bytes, mem.total_bytes)
+
+    cgroup_block = _memory_bar(
+        "Sweep cgroup memory",
+        throttle.memory_current,
+        throttle.memory_max,
+    )
+
+    if not throttle.running:
+        throttle_line = "<b>Throttle state:</b> sweep process not running"
+    elif throttle.frozen is None:
+        throttle_line = (
+            f"<b>Throttle state:</b> sweep running (PID {throttle.pid}); "
+            "cgroup freeze state not discoverable"
+        )
+    elif throttle.frozen:
+        throttle_line = (
+            f'<b>Throttle state:</b> <span style="color:#dc2626;font-weight:700">'
+            f"FROZEN</span> (PID {throttle.pid}) — watchdog throttled the sweep"
+        )
+    else:
+        throttle_line = (
+            f'<b>Throttle state:</b> <span style="color:#16a34a;font-weight:700">'
+            f"RUNNING</span> (PID {throttle.pid})"
+        )
+
+    return (
+        '<div style="padding:12px 16px;border-radius:10px;'
+        'background:rgba(0,0,0,0.04);font-size:14px">'
+        + host_block
+        + cgroup_block
+        + f'<div style="margin:6px 0">{throttle_line}</div></div>'
+    )
+
+
+def refresh_mission_control() -> tuple[str, str, pd.DataFrame, str, str]:
+    """Recompute every Mission Control section. Driven by the 5 s timer.
+
+    Returns ``(banner_html, kpi_html, leaderboard_df, anomaly_html,
+    resource_html)``. Reads the newest sweep run's manifest + parquet;
+    every section degrades to an empty / neutral state when nothing is
+    on disk yet rather than crashing the tick.
+    """
+    runs = discover_sweep_runs(env_dashboard_results_dir())
+    manifest: dict[str, Any] = {}
+    results_path: Path | None = None
+    if runs:
+        manifest = load_manifest(runs[0].manifest_path)
+        results_path = runs[0].manifest_path.parent / "results.parquet"
+
+    throttle = read_throttle_state()
+    kpis = compute_mission_kpis(manifest, throttled=bool(throttle.frozen))
+
+    results_df = load_results_parquet(results_path)
+    leaderboard = leaderboard_dataframe(build_live_leaderboard(results_df))
+    anomalies = run_anomaly_review(results_path)
+
+    return (
+        _render_health_banner(kpis),
+        _render_kpi_strip(kpis),
+        leaderboard,
+        _render_anomaly_panel(anomalies),
+        _render_resource_panel(throttle),
+    )
+
+
+def _build_mission_control_tab(demo: gr.Blocks) -> None:
+    """Render the Mission Control tab -- the default landing screen.
+
+    Four stacked sections (KPI strip + health banner, live leaderboard,
+    anomaly alerts, resource/throttle), auto-refreshing every 5 s.
+    """
+    gr.Markdown(
+        "## Mission Control\n"
+        "_One-screen sweep supervision -- leave this open. "
+        "Auto-refreshes every 5 s._"
+    )
+
+    banner = gr.HTML()
+    kpi_strip = gr.HTML()
+
+    gr.Markdown("### Live results forming")
+    leaderboard = gr.Dataframe(
+        headers=list(LEADERBOARD_COLUMNS),
+        datatype=["str", "str", "str", "number", "number"],
+        interactive=False,
+        wrap=True,
+        label="Per-policy mean success rate (Wilson 95% CI) across completed cells",
+    )
+
+    gr.Markdown("### Anomaly alerts")
+    anomaly_panel = gr.HTML()
+
+    gr.Markdown("### Resource + throttle")
+    resource_panel = gr.HTML()
+
+    refresh_btn = gr.Button("Refresh now", variant="secondary")
+
+    mission_outputs = [banner, kpi_strip, leaderboard, anomaly_panel, resource_panel]
+
+    demo.load(fn=refresh_mission_control, inputs=None, outputs=mission_outputs)
+    refresh_btn.click(fn=refresh_mission_control, inputs=None, outputs=mission_outputs)
+
+    timer = gr.Timer(value=PROGRESS_REFRESH_SECONDS)
+    timer.tick(fn=refresh_mission_control, inputs=None, outputs=mission_outputs)
 
 
 def _build_progress_tab(demo: gr.Blocks) -> None:
@@ -1186,4 +1429,9 @@ demo: gr.Blocks | None = None
 if __name__ == "__main__":
     demo = build_app()
     demo.queue()
-    demo.launch(server_name="127.0.0.1", show_error=True)
+    # GRADIO_SERVER_NAME lets an operator bind to 0.0.0.0 for tablet
+    # access over the tailnet; defaults to loopback.
+    demo.launch(
+        server_name=os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1"),
+        show_error=True,
+    )

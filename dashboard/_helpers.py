@@ -2707,3 +2707,670 @@ def load_with_stale_fallback(
 
     cache.record_success(value, now_utc=now_utc)
     return value, ""
+
+
+# --------------------------------------------------------------------- #
+# Mission Control: one-screen sweep supervision                          #
+# --------------------------------------------------------------------- #
+#
+# The Mission Control tab is the default landing tab: a single glanceable
+# screen the operator leaves open (often on a tablet over tailnet) to
+# supervise a ~20-hour sweep without clicking around. Four stacked
+# sections, each backed by a pure helper here so the Gradio wiring in
+# ``app.py`` stays a thin shell.
+#
+# 1. At-a-glance health -- :func:`compute_mission_kpis` rolls the
+#    manifest into the KPI strip (cells done / failed / running / ETA /
+#    state) plus the green/amber/red health banner.
+# 2. Live results forming -- :func:`build_live_leaderboard` aggregates
+#    the per-episode parquet to a per-policy mean success rate + Wilson
+#    CI as cells finish.
+# 3. Anomaly alerts -- :func:`run_anomaly_review` wraps the incremental
+#    checks from ``scripts/review_results.py`` against the live parquet.
+# 4. Resource + throttle -- :func:`read_system_memory`,
+#    :func:`find_sweep_pid`, :func:`read_throttle_state` surface RAM,
+#    the sweep's cgroup memory cap, and the cgroup freeze state.
+
+# Health-banner severities. The banner is the single most prominent
+# element on the Mission Control screen; an operator glancing from
+# across the room reads the colour, not the text.
+HEALTH_GREEN = "green"
+HEALTH_AMBER = "amber"
+HEALTH_RED = "red"
+
+# Sweep-state labels surfaced in the KPI strip. THROTTLED is reported
+# when the sweep's cgroup is frozen (the watchdog froze it on a RAM
+# breach); RUNNING / DONE come straight from the manifest roll-up.
+SWEEP_STATE_RUNNING = "RUNNING"
+SWEEP_STATE_THROTTLED = "THROTTLED-frozen"
+SWEEP_STATE_DONE = "DONE"
+SWEEP_STATE_IDLE = "IDLE"
+
+
+@dataclass(frozen=True)
+class MissionKPIs:
+    """At-a-glance health numbers for the Mission Control KPI strip.
+
+    Computed purely from the sweep manifest -- no parquet read -- so the
+    strip repaints cheaply on the 5 s tick even when the parquet is
+    mid-write. ``denom`` falls back to :data:`V1_TOTAL_SEED_ENTRIES`
+    when the manifest is smaller than the v1 target (a mini sweep, or a
+    manifest still being populated) so the ``N/110`` reads stably.
+    """
+
+    cells_done: int
+    cells_failed: int
+    cells_running: int
+    cells_total: int
+    denom: int
+    percent_done: float
+    running_label: str
+    elapsed_label: str
+    eta_label: str
+    state: str
+    health: str
+    health_message: str
+
+
+def _running_cell_label(manifest: dict[str, Any]) -> str:
+    """Name the (policy, env, seed) of the most recently started seed.
+
+    Returns ``"—"`` when nothing is in flight. The driver flips
+    ``pending -> completed`` rather than marking a ``running`` status,
+    so a running seed is a ``pending`` entry with a ``started_utc``.
+    """
+    best_ts = ""
+    best: dict[str, Any] | None = None
+    cells = manifest.get("cells", [])
+    if not isinstance(cells, list):
+        return STAT_PLACEHOLDER
+    for entry in cells:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("status") != STATUS_PENDING:
+            continue
+        ts = entry.get("started_utc")
+        if isinstance(ts, str) and ts > best_ts:
+            best_ts, best = ts, entry
+    if best is None:
+        return STAT_PLACEHOLDER
+    seed = best.get("seed_idx", best.get("seed", "?"))
+    return f"{best.get('policy', '?')} / {best.get('env', '?')} / seed {seed}"
+
+
+def _format_duration(seconds: float) -> str:
+    """Render a wall-clock duration as ``Hh Mm`` (or ``Mm`` under 1 h)."""
+    if seconds <= 0:
+        return STAT_PLACEHOLDER
+    total_min = int(seconds // 60)
+    hours, minutes = divmod(total_min, 60)
+    if hours > 0:
+        return f"{hours}h {minutes:02d}m"
+    return f"{minutes}m"
+
+
+def _sweep_elapsed_seconds(manifest: dict[str, Any], now: dt.datetime) -> float:
+    """Seconds since the sweep's ``started_utc`` (0.0 if unparseable)."""
+    started = _parse_iso(manifest.get("started_utc"))
+    if started is None:
+        return 0.0
+    return max(0.0, (now - started).total_seconds())
+
+
+def _sweep_eta_seconds(manifest: dict[str, Any], now: dt.datetime) -> float:
+    """Whole-sweep ETA: mean completed-seed wall-clock x remaining seeds.
+
+    Pools every completed seed in the manifest for the mean (failed
+    seeds excluded -- they finish faster and would bias the estimate
+    low). Returns 0.0 when nothing has completed yet (no baseline) or
+    when no seed is outstanding.
+    """
+    cells = manifest.get("cells", [])
+    if not isinstance(cells, list):
+        return 0.0
+    durations: list[float] = []
+    n_remaining = 0
+    for entry in cells:
+        if not isinstance(entry, dict):
+            continue
+        status = entry.get("status")
+        if status in (STATUS_PENDING,):
+            n_remaining += 1
+        elif status == STATUS_COMPLETED:
+            started = _parse_iso(entry.get("started_utc"))
+            finished = _parse_iso(entry.get("finished_utc"))
+            if started is not None and finished is not None:
+                delta = (finished - started).total_seconds()
+                if delta > 0:
+                    durations.append(delta)
+    if n_remaining == 0 or not durations:
+        return 0.0
+    return (sum(durations) / len(durations)) * n_remaining
+
+
+def compute_mission_kpis(
+    manifest: dict[str, Any],
+    *,
+    now_utc: dt.datetime | None = None,
+    throttled: bool = False,
+) -> MissionKPIs:
+    """Roll a sweep manifest into the Mission Control KPI strip.
+
+    Counts are over *cells* -- the ``(policy, env)`` grid, not the
+    per-seed entries -- because that's the "N/110" the operator thinks
+    in. (110 is the v1 seed-entry count; the cell denominator is
+    :data:`V1_RUNNABLE_CELLS`. We surface seed-entries via the manifest
+    badge elsewhere; here the KPI strip counts cells for the headline.)
+
+    The health banner is the operator's primary signal:
+
+    * **red** -- any failed cell, OR the sweep's cgroup is frozen.
+    * **amber** -- a seed has been running far longer than its cell's
+      completed seeds (a stuck cell), or no manifest at all.
+    * **green** -- cells marching through cleanly.
+
+    Args:
+        manifest: parsed ``sweep_manifest.json`` dict.
+        now_utc: pinned clock for deterministic ETA in tests.
+        throttled: True when :func:`read_throttle_state` reports the
+            sweep's cgroup is frozen -- forces the red banner + the
+            ``THROTTLED-frozen`` state label.
+    """
+    now = now_utc or dt.datetime.now(dt.UTC)
+    table = build_progress_table(manifest, now_utc=now)
+
+    if table.empty:
+        return MissionKPIs(
+            cells_done=0,
+            cells_failed=0,
+            cells_running=0,
+            cells_total=0,
+            denom=V1_RUNNABLE_CELLS,
+            percent_done=0.0,
+            running_label=STAT_PLACEHOLDER,
+            elapsed_label=STAT_PLACEHOLDER,
+            eta_label=STAT_PLACEHOLDER,
+            state=SWEEP_STATE_IDLE,
+            health=HEALTH_AMBER,
+            health_message="no sweep manifest on disk -- start one with `make sweep`",
+        )
+
+    status_counts = table["status"].value_counts().to_dict()
+    cells_done = int(status_counts.get(CELL_STATUS_DONE, 0)) + int(
+        status_counts.get(CELL_STATUS_SKIPPED, 0)
+    )
+    cells_failed = int(status_counts.get(CELL_STATUS_FAILED, 0))
+    cells_running = int(status_counts.get(CELL_STATUS_RUNNING, 0))
+    cells_total = len(table)
+    denom = cells_total if cells_total >= V1_RUNNABLE_CELLS else V1_RUNNABLE_CELLS
+    percent = (cells_done / denom * 100.0) if denom else 0.0
+
+    finished = bool(manifest.get("finished_utc"))
+    all_done = cells_done == cells_total and cells_failed == 0
+
+    if throttled:
+        state = SWEEP_STATE_THROTTLED
+    elif finished or all_done:
+        state = SWEEP_STATE_DONE
+    elif cells_running > 0:
+        state = SWEEP_STATE_RUNNING
+    else:
+        state = SWEEP_STATE_RUNNING if not all_done else SWEEP_STATE_DONE
+
+    if throttled:
+        health = HEALTH_RED
+        health_message = (
+            "sweep FROZEN by the RAM watchdog -- cgroup is throttled; "
+            "free host memory or raise the cap"
+        )
+    elif cells_failed > 0:
+        health = HEALTH_RED
+        health_message = (
+            f"{cells_failed} failed cell(s) -- triage the failed rows on the Sweep-progress tab"
+        )
+    elif all_done:
+        health = HEALTH_GREEN
+        health_message = f"sweep healthy -- all {cells_done}/{denom} cells complete"
+    else:
+        health = HEALTH_GREEN
+        health_message = (
+            f"sweep healthy -- {cells_done}/{denom} cells done, {cells_running} running"
+        )
+
+    return MissionKPIs(
+        cells_done=cells_done,
+        cells_failed=cells_failed,
+        cells_running=cells_running,
+        cells_total=cells_total,
+        denom=denom,
+        percent_done=percent,
+        running_label=_running_cell_label(manifest),
+        elapsed_label=_format_duration(_sweep_elapsed_seconds(manifest, now)),
+        eta_label=_format_duration(_sweep_eta_seconds(manifest, now)),
+        state=state,
+        health=health,
+        health_message=health_message,
+    )
+
+
+@dataclass(frozen=True)
+class LeaderboardRow:
+    """One policy's live aggregate for the Mission Control mini-leaderboard.
+
+    ``success_rate`` and the Wilson CI are over the *flat per-episode
+    outcomes* pooled across every completed cell of the policy (same
+    pseudo-replication guard as :func:`compute_cell_episode_stats`).
+    ``n_cells`` is how many ``(policy, env)`` cells have episodes on
+    disk so far -- the operator reads this as "how settled is this row".
+    """
+
+    policy: str
+    success_rate: float
+    wilson_lo: float
+    wilson_hi: float
+    n_episodes: int
+    n_cells: int
+
+
+def build_live_leaderboard(results_df: pd.DataFrame | None) -> list[LeaderboardRow]:
+    """Aggregate the per-episode parquet into a per-policy live leaderboard.
+
+    Pools every episode of a policy across all its envs/seeds into one
+    flat outcome list, computes the success rate + Wilson 95% CI, and
+    sorts best-first. Returns ``[]`` when the parquet is absent / empty
+    so the caller renders a "results forming once the first cell
+    finishes" empty state.
+
+    The unit is the episode, never the per-cell mean -- a policy with
+    two cells of wildly different N still gets a single honest pooled
+    rate (cells weight by episode count, which is the intended
+    behaviour for a "results forming" glance).
+    """
+    if results_df is None or results_df.empty:
+        return []
+    needed = {"policy", "env", "success"}
+    if not needed.issubset(results_df.columns):
+        return []
+
+    rows: list[LeaderboardRow] = []
+    for policy, group in results_df.groupby("policy", sort=False):
+        outcomes = group["success"].astype(bool)
+        n = len(outcomes)
+        if n == 0:
+            continue
+        n_success = int(outcomes.sum())
+        lo, hi = wilson_ci(n_success, n)
+        n_cells = int(group.groupby(["env"]).ngroups)
+        rows.append(
+            LeaderboardRow(
+                policy=str(policy),
+                success_rate=n_success / n,
+                wilson_lo=float(lo),
+                wilson_hi=float(hi),
+                n_episodes=n,
+                n_cells=n_cells,
+            )
+        )
+    rows.sort(key=lambda r: r.success_rate, reverse=True)
+    return rows
+
+
+# Mission Control mini-leaderboard columns.
+LEADERBOARD_COLUMNS: tuple[str, ...] = (
+    "policy",
+    "success_rate",
+    "wilson_95_ci",
+    "episodes",
+    "cells_done",
+)
+
+
+def leaderboard_dataframe(rows: list[LeaderboardRow]) -> pd.DataFrame:
+    """Project :func:`build_live_leaderboard` rows into a Gradio Dataframe.
+
+    Empty input returns the canonical-column empty frame so the Gradio
+    component never chokes on a missing header list at cold start. The
+    success rate is rendered as a percent string and the CI as
+    ``[lo, hi]`` so the row reads at a glance.
+    """
+    if not rows:
+        return pd.DataFrame({c: [] for c in LEADERBOARD_COLUMNS})
+    return pd.DataFrame(
+        [
+            {
+                "policy": r.policy,
+                "success_rate": f"{r.success_rate:.1%}",
+                "wilson_95_ci": f"[{r.wilson_lo:.2f}, {r.wilson_hi:.2f}]",
+                "episodes": r.n_episodes,
+                "cells_done": r.n_cells,
+            }
+            for r in rows
+        ],
+        columns=list(LEADERBOARD_COLUMNS),
+    )
+
+
+@dataclass(frozen=True)
+class AnomalyReport:
+    """Result of running the ``review_results.py`` checks on the live parquet.
+
+    ``ok`` is True when every completed cell looks healthy. ``lines`` is
+    a flat list of one-line strings -- one per (flagged cell x flag) --
+    ready to render. ``error`` is set when the review could not run at
+    all (no parquet, mid-write read, bad config); the panel then shows a
+    neutral "review unavailable" state rather than a false all-clear.
+    """
+
+    ok: bool
+    n_cells_reviewed: int
+    n_cells_flagged: int
+    lines: list[str]
+    error: str
+
+
+def run_anomaly_review(
+    results_path: Path | None,
+    *,
+    policies_yaml: Path | None = None,
+    envs_yaml: Path | None = None,
+) -> AnomalyReport:
+    """Run the incremental sweep anomaly checks against the live parquet.
+
+    Reuses ``scripts/review_results.py`` -- :func:`review_cells` plus the
+    five checks (far-from-paper, baseline-above-floor, never-succeeds,
+    seed-disagreement, degenerate). The parquet is read through
+    :func:`load_results_parquet` so a mid-write file serves the
+    last-good frame instead of crashing the panel.
+
+    Degrades gracefully: a missing parquet, an unparseable config, or an
+    import failure for the scripts package all yield an
+    :class:`AnomalyReport` with ``ok=False`` and a populated ``error``
+    -- never a raised exception, never a false "no anomalies".
+
+    Args:
+        results_path: path to the sweep ``results.parquet``.
+        policies_yaml / envs_yaml: registry overrides (tests). Default
+            to the shipped ``configs/*.yaml``.
+    """
+    df = load_results_parquet(results_path)
+    if df is None or df.empty:
+        return AnomalyReport(
+            ok=True,
+            n_cells_reviewed=0,
+            n_cells_flagged=0,
+            lines=[],
+            error="no per-episode results on disk yet",
+        )
+
+    try:
+        from scripts.review_results import review_cells
+    except ImportError as exc:
+        return AnomalyReport(
+            ok=False,
+            n_cells_reviewed=0,
+            n_cells_flagged=0,
+            lines=[],
+            error=f"anomaly review unavailable (scripts import failed: {exc})",
+        )
+
+    try:
+        policies = load_policy_registry(str(policies_yaml) if policies_yaml is not None else None)
+        envs = load_env_registry(str(envs_yaml) if envs_yaml is not None else None)
+    except (FileNotFoundError, ValueError) as exc:
+        return AnomalyReport(
+            ok=False,
+            n_cells_reviewed=0,
+            n_cells_flagged=0,
+            lines=[],
+            error=f"anomaly review unavailable (config load failed: {exc})",
+        )
+
+    required = {"policy", "env", "seed", "episode_index", "success", "n_steps", "wallclock_s"}
+    if not required.issubset(df.columns):
+        # The review's per-cell checks need n_steps / wallclock_s; a
+        # results frame missing them is not an error worth a red panel,
+        # just an "incomplete schema" note.
+        return AnomalyReport(
+            ok=True,
+            n_cells_reviewed=0,
+            n_cells_flagged=0,
+            lines=[],
+            error="results parquet missing columns the anomaly checks need",
+        )
+
+    try:
+        reviews = review_cells(df, policies, envs)
+    except Exception as exc:
+        logger.warning("anomaly review raised %s: %s", type(exc).__name__, exc)
+        return AnomalyReport(
+            ok=False,
+            n_cells_reviewed=0,
+            n_cells_flagged=0,
+            lines=[],
+            error=f"anomaly review errored ({type(exc).__name__})",
+        )
+
+    flagged = [r for r in reviews if r.flagged]
+    lines: list[str] = []
+    for r in flagged:
+        prefix = f"{r.policy} x {r.env} x seed {r.seed}"
+        for flag in r.flags:
+            lines.append(f"{prefix}: {flag}")
+    return AnomalyReport(
+        ok=not flagged,
+        n_cells_reviewed=len(reviews),
+        n_cells_flagged=len(flagged),
+        lines=lines,
+        error="",
+    )
+
+
+# --------------------------------------------------------------------- #
+# Resource + throttle visibility                                        #
+# --------------------------------------------------------------------- #
+#
+# The sweep runs under a cgroup v2 memory cap (scripts/run_capped.sh on
+# this WSL2 host). Mission Control surfaces host RAM, the sweep's cgroup
+# memory cap + current usage, and the cgroup freeze state -- the same
+# files the watchdog uses. Every reader here degrades to ``None`` /
+# ``STAT_PLACEHOLDER`` when the sweep isn't running or the files aren't
+# readable; nothing raises.
+
+# cgroup v2 root on this host. The sweep's cgroup is resolved per-PID
+# from ``/proc/<pid>/cgroup`` so this constant is only the mount point.
+_CGROUP_ROOT = Path("/sys/fs/cgroup")
+
+
+@dataclass(frozen=True)
+class SystemMemory:
+    """Host RAM snapshot from ``/proc/meminfo``, in bytes.
+
+    ``available`` is ``MemAvailable`` -- the kernel's own estimate of
+    allocatable memory, which is the number the operator should watch
+    (free + reclaimable cache), not raw ``MemFree``.
+    """
+
+    total_bytes: int
+    available_bytes: int
+    used_bytes: int
+    percent_used: float
+
+
+def read_system_memory(meminfo_path: Path = Path("/proc/meminfo")) -> SystemMemory | None:
+    """Read host RAM totals from ``/proc/meminfo``.
+
+    Returns ``None`` on any read failure (non-Linux, sandboxed) so the
+    caller renders ``"—"`` rather than crashing the Mission Control
+    refresh tick. ``meminfo_path`` is injectable for tests.
+    """
+    try:
+        text = meminfo_path.read_text()
+    except OSError:
+        return None
+    fields: dict[str, int] = {}
+    for line in text.splitlines():
+        parts = line.split(":")
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        # values are "<number> kB"
+        val = parts[1].strip().split()
+        if not val:
+            continue
+        try:
+            fields[key] = int(val[0]) * 1024
+        except ValueError:
+            continue
+    total = fields.get("MemTotal")
+    available = fields.get("MemAvailable")
+    if total is None or available is None or total <= 0:
+        return None
+    used = max(0, total - available)
+    return SystemMemory(
+        total_bytes=total,
+        available_bytes=available,
+        used_bytes=used,
+        percent_used=used / total * 100.0,
+    )
+
+
+def find_sweep_pid(proc_root: Path = Path("/proc")) -> int | None:
+    """Find the PID of the running ``run_sweep.py`` process, if any.
+
+    Scans ``/proc/<pid>/cmdline`` for a python invocation whose argv
+    contains ``run_sweep.py``. Returns the lowest matching PID (the
+    parent, not a forked child) or ``None`` when the sweep isn't
+    running. Never raises -- a process exiting mid-scan just gets
+    skipped.
+    """
+    if not proc_root.exists():
+        return None
+    matches: list[int] = []
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_bytes()
+        except OSError:
+            continue
+        # cmdline args are NUL-separated.
+        argv = cmdline.split(b"\x00")
+        if any(b"run_sweep.py" in arg for arg in argv):
+            matches.append(int(entry.name))
+    if not matches:
+        return None
+    return min(matches)
+
+
+def _resolve_cgroup_dir(pid: int, proc_root: Path = Path("/proc")) -> Path | None:
+    """Resolve a PID's cgroup v2 directory from ``/proc/<pid>/cgroup``.
+
+    The cgroup v2 line is ``0::/path/relative/to/the/cgroup/mount``.
+    Returns the absolute directory under :data:`_CGROUP_ROOT`, or
+    ``None`` when the file is unreadable or has no v2 line.
+    """
+    try:
+        text = (proc_root / str(pid) / "cgroup").read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        # cgroup v2 unified hierarchy: hierarchy-ID 0, empty controller.
+        parts = line.split(":", 2)
+        if len(parts) == 3 and parts[0] == "0":
+            rel = parts[2].lstrip("/")
+            return _CGROUP_ROOT / rel
+    return None
+
+
+def _read_int_file(path: Path) -> int | None:
+    """Read a single-integer cgroup file. ``None`` on miss / ``max``."""
+    try:
+        raw = path.read_text().strip()
+    except OSError:
+        return None
+    if raw in ("", "max"):
+        # ``memory.max`` is literally "max" when uncapped.
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
+class ThrottleState:
+    """Sweep cgroup memory + freeze state for the Mission Control panel.
+
+    Every field degrades to ``None`` when the sweep isn't running or the
+    cgroup files aren't readable; the renderer then shows ``"—"``.
+
+    * ``running`` -- a ``run_sweep.py`` PID was found.
+    * ``frozen`` -- ``cgroup.freeze`` is ``1`` (the watchdog froze the
+      sweep on a RAM breach). ``None`` when undiscoverable.
+    * ``memory_current`` / ``memory_max`` -- ``memory.current`` /
+      ``memory.max`` in bytes; ``memory_max`` is ``None`` when uncapped.
+    """
+
+    running: bool
+    pid: int | None
+    frozen: bool | None
+    memory_current: int | None
+    memory_max: int | None
+
+    @property
+    def state_label(self) -> str:
+        """One-word state for the KPI strip: RUNNING / FROZEN / not running."""
+        if not self.running:
+            return "not running"
+        if self.frozen:
+            return "FROZEN"
+        return "RUNNING"
+
+
+def read_throttle_state(proc_root: Path = Path("/proc")) -> ThrottleState:
+    """Resolve the sweep's cgroup freeze + memory state.
+
+    Finds the ``run_sweep.py`` PID via :func:`find_sweep_pid`, resolves
+    its cgroup v2 directory, and reads ``cgroup.freeze`` (0=running,
+    1=frozen), ``memory.current`` and ``memory.max``. Returns a
+    :class:`ThrottleState` with every field ``None`` when the sweep is
+    absent or the files are unreadable -- never raises, so the Mission
+    Control tick is safe on a non-Linux host or a sandboxed env.
+
+    ``proc_root`` is injectable so tests can point at a synthetic
+    ``/proc`` layout.
+    """
+    pid = find_sweep_pid(proc_root)
+    if pid is None:
+        return ThrottleState(
+            running=False,
+            pid=None,
+            frozen=None,
+            memory_current=None,
+            memory_max=None,
+        )
+    cgroup_dir = _resolve_cgroup_dir(pid, proc_root)
+    if cgroup_dir is None:
+        return ThrottleState(
+            running=True,
+            pid=pid,
+            frozen=None,
+            memory_current=None,
+            memory_max=None,
+        )
+    freeze_raw = _read_int_file(cgroup_dir / "cgroup.freeze")
+    frozen = None if freeze_raw is None else bool(freeze_raw)
+    return ThrottleState(
+        running=True,
+        pid=pid,
+        frozen=frozen,
+        memory_current=_read_int_file(cgroup_dir / "memory.current"),
+        memory_max=_read_int_file(cgroup_dir / "memory.max"),
+    )
+
+
+def format_bytes_gb(value: int | None) -> str:
+    """Render a byte count as ``N.N GB``; :data:`STAT_PLACEHOLDER` on None."""
+    if value is None:
+        return STAT_PLACEHOLDER
+    return f"{value / 1024**3:.1f} GB"
