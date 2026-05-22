@@ -41,7 +41,7 @@ Responsibilities:
    free-CPU Space well under the per-request memory limit.
 
 A standalone :func:`render_methodology_md` returns the markdown for the
-Methodology tab. It's plain text so the test suite can assert the
+About tab. It's plain text so the test suite can assert the
 key methodology terms (seed, Wilson, bootstrap, lerobot version pin)
 are present without depending on the disk layout of ``docs/``.
 """
@@ -277,14 +277,14 @@ def compute_leaderboard_table(
 
 
 # --------------------------------------------------------------------- #
-# Browse Rollouts dropdowns                                             #
+# Rollouts dropdowns                                                    #
 # --------------------------------------------------------------------- #
 
 
 def list_unique(df: pd.DataFrame, column: str) -> list[str]:
     """Return the sorted unique string values of ``column`` in ``df``.
 
-    Used to populate the Browse-Rollouts dropdowns. Returns an empty
+    Used to populate the Rollouts dropdowns. Returns an empty
     list on an empty frame — the dropdowns then render with no
     options and the page emits a "no data yet" message.
     """
@@ -372,12 +372,12 @@ def episode_metadata(row: pd.Series) -> dict[str, object]:
 
 
 # --------------------------------------------------------------------- #
-# Methodology tab content                                               #
+# About tab content (methodology markdown)                              #
 # --------------------------------------------------------------------- #
 
 
 def render_methodology_md() -> str:
-    """Return the markdown shown on the Methodology tab.
+    """Return the markdown shown on the About tab.
 
     Mirrors ``docs/DESIGN.md`` § Methodology in headline form. Kept as
     a Python constant rather than a separate file so the Space ships
@@ -425,7 +425,7 @@ def render_methodology_md() -> str:
         "Wilcoxon, Cohen's h effect size) live in the analysis notebook;\n"
         "the Space surfaces only the per-cell intervals.\n"
         "\n"
-        "### Reading the Browse-Rollouts tab\n"
+        "### Reading the Rollouts tab\n"
         "\n"
         "Pick `(policy, env, seed)` and the Space lists all episodes for\n"
         "that cell. Each video is loaded from the Hub dataset directly\n"
