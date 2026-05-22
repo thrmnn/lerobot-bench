@@ -63,8 +63,17 @@ jobs:
           # CI installs lightweight deps only; sim/gpu tests are excluded
           # via pytest marks. Real benchmark work runs on the dev box.
           pip install -e ".[dev]" || pip install -e ".[dev]" --no-deps
-      - name: Run fast tests
-        run: pytest -m "not slow and not gpu and not sim" --cov=lerobot_bench --cov-report=xml
+      - name: Run fast tests with coverage
+        # Coverage floor is 82%. Measured 86% on main (2026-05-22, dev-extras
+        # install — sim-marked tests skip identically here). Floor sits a few
+        # points below so it ratchets against regressions without breaking on
+        # normal churn; raise it when measured coverage climbs durably.
+        run: |
+          pytest -m "not slow and not gpu and not sim" \
+            --cov=lerobot_bench \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=82
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v7
