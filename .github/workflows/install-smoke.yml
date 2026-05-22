@@ -1,0 +1,68 @@
+name: install-smoke
+
+# Clean-env packaging smoke test. Builds an sdist + wheel and installs the
+# wheel into a pristine venv, then asserts the package imports and the CLI
+# entrypoint runs. Catches packaging regressions that the editable-install
+# `test` job in ci.yml hides: missing __init__, files not shipped in the
+# wheel, bad pyproject metadata, or an undeclared import-time dependency.
+#
+# The lightweight path: `import lerobot_bench` and `lerobot_bench.cli` are
+# stdlib-only at import time (no torch / lerobot / numpy), so we install the
+# wheel with --no-deps to prove the package stands up on its own. If an
+# import-time dependency is ever added, this job fails loudly — by design.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: build + clean-env install
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build sdist + wheel
+        run: |
+          pip install --upgrade pip build
+          python -m build
+
+      - name: Install wheel into a clean venv (no deps)
+        run: |
+          python -m venv /tmp/install-venv
+          . /tmp/install-venv/bin/activate
+          pip install --upgrade pip
+          # --no-deps: prove the package's import surface is dependency-free.
+          pip install --no-deps dist/*.whl
+
+      - name: Import smoke
+        run: |
+          . /tmp/install-venv/bin/activate
+          # Run from /tmp so we import the installed package, not ./src.
+          cd /tmp
+          python -c "import lerobot_bench; print('lerobot-bench', lerobot_bench.__version__)"
+
+      - name: CLI entrypoint smoke (--version / --help)
+        run: |
+          . /tmp/install-venv/bin/activate
+          cd /tmp
+          lerobot-bench --version
+          lerobot-bench --help
+          # And via the module path, in case the console script ever drifts.
+          python -m lerobot_bench.cli --help
