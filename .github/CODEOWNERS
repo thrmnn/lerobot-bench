@@ -1,0 +1,16 @@
+# Code ownership for lerobot-bench.
+# https://docs.github.com/articles/about-code-owners
+# Sole maintainer: @thrmnn. The catch-all covers everything; the
+# explicit lines below exist only to make ownership obvious at a glance.
+
+# Catch-all — everything is owned by the maintainer.
+*               @thrmnn
+
+# CI, release plumbing, and repo meta.
+/.github/       @thrmnn
+
+# Library source and tests.
+/src/           @thrmnn
+
+# arXiv writeup.
+/paper/         @thrmnn
