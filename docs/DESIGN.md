@@ -11,7 +11,7 @@ Scope expansion: see `~/.gstack/projects/theo/ceo-plans/2026-04-29-lerobot-bench
 ## Reviewer Concerns (residual after 2 rounds)
 
 Minor items intentionally not addressed in v1, accepted as ship-time risk:
-- `manifest.json` field schema not fully enumerated (will be set when Day 2 writes the first manifest); divergence from `results.parquet` is unlikely since the join key is `sweep_timestamp`.
+- `manifest.json` field schema not fully enumerated (will be set when Day 2 writes the first manifest); divergence from `results.parquet` is unlikely since the join key is the cell tuple `(policy, env, seed)`.
 - Compute budget arithmetic depends on Day 0 calibration data not yet collected. Auto-downscope rule (in Methodology) handles overflow; if it triggers, asymmetric per-policy episode counts become a methodology footnote rather than a flaw.
 
 ## Problem Statement
@@ -56,9 +56,9 @@ There is no public, reproducible, multi-policy leaderboard for LeRobot's sim env
 
 Success is the per-env standard reward threshold from `lerobot.envs.<env>.config.SUCCESS_REWARD` — not redefined here.
 
-**Seeding contract.** Per cell `(policy, env, seed_idx ∈ {0..4})`:
-- At cell start: `numpy.random.seed(seed_idx * 1000)`, `torch.manual_seed(seed_idx * 1000)`, `torch.cuda.manual_seed_all(seed_idx * 1000)`.
-- Per episode `e ∈ {0..49}`: `env.reset(seed = seed_idx * 1000 + e)`. Policy stochasticity inherits the torch generator (NOT re-seeded per episode).
+**Seeding contract.** Per cell `(policy, env, seed ∈ {0..4})`:
+- At cell start: `numpy.random.seed(seed * 1000)`, `torch.manual_seed(seed * 1000)`, `torch.cuda.manual_seed_all(seed * 1000)`.
+- Per episode `e ∈ {0..49}`: `env.reset(seed = seed * 1000 + e)`. Policy stochasticity inherits the torch generator (NOT re-seeded per episode).
 - **Resumability constraint:** because the torch generator advances across episodes within a cell, mid-cell resume is NOT bit-reproducible. `checkpointing.py` therefore resumes only at cell boundaries — if a process dies during a cell, that entire cell restarts from episode 0. This is documented in the methodology section of the public artifact.
 
 **Per-env success thresholds.** Verified at Day 0 — read from `lerobot.envs.<env>.config.SUCCESS_REWARD` if it exists in v0.5.1, otherwise hardcoded in `envs.py` as: PushT 0.95 reward (coverage threshold), Aloha 1.0 (task-complete flag), Libero 1.0 (task-complete flag). Decided after a 5-min check in Day 0.
@@ -118,21 +118,20 @@ The "interactive playground" framing is downgraded from live inference (impossib
     └── 01-write-finding.ipynb # the headline insight, with plots
 ```
 
-**`results.parquet` schema** (one row per episode):
+**`results.parquet` schema** (one row per episode; canonical column order from `RESULT_SCHEMA` in `src/lerobot_bench/checkpointing.py`):
 ```
-policy_name        str        # e.g. "diffusion_policy"
-policy_repo_id     str        # e.g. "lerobot/diffusion_pusht"
-policy_revision    str        # commit SHA pinned at lockin
-env_name           str        # "pusht" | "aloha_transfer_cube" | ...
-seed_idx           int        # 0..4
-episode_idx        int        # 0..49
-seed_value         int        # actual seed used for env.reset
+policy             str        # e.g. "diffusion_policy"
+env                str        # "pusht" | "aloha_transfer_cube" | ...
+seed               int        # 0..4
+episode_index      int        # 0..n_episodes-1
 success            bool
 return_            float      # cumulative episode reward
-steps              int
-wall_time_s        float
-video_path         str        # relative path in results/videos/
-sweep_timestamp    str        # ISO 8601, manifest.json key
+n_steps            int        # steps before terminated/truncated/max_steps
+wallclock_s        float      # wall-clock seconds for the episode
+video_sha256       str        # sha256 of the rendered MP4 (nullable)
+code_sha           str        # git SHA of the lerobot-bench commit
+lerobot_version    str        # lerobot version, e.g. "0.5.1"
+timestamp_utc      str        # ISO 8601 UTC timestamp of the row write
 ```
 
 **Spaces deploy mechanics (corrected from review).** HF Spaces is itself a git repo at `huggingface.co/spaces/thrmnn/lerobot-bench`. We push directly to it from `space/` via a lightweight `make deploy-space` target that runs `git push hf-space main` to a remote pointing at the Space. No GitHub Actions, no `space-deploy` branch. The Space's `requirements.txt` pins `lerobot==0.5.1` and `gradio`; the app reads results from the published Hub dataset.
