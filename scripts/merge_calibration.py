@@ -20,9 +20,40 @@ from pathlib import Path
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("inputs", type=Path, nargs="+")
-    ap.add_argument("--out", type=Path, required=True)
+    ap = argparse.ArgumentParser(
+        prog="merge-calibration",
+        description=(
+            "Merge multiple calibration JSON reports into one. Cells are\n"
+            "deduped by (policy, env); when a key appears in several inputs\n"
+            "the LATER file in the argv order wins. The merged report takes\n"
+            "the timestamp of the latest input, the git_sha of the first, and\n"
+            "the union of all unique cells. Missing input files are skipped\n"
+            "with a warning, not a fatal error."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "example:\n"
+            "  python scripts/merge_calibration.py \\\n"
+            "      results/calibration-20260512.json \\\n"
+            "      results/calibration-20260513.json \\\n"
+            "      --out results/calibration-merged.json"
+        ),
+    )
+    ap.add_argument(
+        "inputs",
+        type=Path,
+        nargs="+",
+        metavar="CALIBRATION_JSON",
+        help="One or more calibration JSON reports to merge, earliest first; "
+        "later files override earlier ones on a (policy, env) collision.",
+    )
+    ap.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        metavar="PATH",
+        help="Path to write the merged calibration JSON (parent dirs created).",
+    )
     args = ap.parse_args()
 
     merged_cells: dict[tuple[str, str], dict] = {}
@@ -34,7 +65,22 @@ def main() -> int:
             print(f"warning: {path} missing, skipping", file=sys.stderr)
             continue
         with path.open() as f:
-            r = json.load(f)
+            try:
+                r = json.load(f)
+            except json.JSONDecodeError as exc:
+                print(
+                    f"error: {path} is not valid JSON ({exc}).\n"
+                    "  Expected a calibration report as written by calibrate.py.",
+                    file=sys.stderr,
+                )
+                return 2
+        if "cells" not in r:
+            print(
+                f"error: {path} has no 'cells' key -- not a calibration report.\n"
+                "  Pass JSON files produced by scripts/calibrate.py.",
+                file=sys.stderr,
+            )
+            return 2
         if not git_sha:
             git_sha = r.get("git_sha", "unknown")
         if r.get("lerobot_version"):

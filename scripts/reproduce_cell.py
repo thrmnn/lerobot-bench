@@ -449,26 +449,64 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="reproduce-cell",
         description=(
-            "Re-run one (policy, env, seed) leaderboard cell and verify its "
-            "per-episode success + n_steps match the published reference "
-            "bit-for-bit. The seed contract makes this an exact check, not a "
-            "statistical one."
+            "Re-run one (policy, env, seed) leaderboard cell and verify its\n"
+            "per-episode success + n_steps match the published reference\n"
+            "bit-for-bit. The seed contract makes this an exact check, not a\n"
+            "statistical one -- any mismatch is real signal (lerobot version\n"
+            "drift, checkpoint SHA drift, or a nondeterminism bug)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  # verify one cell against the default reference\n"
+            "  python scripts/reproduce_cell.py --policy act --env pusht --seed 0\n\n"
+            "  # verify against a reference parquet at a custom path\n"
+            "  python scripts/reproduce_cell.py --policy diffusion_policy --env pusht \\\n"
+            "      --seed 2 --reference results/sweep-full/results.parquet\n\n"
+            "  # confirm the cell exists in the reference without re-running it\n"
+            "  python scripts/reproduce_cell.py --policy act --env pusht --seed 0 --dry-run\n\n"
+            "exit codes:\n"
+            "  0  REPRODUCED -- every episode's success + n_steps matched\n"
+            "  1  MISMATCH -- at least one episode diverged from the reference\n"
+            "  2  reference parquet missing, or the cell is absent from it\n"
+            "  3  the re-run itself failed (run_one.py exited non-zero)"
         ),
     )
-    parser.add_argument("--policy", type=str, required=True, help="Policy name from the registry.")
-    parser.add_argument("--env", type=str, required=True, help="Env name from the registry.")
-    parser.add_argument("--seed", type=int, required=True, help="Seed index (>= 0).")
+    parser.add_argument(
+        "--policy",
+        type=str,
+        required=True,
+        metavar="NAME",
+        help="Policy name from the registry (must match the leaderboard cell).",
+    )
+    parser.add_argument(
+        "--env",
+        type=str,
+        required=True,
+        metavar="NAME",
+        help="Env name from the registry (must match the leaderboard cell).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        required=True,
+        metavar="N",
+        help="Seed index of the cell to verify (>= 0).",
+    )
     parser.add_argument(
         "--reference",
         type=Path,
         default=DEFAULT_REFERENCE,
-        help=f"Reference results parquet to compare against (default: {DEFAULT_REFERENCE}).",
+        metavar="PARQUET",
+        help="Reference results parquet to compare the re-run against "
+        "(default: results/sweep-full/results.parquet).",
     )
     parser.add_argument(
         "--device",
         type=str,
         default=DEFAULT_DEVICE,
-        help=f"Torch device for the re-run (default: {DEFAULT_DEVICE}).",
+        metavar="DEVICE",
+        help=f"Torch device for the re-run, e.g. cuda or cpu (default: {DEFAULT_DEVICE}).",
     )
     parser.add_argument(
         "--dry-run",

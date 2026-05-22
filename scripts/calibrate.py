@@ -532,8 +532,26 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="calibrate",
         description=(
-            "Per-cell latency + VRAM calibration spike. "
-            "Outputs results/calibration-YYYYMMDD.json driving the auto-downscope rule."
+            "Per-cell latency + VRAM calibration spike. Runs a short\n"
+            "(steps x episodes) probe for each (policy, env) cell and writes\n"
+            "results/calibration-YYYYMMDD.json. The recommended (seeds,\n"
+            "episodes) per cell drives the auto-downscope rule that shapes the\n"
+            "full sweep matrix."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  # probe every runnable (policy, env) cell\n"
+            "  python scripts/calibrate.py\n\n"
+            "  # probe a single cell\n"
+            "  python scripts/calibrate.py --policy diffusion_policy --env pusht\n\n"
+            "  # plan only -- print the matrix, exit 0, no torch import\n"
+            "  python scripts/calibrate.py --dry-run\n\n"
+            "exit codes:\n"
+            "  0  success, calibration JSON written\n"
+            "  2  partial -- some cells OOMed or errored (JSON still written)\n"
+            "  3  nothing to calibrate -- no runnable cells matched the filters\n"
+            "  4  missing runtime or config (lerobot absent, bad --*-yaml path)"
         ),
     )
     parser.add_argument(
@@ -558,13 +576,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--policy",
         type=str,
         default=None,
-        help="Restrict to a single policy name.",
+        metavar="NAME",
+        help="Restrict the probe to a single policy name from the registry "
+        "(default: all policies).",
     )
     parser.add_argument(
         "--env",
         type=str,
         default=None,
-        help="Restrict to a single env name.",
+        metavar="NAME",
+        help="Restrict the probe to a single env name from the registry (default: all envs).",
     )
     parser.add_argument(
         "--steps",
@@ -639,7 +660,11 @@ def main(argv: list[str] | None = None) -> int:
         # A missing yaml file is operator error, not a runtime crash.
         print(f"[calibrate] config not found: {exc}", file=sys.stderr)
         print(
-            "[calibrate] resume: python scripts/calibrate.py "
+            "[calibrate] expected the policy/env registry YAMLs at:\n"
+            f"             --policies-yaml {args.policies_yaml}\n"
+            f"             --envs-yaml     {args.envs_yaml}\n"
+            "[calibrate] run from the repo root, or pass explicit paths:\n"
+            "             python scripts/calibrate.py "
             "--policies-yaml <path> --envs-yaml <path>",
             file=sys.stderr,
         )

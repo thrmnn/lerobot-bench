@@ -359,7 +359,8 @@ def test_main_missing_yaml_exits_4(tmp_path: Path, capsys: pytest.CaptureFixture
     assert rc == 4
     err = capsys.readouterr().err
     assert "config not found" in err
-    assert "resume" in err
+    # The error must point the operator at a fix (explicit --*-yaml paths).
+    assert "--policies-yaml" in err and "--envs-yaml" in err
 
 
 # --------------------------------------------------------------------- #
