@@ -55,6 +55,13 @@ calibrate:  ## Day 0b: per-policy step latency probe
 run-one:  ## Single-cell debug: pass `ARGS="--policy ... --env ... --seed N"`
 	$(PYTHON) scripts/run_one.py $(ARGS)
 
+reproduce:  ## Verify one published cell: pass `CELL=policy/env/seed` (e.g. act/pusht/0)
+	@test -n "$(CELL)" || { echo "usage: make reproduce CELL=policy/env/seed"; exit 2; }
+	$(PYTHON) scripts/reproduce_cell.py \
+		--policy $(word 1,$(subst /, ,$(CELL))) \
+		--env    $(word 2,$(subst /, ,$(CELL))) \
+		--seed   $(word 3,$(subst /, ,$(CELL)))
+
 sweep:  ## Generic sweep dispatch: pass `ARGS="--config ... [--max-cells N] [--shuffle SEED]"`
 	$(PYTHON) scripts/run_sweep.py $(ARGS)
 
