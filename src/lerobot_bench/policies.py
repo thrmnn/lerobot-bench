@@ -27,7 +27,22 @@ FpPrecision = Literal["fp32", "fp16", "bf16"]
 
 # Required for every entry. Optional fields validated conditionally.
 _REQUIRED_FIELDS = frozenset({"name", "is_baseline", "env_compat"})
-_OPTIONAL_FIELDS = frozenset({"repo_id", "revision_sha", "fp_precision", "license", "notes"})
+_OPTIONAL_FIELDS = frozenset(
+    {
+        "repo_id",
+        "revision_sha",
+        "fp_precision",
+        "license",
+        "notes",
+        # Paper-reported success rates per (policy, env) for the
+        # "delta-vs-published-claim" panel on the Space. Sourced from
+        # the original paper or HF Hub model card — see policies.yaml
+        # comments for per-entry citations. Optional: baseline / unseen-
+        # env cells should be left absent or set to null.
+        "paper_reported_success",
+        "paper_reported_notes",
+    }
+)
 _ALL_FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
 
 _VALID_FP = frozenset({"fp32", "fp16", "bf16"})
@@ -52,6 +67,14 @@ class PolicySpec:
     fp_precision: FpPrecision | None = None
     license: str | None = None
     notes: str = ""
+    # Per-env paper-reported success rates (fractions in [0, 1]) keyed
+    # by the same env-name strings used in ``env_compat``. Absent / None
+    # for an env means "the paper does not report on this exact env, or
+    # we couldn't find a matching number." See policies.yaml comments
+    # for citations. The dashboard uses these to render
+    # "delta-vs-published" alongside our re-run success rates.
+    paper_reported_success: dict[str, float | None] | None = None
+    paper_reported_notes: str = ""
     # Internal: the source location for nicer error messages.
     _source: str = field(default="<in-memory>", repr=False, compare=False)
 
@@ -167,6 +190,10 @@ def _spec_from_dict(entry: dict[str, Any], *, source: str) -> PolicySpec:
             f"{source}: baseline policies must not set repo_id / revision_sha / fp_precision"
         )
 
+    paper_reported_success = _parse_paper_reported_success(
+        entry.get("paper_reported_success"), env_compat=env_compat, source=source
+    )
+
     return PolicySpec(
         name=str(entry["name"]),
         is_baseline=is_baseline,
@@ -176,5 +203,55 @@ def _spec_from_dict(entry: dict[str, Any], *, source: str) -> PolicySpec:
         fp_precision=fp_precision,
         license=str(entry["license"]) if entry.get("license") else None,
         notes=str(entry.get("notes", "")),
+        paper_reported_success=paper_reported_success,
+        paper_reported_notes=str(entry.get("paper_reported_notes", "")),
         _source=source,
     )
+
+
+def _parse_paper_reported_success(
+    raw: Any, *, env_compat: list[str], source: str
+) -> dict[str, float | None] | None:
+    """Validate ``paper_reported_success`` and return a normalized dict.
+
+    Returns ``None`` if absent (the common case for baselines). Otherwise
+    returns a ``{env_name: float | None}`` mapping where each key must
+    appear in ``env_compat`` and each non-null value is a fraction in
+    ``[0.0, 1.0]``. ``null`` entries are preserved (they mean "the paper
+    does not report this exact env-task combination").
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"{source}: paper_reported_success must be a mapping of env-name -> "
+            f"float (or null), got {type(raw).__name__}"
+        )
+    env_compat_set = set(env_compat)
+    parsed: dict[str, float | None] = {}
+    for env_name, value in raw.items():
+        if not isinstance(env_name, str):
+            raise ValueError(
+                f"{source}: paper_reported_success keys must be strings (env names), "
+                f"got {type(env_name).__name__}"
+            )
+        if env_name not in env_compat_set:
+            raise ValueError(
+                f"{source}: paper_reported_success references env {env_name!r} "
+                f"which is not in env_compat {sorted(env_compat_set)}"
+            )
+        if value is None:
+            parsed[env_name] = None
+            continue
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError(
+                f"{source}: paper_reported_success[{env_name!r}] must be a float in "
+                f"[0, 1] or null, got {type(value).__name__}"
+            )
+        if not (0.0 <= float(value) <= 1.0):
+            raise ValueError(
+                f"{source}: paper_reported_success[{env_name!r}] = {value} "
+                f"is outside [0, 1]; pass success rates as fractions, not percentages"
+            )
+        parsed[env_name] = float(value)
+    return parsed
