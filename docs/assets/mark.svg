@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="lerobot-bench mark">
+  <title>lerobot-bench</title>
+  <!-- Monochrome: uses currentColor so it adapts to light/dark contexts. -->
+  <g fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <!-- rounded square frame -->
+    <rect x="12" y="12" width="104" height="104" rx="22"/>
+    <!-- benchmark bars of increasing height -->
+    <line x1="40" y1="88" x2="40" y2="72"/>
+    <line x1="64" y1="88" x2="64" y2="56"/>
+    <line x1="88" y1="88" x2="88" y2="40"/>
+  </g>
+  <g fill="currentColor">
+    <!-- robotic nodes capping each bar -->
+    <circle cx="40" cy="72" r="7"/>
+    <circle cx="64" cy="56" r="7"/>
+    <circle cx="88" cy="40" r="7"/>
+    <!-- baseline -->
+    <rect x="34" y="92" width="60" height="6" rx="3"/>
+  </g>
+</svg>

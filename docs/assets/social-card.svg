@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="lerobot-bench social preview">
+  <title>lerobot-bench — reproducible benchmark of pretrained LeRobot policies</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#161b22"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1280" height="8" fill="#3b82f6"/>
+
+  <!-- mark -->
+  <g transform="translate(96,86)" stroke="#e6edf3" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="114" height="114" rx="24"/>
+    <line x1="34" y1="92" x2="34" y2="74"/>
+    <line x1="60" y1="92" x2="60" y2="58"/>
+    <line x1="86" y1="92" x2="86" y2="42"/>
+  </g>
+  <g transform="translate(96,86)" fill="#3b82f6">
+    <circle cx="34" cy="74" r="7"/>
+    <circle cx="60" cy="58" r="7"/>
+    <circle cx="86" cy="42" r="7"/>
+    <rect x="28" y="96" width="64" height="6" rx="3" fill="#e6edf3"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="246" y="170" font-family="'DejaVu Sans Mono',Menlo,Consolas,monospace" font-size="68" font-weight="700" fill="#e6edf3" letter-spacing="-2">lerobot<tspan fill="#7d8590">-bench</tspan></text>
+
+  <!-- value prop -->
+  <text x="98" y="270" font-family="'DejaVu Sans','Helvetica Neue',Arial,sans-serif" font-size="34" fill="#c9d1d9">A public, reproducible benchmark of pretrained LeRobot</text>
+  <text x="98" y="316" font-family="'DejaVu Sans','Helvetica Neue',Arial,sans-serif" font-size="34" fill="#c9d1d9">manipulation policies — multi-seed, CIs, MDE bounds.</text>
+
+  <!-- 6x6 matrix hint -->
+  <g transform="translate(98,372)">
+    <text x="0" y="-14" font-family="'DejaVu Sans Mono',Menlo,monospace" font-size="20" fill="#7d8590" letter-spacing="1">6 POLICIES &#215; 6 SIM ENVS</text>
+    <g>
+      <!-- 6 rows x 6 cols of cells; filled cells hint the runnable matrix -->
+      <!-- row 0 --><rect x="0"   y="0"  width="34" height="34" rx="5" fill="#3b82f6"/><rect x="44"  y="0"  width="34" height="34" rx="5" fill="#3b82f6"/><rect x="88"  y="0"  width="34" height="34" rx="5" fill="#3b82f6"/><rect x="132" y="0"  width="34" height="34" rx="5" fill="#3b82f6"/><rect x="176" y="0"  width="34" height="34" rx="5" fill="#3b82f6"/><rect x="220" y="0"  width="34" height="34" rx="5" fill="#3b82f6"/>
+      <!-- row 1 --><rect x="0"   y="44" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="44"  y="44" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="88"  y="44" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="132" y="44" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="176" y="44" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="220" y="44" width="34" height="34" rx="5" fill="#3b82f6"/>
+      <!-- row 2 --><rect x="0"   y="88" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="44"  y="88" width="34" height="34" rx="5" fill="#21262d"/><rect x="88"  y="88" width="34" height="34" rx="5" fill="#21262d"/><rect x="132" y="88" width="34" height="34" rx="5" fill="#21262d"/><rect x="176" y="88" width="34" height="34" rx="5" fill="#21262d"/><rect x="220" y="88" width="34" height="34" rx="5" fill="#21262d"/>
+      <!-- row 3 --><rect x="0"   y="132" width="34" height="34" rx="5" fill="#21262d"/><rect x="44"  y="132" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="88"  y="132" width="34" height="34" rx="5" fill="#21262d"/><rect x="132" y="132" width="34" height="34" rx="5" fill="#21262d"/><rect x="176" y="132" width="34" height="34" rx="5" fill="#21262d"/><rect x="220" y="132" width="34" height="34" rx="5" fill="#21262d"/>
+      <!-- row 4 --><rect x="0"   y="176" width="34" height="34" rx="5" fill="#21262d"/><rect x="44"  y="176" width="34" height="34" rx="5" fill="#21262d"/><rect x="88"  y="176" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="132" y="176" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="176" y="176" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="220" y="176" width="34" height="34" rx="5" fill="#3b82f6"/>
+      <!-- row 5 --><rect x="0"   y="220" width="34" height="34" rx="5" fill="#21262d"/><rect x="44"  y="220" width="34" height="34" rx="5" fill="#21262d"/><rect x="88"  y="220" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="132" y="220" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="176" y="220" width="34" height="34" rx="5" fill="#3b82f6"/><rect x="220" y="220" width="34" height="34" rx="5" fill="#3b82f6"/>
+    </g>
+  </g>
+
+  <!-- right column: stat blocks -->
+  <g font-family="'DejaVu Sans Mono',Menlo,monospace">
+    <text x="470" y="392" font-size="60" font-weight="700" fill="#e6edf3">22</text>
+    <text x="470" y="426" font-size="20" fill="#7d8590">RUNNABLE CELLS</text>
+    <text x="700" y="392" font-size="60" font-weight="700" fill="#e6edf3">5&#215;50</text>
+    <text x="700" y="426" font-size="20" fill="#7d8590">SEEDS &#215; EPISODES</text>
+    <text x="470" y="500" font-size="60" font-weight="700" fill="#e6edf3">95%</text>
+    <text x="470" y="534" font-size="20" fill="#7d8590">WILSON + BOOTSTRAP CI</text>
+    <text x="700" y="500" font-size="60" font-weight="700" fill="#3b82f6">OPEN</text>
+    <text x="700" y="534" font-size="20" fill="#7d8590">SPACE + HUB DATASET</text>
+  </g>
+
+  <!-- MIT badge -->
+  <g transform="translate(98,560)">
+    <rect x="0" y="0" width="172" height="40" rx="20" fill="none" stroke="#7d8590" stroke-width="2"/>
+    <text x="86" y="26" text-anchor="middle" font-family="'DejaVu Sans Mono',Menlo,monospace" font-size="20" fill="#c9d1d9">MIT LICENSED</text>
+  </g>
+
+  <text x="1182" y="588" text-anchor="end" font-family="'DejaVu Sans Mono',Menlo,monospace" font-size="22" fill="#7d8590">github.com/thrmnn/lerobot-bench</text>
+</svg>
