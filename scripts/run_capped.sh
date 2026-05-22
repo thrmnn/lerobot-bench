@@ -25,14 +25,52 @@
 
 set -euo pipefail
 
+print_help() {
+    cat <<'EOF'
+run_capped.sh -- run a heavy command under a kernel-enforced memory cap.
+
+usage:
+  scripts/run_capped.sh <mem-cap> -- <cmd> [args...]
+  MEM_CAP=<mem-cap> scripts/run_capped.sh -- <cmd> [args...]
+
+  <mem-cap>  a memory ceiling, e.g. 18G or 12000M. The command is run in a
+             systemd cgroup with MemoryMax/MemoryHigh set to this and swap
+             disabled; the kernel OOM-kills it inside the cgroup if exceeded.
+
+examples:
+  scripts/run_capped.sh 18G -- python scripts/calibrate.py --policy act --env pusht
+  MEM_CAP=12G scripts/run_capped.sh -- python scripts/run_one.py --policy act --env pusht --seed 0
+
+environment:
+  MEM_CAP              fallback cap when no positional <mem-cap> is given (e.g. 18G)
+  LAUNCH_MAX_USED_PCT  refuse to launch if RAM already used > this percent (default 55)
+
+exit codes:
+  2  bad invocation (missing cap, missing '--', or no command)
+  3  pre-flight refusal -- RAM already above LAUNCH_MAX_USED_PCT
+EOF
+}
+
 usage() {
-    echo "usage: $0 <mem-cap> -- <cmd> [args...]" >&2
-    echo "       MEM_CAP=18G $0 -- <cmd> [args...]" >&2
+    print_help >&2
     exit 2
 }
 
+case "${1:-}" in
+    -h | --help)
+        print_help
+        exit 0
+        ;;
+esac
+
 if [ "${1:-}" = "--" ]; then
-    CAP="${MEM_CAP:?MEM_CAP env or first positional arg required}"
+    if [ -z "${MEM_CAP:-}" ]; then
+        echo "run_capped.sh: no memory cap given." >&2
+        echo "  pass it as the first arg (e.g. 18G) or set MEM_CAP=18G." >&2
+        echo "  see: scripts/run_capped.sh --help" >&2
+        exit 2
+    fi
+    CAP="${MEM_CAP}"
     shift
 elif [ -n "${1:-}" ] && [ "$1" != "--" ]; then
     CAP="$1"
@@ -61,7 +99,9 @@ echo "pre-flight: cap=${CAP} swap_cap=0"
 
 if [ "${USED_PCT}" -gt "${LAUNCH_MAX_USED_PCT}" ]; then
     echo "pre-flight: REFUSE — RAM used ${USED_PCT}% > LAUNCH_MAX_USED_PCT=${LAUNCH_MAX_USED_PCT}%" >&2
-    echo "pre-flight: free up RAM (close apps / pause parallel work) and retry." >&2
+    echo "pre-flight: free up RAM (close apps / pause parallel work) and retry," >&2
+    echo "pre-flight: or raise the gate for one launch: LAUNCH_MAX_USED_PCT=70 $0 ..." >&2
+    echo "pre-flight: see docs/TROUBLESHOOTING.md -> run_capped.sh pre-flight refusal" >&2
     exit 3
 fi
 

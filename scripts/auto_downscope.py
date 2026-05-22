@@ -83,32 +83,99 @@ def merge_into_sweep(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("calibration_json", type=Path)
+    ap = argparse.ArgumentParser(
+        prog="auto-downscope",
+        description=(
+            "Map a calibration JSON onto configs/sweep_full.yaml overrides.\n"
+            "Reads each ok-status cell's 'recommended' (seeds, episodes) and\n"
+            "emits the policies/envs/overrides blocks for run_sweep.SweepConfig.\n"
+            "Cells recommending fewer episodes get an n_episodes override;\n"
+            "cells recommending fewer seeds get a seeds_subset entry and a\n"
+            "stderr warning (run_sweep.py does not yet honor seeds_subset)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  # dry-run -- print the merged sweep YAML to stdout\n"
+            "  python scripts/auto_downscope.py results/calibration-20260512.json\n\n"
+            "  # rewrite configs/sweep_full.yaml in place\n"
+            "  python scripts/auto_downscope.py results/calibration-20260512.json --apply\n\n"
+            "exit codes:\n"
+            "  0  overrides emitted (to stdout, or written with --apply)\n"
+            "  2  calibration JSON or sweep YAML not found"
+        ),
+    )
+    ap.add_argument(
+        "calibration_json",
+        type=Path,
+        metavar="CALIBRATION_JSON",
+        help="Calibration report from calibrate.py (or merge_calibration.py).",
+    )
     ap.add_argument(
         "--sweep",
         type=Path,
         default=Path("configs/sweep_full.yaml"),
-        help="Path to existing sweep YAML to merge into (default: configs/sweep_full.yaml).",
+        metavar="YAML",
+        help="Existing sweep YAML to merge the overrides into (default: configs/sweep_full.yaml).",
     )
     ap.add_argument(
         "--apply",
         action="store_true",
-        help="Rewrite the sweep YAML in place. Default is dry-run (print to stdout).",
+        help="Rewrite the sweep YAML in place. Default is dry-run "
+        "(print the merged YAML to stdout).",
     )
-    ap.add_argument("--base-episodes", type=int, default=DEFAULT_BASE_EPISODES)
-    ap.add_argument("--base-seeds", type=int, default=DEFAULT_BASE_SEEDS)
+    ap.add_argument(
+        "--base-episodes",
+        type=int,
+        default=DEFAULT_BASE_EPISODES,
+        metavar="N",
+        help=f"Episodes per seed before downscope; a cell recommending fewer "
+        f"gets an n_episodes override (default: {DEFAULT_BASE_EPISODES}).",
+    )
+    ap.add_argument(
+        "--base-seeds",
+        type=int,
+        default=DEFAULT_BASE_SEEDS,
+        metavar="N",
+        help=f"Seed count before downscope; a cell recommending fewer gets a "
+        f"seeds_subset entry + warning (default: {DEFAULT_BASE_SEEDS}).",
+    )
     args = ap.parse_args()
 
     if not args.calibration_json.exists():
-        print(f"error: {args.calibration_json} not found", file=sys.stderr)
+        print(
+            f"error: calibration JSON not found: {args.calibration_json}\n"
+            "  Run scripts/calibrate.py first, or point at an existing "
+            "results/calibration-YYYYMMDD.json.",
+            file=sys.stderr,
+        )
         return 2
     if not args.sweep.exists():
-        print(f"error: {args.sweep} not found", file=sys.stderr)
+        print(
+            f"error: sweep YAML not found: {args.sweep}\n"
+            "  Run from the repo root, or pass --sweep <path> to the sweep "
+            "config you want to merge into.",
+            file=sys.stderr,
+        )
         return 2
 
     with args.calibration_json.open() as f:
-        calib = json.load(f)
+        try:
+            calib = json.load(f)
+        except json.JSONDecodeError as exc:
+            print(
+                f"error: {args.calibration_json} is not valid JSON ({exc}).\n"
+                "  Expected a calibration report as written by calibrate.py.",
+                file=sys.stderr,
+            )
+            return 2
+    if "cells" not in calib:
+        print(
+            f"error: {args.calibration_json} has no 'cells' key -- not a "
+            "calibration report. Pass JSON from scripts/calibrate.py.",
+            file=sys.stderr,
+        )
+        return 2
     with args.sweep.open() as f:
         existing = yaml.safe_load(f)
 

@@ -111,15 +111,35 @@ def load_results(results_path: Path) -> pd.DataFrame:
     """Load the partial sweep parquet, raising a clear error if unusable."""
     if not results_path.exists():
         raise FileNotFoundError(
-            f"results parquet not found: {results_path} (has the sweep written its first cell yet?)"
+            f"results parquet not found: {results_path}\n"
+            "  The sweep writes this after its first cell completes -- wait a "
+            "few minutes, or pass --results <path> if the sweep dir differs."
         )
-    df = pd.read_parquet(results_path)
+    try:
+        df = pd.read_parquet(results_path)
+    except Exception as exc:
+        # A live sweep may be mid-write when this read lands; pyarrow then
+        # raises on the truncated footer. That is transient, not fatal.
+        raise ValueError(
+            f"could not read results parquet: {results_path} ({exc})\n"
+            "  The sweep may be mid-write -- this is transient, just re-run "
+            "review_results.py in a few seconds.\n"
+            "  See docs/TROUBLESHOOTING.md -> Parquet mid-write read errors."
+        ) from exc
     if df.empty:
-        raise ValueError(f"results parquet is empty: {results_path}")
+        raise ValueError(
+            f"results parquet is empty: {results_path}\n"
+            "  No cells have been persisted yet -- re-run once the sweep has "
+            "completed at least one cell."
+        )
     required = {"policy", "env", "seed", "episode_index", "success", "n_steps", "wallclock_s"}
     missing = required - set(df.columns)
     if missing:
-        raise ValueError(f"results parquet missing columns {sorted(missing)}: {results_path}")
+        raise ValueError(
+            f"results parquet missing columns {sorted(missing)}: {results_path}\n"
+            "  This does not look like a sweep results.parquet -- check the "
+            "--results path points at the sweep output, not another parquet."
+        )
     return df
 
 
@@ -346,34 +366,64 @@ def _render_table(reviews: list[CellReview]) -> list[str]:
 # --------------------------------------------------------------------- #
 
 
+class _RawDefaultsHelpFormatter(
+    argparse.ArgumentDefaultsHelpFormatter,
+    argparse.RawDescriptionHelpFormatter,
+):
+    """Show per-argument defaults, but keep the epilog's literal layout."""
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Incremental sweep sanity-checker (read-only).",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        prog="review-results",
+        description=(
+            "Incremental sweep sanity-checker. Loads the partial\n"
+            "results.parquet a running sweep writes one cell at a time, joins\n"
+            "it against the policy/env configs, and prints a per-cell review\n"
+            "table plus a flagged-anomalies section. Strictly read-only --\n"
+            "safe to run (or cron) against a live sweep dir."
+        ),
+        formatter_class=_RawDefaultsHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  # review the default sweep-full results\n"
+            "  python scripts/review_results.py\n\n"
+            "  # review a results.parquet at a custom path\n"
+            "  python scripts/review_results.py --results path/to/results.parquet\n\n"
+            "exit codes:\n"
+            "  0  no anomalies -- every completed cell looks healthy\n"
+            "  1  at least one cell flagged -- inspect the ANOMALIES section\n"
+            "  2  could not run (missing/empty parquet, bad config)"
+        ),
     )
     parser.add_argument(
         "--results",
         type=Path,
         default=DEFAULT_RESULTS,
-        help="Path to the (partial) results.parquet.",
+        metavar="PARQUET",
+        help="Path to the (partial) sweep results.parquet to review.",
     )
     parser.add_argument(
         "--manifest",
         type=Path,
         default=DEFAULT_MANIFEST,
-        help="Path to sweep_manifest.json (read for context only).",
+        metavar="JSON",
+        help="Path to sweep_manifest.json (read for context only; "
+        "review proceeds from the parquet alone if absent).",
     )
     parser.add_argument(
         "--policies",
         type=Path,
         default=DEFAULT_POLICIES_YAML,
-        help="Path to policies.yaml.",
+        metavar="YAML",
+        help="Path to the policy registry YAML (joined for paper-gap and baseline-floor checks).",
     )
     parser.add_argument(
         "--envs",
         type=Path,
         default=DEFAULT_ENVS_YAML,
-        help="Path to envs.yaml.",
+        metavar="YAML",
+        help="Path to the env registry YAML (joined for the never-succeeds max_steps check).",
     )
     return parser.parse_args(argv)
 

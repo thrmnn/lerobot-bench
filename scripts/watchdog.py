@@ -71,30 +71,98 @@ def signal_target(pid: int | None, pgid: int | None, sig: int) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--out", required=True, help="JSONL output path")
-    ap.add_argument("--pid", type=int, default=None, help="Target PID to kill on breach")
-    ap.add_argument("--pgid", type=int, default=None, help="Target process group ID")
-    ap.add_argument("--interval", type=float, default=5.0)
-    ap.add_argument("--grace", type=float, default=10.0, help="SIGTERM→SIGKILL grace seconds")
+    ap = argparse.ArgumentParser(
+        prog="watchdog",
+        description=(
+            "WSL2-aware resource watchdog. Samples RAM, VRAM and load every\n"
+            "--interval seconds and appends each sample as JSONL to --out. On\n"
+            "a sustained threshold breach it SIGTERMs --pid (or --pgid), waits\n"
+            "--grace seconds, then SIGKILLs. cgroup MemoryMax is the primary\n"
+            "memory defense (see scripts/run_capped.sh) -- this watchdog is\n"
+            "the observational second layer."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  # observe only -- log samples, never kill (recommended default)\n"
+            "  python scripts/watchdog.py --out results/watchdog.jsonl --no-kill\n\n"
+            "  # guard a sweep process, killing its whole process group on breach\n"
+            "  python scripts/watchdog.py --out results/watchdog.jsonl --pgid 12345\n\n"
+            "exit codes:\n"
+            "  0  received SIGINT/SIGTERM and shut down cleanly\n"
+            "  2  a breach was sustained and the target was killed"
+        ),
+    )
+    ap.add_argument(
+        "--out",
+        required=True,
+        metavar="JSONL",
+        help="Path to append JSONL samples + breach events to (parent dirs created).",
+    )
+    ap.add_argument(
+        "--pid",
+        type=int,
+        default=None,
+        metavar="PID",
+        help="Target process to signal on a sustained breach (default: none -- log only).",
+    )
+    ap.add_argument(
+        "--pgid",
+        type=int,
+        default=None,
+        metavar="PGID",
+        help="Target process group to signal on breach; preferred over --pid "
+        "so child processes are killed too (default: none).",
+    )
+    ap.add_argument(
+        "--interval",
+        type=float,
+        default=5.0,
+        metavar="SECONDS",
+        help="Seconds between resource samples (default: 5.0).",
+    )
+    ap.add_argument(
+        "--grace",
+        type=float,
+        default=10.0,
+        metavar="SECONDS",
+        help="Seconds to wait between SIGTERM and SIGKILL of the target (default: 10.0).",
+    )
     ap.add_argument(
         "--ram-used-pct-max",
         type=float,
         default=70.0,
-        help="Trigger if used RAM exceeds this percent of total",
+        metavar="PCT",
+        help="Breach if used RAM exceeds this percent of total "
+        "(default: 70.0 -- protects the Windows host).",
     )
-    ap.add_argument("--vram-free-mb-min", type=int, default=200)
-    ap.add_argument("--load-mult-max", type=float, default=2.0, help="× CPU count")
+    ap.add_argument(
+        "--vram-free-mb-min",
+        type=int,
+        default=200,
+        metavar="MB",
+        help="Breach if free VRAM drops below this many MB (default: 200).",
+    )
+    ap.add_argument(
+        "--load-mult-max",
+        type=float,
+        default=2.0,
+        metavar="MULT",
+        help="Breach if 1-min load average exceeds MULT x CPU count (default: 2.0).",
+    )
     ap.add_argument(
         "--load-consec",
         type=int,
         default=3,
-        help="Require this many consecutive load breaches",
+        metavar="N",
+        help="Require this many consecutive samples over the load threshold "
+        "before it counts as a breach (default: 3).",
     )
     ap.add_argument(
         "--breach-seconds",
         type=float,
         default=0.0,
+        metavar="SECONDS",
         help=(
             "Require any breach (RAM/VRAM/load) to persist this long before kill. "
             "Tolerates transient spikes (e.g. cold model load). 0 = kill on first sample."
