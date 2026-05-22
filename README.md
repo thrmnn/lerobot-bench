@@ -1,8 +1,28 @@
-# lerobot-bench
+<div align="center">
+
+<img src="docs/assets/logo.svg" alt="lerobot-bench" width="420">
+
+### A public, reproducible benchmark of pretrained LeRobot manipulation policies.
+
+6 policies × 6 sim envs · multi-seed contract · Wilson + bootstrap CIs · MDE bounds · paired comparisons · failure taxonomy.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code_style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![CI](https://github.com/thrmnn/lerobot-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/thrmnn/lerobot-bench/actions/workflows/ci.yml)
+[![HF Space](https://img.shields.io/badge/%F0%9F%A4%97%20Space-lerobot--bench-yellow)](https://huggingface.co/spaces/thrmnn/lerobot-bench)
+[![HF Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-results--v1-yellow)](https://huggingface.co/datasets/thrmnn/lerobot-bench-results-v1)
+
+**Quick links:** [Live leaderboard](https://huggingface.co/spaces/thrmnn/lerobot-bench) · [Dataset](https://huggingface.co/datasets/thrmnn/lerobot-bench-results-v1) · [Paper](paper/main.tex) · [Contributing](CONTRIBUTING.md) · [Reproduce](docs/REPRODUCE.md)
+
+<!-- Hero image: the public HF Space leaderboard. Captured by the maintainer once the Space is live; see docs/assets/README.md. The repo renders fine while this file is absent. -->
+<picture>
+  <img src="docs/assets/leaderboard.png" alt="lerobot-bench leaderboard: success rate with 95% confidence intervals for 6 pretrained LeRobot policies across 6 simulated manipulation environments" width="820">
+</picture>
+
+</div>
+
+---
 
 > Public multi-policy benchmark for pretrained LeRobot policies on PushT, Aloha, and LIBERO sim envs.
 > Multi-seed contract, bootstrap + Wilson CIs, MDE bounds, paired comparisons, failure taxonomy. Arxiv-grade writeup and upstream-ready eval module.
@@ -15,7 +35,7 @@
 
 Three artifacts, all open:
 
-1. **Public leaderboard** — Hugging Face Space + Hub dataset `Theozinh0/lerobot-bench-results-v1`. Every per-episode outcome, every rollout MP4, queryable by `(policy, env, seed, episode)`.
+1. **Public leaderboard** — Hugging Face Space + Hub dataset `thrmnn/lerobot-bench-results-v1`. Every per-episode outcome, every rollout MP4, queryable by `(policy, env, seed, episode)`.
 2. **4-page arxiv writeup** — `paper/main.tex`. Methodology, related work, results, limitations. Every figure regenerated from `notebooks/01-write-finding.ipynb`.
 3. **Upstream-ready eval pipeline** — `src/lerobot_bench/eval.py` extracted as `lerobot.eval.multi_seed` in a follow-up PR to `huggingface/lerobot`.
 
