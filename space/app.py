@@ -1,22 +1,22 @@
 """Gradio app for the lerobot-bench HF Space.
 
 Runs on the **free CPU tier** at ``huggingface.co/spaces/thrmnn/lerobot-bench``.
-No policy inference, no GPU. Four tabs:
+No policy inference, no GPU. Five tabs:
 
 1. **Leaderboard** — pre-aggregated success-rate table with Wilson CIs,
    read from ``thrmnn/lerobot-bench-results-v1/results.parquet`` on Hub.
-   Includes a v1 status badge, a methodology accordion, and per-cell
-   colour coding on the success-rate column.
+   Includes a v1 status badge, a methodology accordion, and a
+   below-table success-rate band legend.
 2. **Paired comparisons** — for any two policies, the per-env Δsuccess
    with pivotal-bootstrap 95% CI and a per-cell MDE bound. Auto-narrates
    the top finding underneath.
-3. **Browse Rollouts** — three dropdowns ``(policy, env, seed)`` →
+3. **Rollouts** — three dropdowns ``(policy, env, seed)`` →
    side-by-side ``gr.Video`` players. Each video URL is a direct Hub
    ``resolve/main`` link; the Space never proxies bytes.
 4. **Failures** — the six-mode taxonomy parsed from
    ``docs/FAILURE_TAXONOMY.md`` plus per-cell label counts (when the
    parquet's ``failure_label`` column is populated).
-5. **Methodology** — markdown rendered from
+5. **About** — methodology markdown rendered from
    :func:`_helpers.render_methodology_md`.
 
 All non-trivial data plumbing lives in :mod:`_helpers`, which the
@@ -62,14 +62,14 @@ from _helpers import (
 logger = logging.getLogger("space-app")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# How many videos to render side-by-side in the Browse-Rollouts tab.
+# How many videos to render side-by-side in the Rollouts tab.
 # Five is the per-cell seed count, which doubles as the natural
 # thumbnail-strip width. Free CPU tier streams these by Hub URL so
 # memory is not the constraint; reviewer scroll is.
 MAX_VIDEOS_PER_VIEW = 5
 
 # Empty-state message when the published parquet is missing or empty.
-# Surfaces above the Leaderboard table and as the Browse-Rollouts
+# Surfaces above the Leaderboard table and as the Rollouts
 # fallback so the Space is never blank.
 NO_DATA_MARKDOWN = (
     "_No published results yet — the dataset at_ "
@@ -80,7 +80,7 @@ NO_DATA_MARKDOWN = (
 
 # Methodology blurb shown in the accordion above the Leaderboard table.
 # Compressed restatement of render_methodology_md(); the full text lives
-# on the dedicated Methodology tab — this accordion is the one-screen
+# on the dedicated About tab — this accordion is the one-screen
 # reminder.
 LEADERBOARD_METHODOLOGY_MD = (
     "**Sweep contract.** 5 seeds × 50 episodes = N=250 binary outcomes per\n"
@@ -197,7 +197,7 @@ def render_rollouts(
     if not policy or not env or seed in (None, ""):
         empty_videos = [gr.update(value=None, visible=False)] * MAX_VIDEOS_PER_VIEW
         empty_meta = [{} for _ in range(MAX_VIDEOS_PER_VIEW)]
-        return empty_videos, empty_meta, "_Pick a policy, env, and seed to browse rollouts._"
+        return empty_videos, empty_meta, "_Pick a policy, env, and seed to view rollouts._"
 
     try:
         df = load_results_df()
@@ -376,8 +376,9 @@ def build_app() -> gr.Blocks:
         theme=gr.themes.Soft(),  # readable on the default Spaces background
     ) as demo:
         gr.Markdown(
-            "# lerobot-bench\n"
-            "_Public multi-policy benchmark for pretrained LeRobot policies._\n"
+            "# lerobot-bench — public leaderboard\n"
+            "_Public reproducible benchmark of pretrained LeRobot policies "
+            "on simulated manipulation envs._\n"
             "\n"
             f"Source data: [`{HUB_DATASET_REPO}`](https://huggingface.co/datasets/{HUB_DATASET_REPO}). "
             "Code: <https://github.com/thrmnn/lerobot-bench>."
@@ -511,9 +512,15 @@ def build_app() -> gr.Blocks:
                     outputs=pc_outputs,
                 )
 
-            # -------- Tab 3: Browse Rollouts --------
-            with gr.Tab("Browse Rollouts"):
-                br_status = gr.Markdown("_Pick a policy, env, and seed to browse rollouts._")
+            # -------- Tab 3: Rollouts --------
+            with gr.Tab("Rollouts"):
+                gr.Markdown(
+                    "### Episode rollout videos\n"
+                    "Pick a `(policy, env, seed)` cell to play its episode "
+                    "rollouts side by side. Videos stream directly from the "
+                    "Hub dataset — the Space never proxies the bytes."
+                )
+                br_status = gr.Markdown("_Pick a policy, env, and seed to view rollouts._")
                 with gr.Row():
                     policy_dd = gr.Dropdown(
                         choices=[],
@@ -576,7 +583,7 @@ def build_app() -> gr.Blocks:
             # -------- Tab 4: Failures --------
             with gr.Tab("Failures"):
                 gr.Markdown(
-                    "## Failure taxonomy\n"
+                    "### Failure taxonomy\n"
                     "The six canonical failure modes the writeup labels "
                     "rollouts against. Per-cell counts populate below once "
                     "the labeling pipeline produces `labels.json` files "
@@ -599,8 +606,8 @@ def build_app() -> gr.Blocks:
                     outputs=[fail_md, fail_table],
                 )
 
-            # -------- Tab 5: Methodology --------
-            with gr.Tab("Methodology"):
+            # -------- Tab 5: About --------
+            with gr.Tab("About"):
                 gr.Markdown(render_methodology_md())
 
         gr.Markdown(
