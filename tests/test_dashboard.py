@@ -1146,7 +1146,11 @@ def test_extract_row_click_target_skipped_row_is_non_actionable() -> None:
     )
     target = extract(table, row_index=0)
     assert target.actionable is False
-    assert "skipped" in target.warning.lower() or "no rollouts" in target.warning.lower() or target.warning
+    assert (
+        "skipped" in target.warning.lower()
+        or "no rollouts" in target.warning.lower()
+        or target.warning
+    )
 
 
 def test_extract_row_click_target_out_of_range_returns_warning() -> None:
