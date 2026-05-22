@@ -1,0 +1,81 @@
+name: Propose a policy
+description: Suggest a pretrained LeRobot policy to add to the benchmark.
+title: "[policy] "
+labels: ["policy-proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Thanks for proposing a policy. If you are willing to open the PR
+        yourself, the [Add a policy walkthrough](https://github.com/thrmnn/lerobot-bench/blob/main/CONTRIBUTING.md#add-a-policy)
+        is one `configs/policies.yaml` entry — no Python needed. Use this
+        issue if you would rather suggest it for someone else to onboard.
+  - type: input
+    id: repo_id
+    attributes:
+      label: HF Hub repo_id
+      description: The Hugging Face Hub repository for the pretrained checkpoint.
+      placeholder: lerobot/diffusion_pusht
+    validations:
+      required: true
+  - type: input
+    id: revision_sha
+    attributes:
+      label: Revision SHA (if known)
+      description: >
+        The pinned commit SHA on the Hub. Get it with
+        `python -c "from huggingface_hub import HfApi; print(HfApi().model_info('REPO_ID').sha)"`.
+        Leave blank if unsure — a maintainer can lock it.
+      placeholder: 84a7c23178445c6bbf7e1a884ff497017910f653
+    validations:
+      required: false
+  - type: input
+    id: paper
+    attributes:
+      label: Original paper or source
+      description: Link to the paper, project page, or model card describing the policy.
+      placeholder: https://arxiv.org/abs/2304.13705
+    validations:
+      required: true
+  - type: checkboxes
+    id: env_compat
+    attributes:
+      label: Supported environments
+      description: Which benchmark envs can this policy run? (the `env_compat` field)
+      options:
+        - label: pusht
+        - label: aloha_transfer_cube
+        - label: libero_spatial
+        - label: libero_object
+        - label: libero_goal
+        - label: libero_10
+  - type: input
+    id: license
+    attributes:
+      label: License
+      description: License of the checkpoint weights (SPDX id or upstream name).
+      placeholder: apache-2.0
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why does it belong in the benchmark?
+      description: >
+        What does this policy add — a new architecture class, a stronger
+        baseline, a published claim worth re-checking? Note any known
+        compute cost or license caveats.
+    validations:
+      required: true
+  - type: textarea
+    id: paper_reported_success
+    attributes:
+      label: Paper-reported success rates (optional)
+      description: >
+        Per-env success rates from the paper, as fractions in [0, 1].
+        Include the table/row citation so they can populate
+        `paper_reported_success`.
+      placeholder: |
+        pusht: 0.654  (Hub model card, eval section, 500 episodes)
+    validations:
+      required: false

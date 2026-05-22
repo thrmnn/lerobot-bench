@@ -1,0 +1,59 @@
+name: validate-configs
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - configs/policies.yaml
+      - configs/envs.yaml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: load registries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install minimal deps
+        run: |
+          pip install --upgrade pip
+          # PolicyRegistry / EnvRegistry only import pyyaml — no torch,
+          # no lerobot, no sim. Keep this fast: it is just a config load.
+          pip install "pyyaml>=6.0"
+      - name: Validate configs through the registry loaders
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          from lerobot_bench.envs import EnvRegistry
+          from lerobot_bench.policies import PolicyRegistry
+
+          ok = True
+          try:
+              policies = PolicyRegistry.from_yaml(Path("configs/policies.yaml"))
+              print(f"configs/policies.yaml OK — {len(policies)} entries: {policies.names()}")
+          except Exception as exc:  # noqa: BLE001 — surface the loader's message verbatim
+              print(f"::error file=configs/policies.yaml::{exc}")
+              ok = False
+
+          try:
+              envs = EnvRegistry.from_yaml(Path("configs/envs.yaml"))
+              print(f"configs/envs.yaml OK — {len(envs)} entries: {envs.names()}")
+          except Exception as exc:  # noqa: BLE001 — surface the loader's message verbatim
+              print(f"::error file=configs/envs.yaml::{exc}")
+              ok = False
+
+          sys.exit(0 if ok else 1)
+          PY

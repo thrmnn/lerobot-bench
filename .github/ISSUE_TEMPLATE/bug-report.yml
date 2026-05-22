@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a crash or incorrect behaviour in lerobot-bench.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        For a benchmark *number* that looks wrong rather than a crash, use
+        the "Result discrepancy" template instead.
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal command or sequence that triggers the bug.
+      render: bash
+      placeholder: python scripts/run_one.py --policy random --env pusht --seed 0 --dry-run
+    validations:
+      required: true
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Full traceback / logs
+      description: Paste the complete error output. This will be rendered as code.
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      description: Output of `python --version` (the project targets 3.12).
+      placeholder: Python 3.12.7
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: Output of `uname -a`, or your OS and version.
+      placeholder: Linux 6.6 WSL2 Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: deps
+    attributes:
+      label: Relevant package versions
+      description: Output of `pip freeze | grep -E "lerobot|torch|numpy"`.
+      render: text
+    validations:
+      required: true

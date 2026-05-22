@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Add a policy yourself (one PR)
+    url: https://github.com/thrmnn/lerobot-bench/blob/main/CONTRIBUTING.md#add-a-policy
+    about: The paved-road walkthrough for contributing a policy entry directly.
+  - name: Questions and general discussion
+    url: https://github.com/thrmnn/lerobot-bench/discussions
+    about: Open-ended questions that are not a bug, discrepancy, or policy proposal.

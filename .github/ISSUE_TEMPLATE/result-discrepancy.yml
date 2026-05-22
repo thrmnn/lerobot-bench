@@ -1,0 +1,74 @@
+name: Result discrepancy
+description: Report a benchmark number that disagrees with a published claim or your own run.
+title: "[discrepancy] "
+labels: ["discrepancy"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Use this to flag a leaderboard cell that looks wrong. Be specific
+        about the cell and the exact command you ran so it can be reproduced.
+  - type: input
+    id: policy
+    attributes:
+      label: Policy
+      description: Policy name as it appears in `configs/policies.yaml` / the leaderboard.
+      placeholder: diffusion_policy
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Env name from `configs/envs.yaml`.
+      placeholder: pusht
+    validations:
+      required: true
+  - type: input
+    id: seed
+    attributes:
+      label: Seed
+      description: Seed index for the (policy, env, seed) cell. Use "all" if it spans every seed.
+      placeholder: "0"
+    validations:
+      required: true
+  - type: input
+    id: published_number
+    attributes:
+      label: Published / expected number
+      description: The success rate you expected, and where it comes from.
+      placeholder: 0.654 (lerobot/diffusion_pusht Hub model card)
+    validations:
+      required: true
+  - type: input
+    id: observed_number
+    attributes:
+      label: Observed number
+      description: The success rate this benchmark reported (or that you observed).
+      placeholder: 0.41
+    validations:
+      required: true
+  - type: input
+    id: lerobot_version
+    attributes:
+      label: lerobot version
+      description: Output of `pip show lerobot | grep Version` (the pin is 0.5.1).
+      placeholder: "0.5.1"
+    validations:
+      required: true
+  - type: textarea
+    id: repro_command
+    attributes:
+      label: Reproduction command
+      description: The exact command you ran to produce the observed number.
+      render: bash
+      placeholder: python scripts/run_one.py --policy diffusion_policy --env pusht --seed 0 --n-episodes 50
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: GPU/CPU, OS, anything else that might explain the gap.
+    validations:
+      required: false
