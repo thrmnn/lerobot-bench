@@ -28,12 +28,11 @@ dependencies = [
     "numpy>=2.0,<3.0",
     "scipy>=1.13,<2.0",
     "pandas>=2.2,<3.0",
-    "pyarrow>=18.0",
-    "huggingface-hub>=0.30",
-    "datasets>=4.0",
-    "imageio[ffmpeg]>=2.37",
-    "tqdm>=4.66",
-    "rich>=13.9",
+    "pyarrow>=18.0",          # parquet engine for pandas results I/O
+    "huggingface-hub>=0.30",  # hf_hub_download for pretrained checkpoints
+    "safetensors>=0.4",       # load_file: recover legacy checkpoint norm buffers
+    "pyyaml>=6.0",            # configs/{policies,envs}.yaml registry loaders
+    "imageio[ffmpeg]>=2.37",  # episode MP4 encode
 ]
 
 [project.optional-dependencies]
@@ -70,6 +69,7 @@ all = [
 Homepage = "https://github.com/thrmnn/lerobot-bench"
 Repository = "https://github.com/thrmnn/lerobot-bench"
 Issues = "https://github.com/thrmnn/lerobot-bench/issues"
+Changelog = "https://github.com/thrmnn/lerobot-bench/blob/main/CHANGELOG.md"
 
 [project.scripts]
 lerobot-bench = "lerobot_bench.cli:main"
