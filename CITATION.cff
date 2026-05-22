@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+message: "If you use lerobot-bench in your research, please cite this repository. Once the accompanying arXiv paper is public, please cite the paper instead (see preferred-citation)."
+title: "lerobot-bench: a multi-policy reproducible evaluation suite for pretrained LeRobot policies"
+abstract: "A public, reproducible benchmark of pretrained LeRobot manipulation policies across PushT, Aloha, and LIBERO sim environments, with a multi-seed contract, Wilson and bootstrap confidence intervals, MDE bounds, paired comparisons, and a failure taxonomy."
+type: software
+version: 0.0.1
+date-released: 2026-05-22
+license: MIT
+repository-code: "https://github.com/thrmnn/lerobot-bench"
+url: "https://github.com/thrmnn/lerobot-bench"
+authors:
+  - family-names: Hermann
+    given-names: Théo
+    email: thermann.ai@gmail.com
+keywords:
+  - robotics
+  - reinforcement-learning
+  - imitation-learning
+  - benchmark
+  - lerobot
+  - manipulation
+  - reproducibility
+preferred-citation:
+  type: article
+  # Forthcoming arXiv preprint. The arXiv identifier is not yet assigned;
+  # the placeholder below MUST be replaced with the real id once available.
+  title: "lerobot-bench: a multi-policy reproducible evaluation suite for pretrained LeRobot policies"
+  year: 2026
+  authors:
+    - family-names: Hermann
+      given-names: Théo
+      email: thermann.ai@gmail.com
+  notes: "Forthcoming arXiv preprint (cs.RO). arXiv identifier TBD — replace 'arXiv:TBD' once assigned."
+  url: "https://arxiv.org/abs/TBD"
