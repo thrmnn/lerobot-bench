@@ -51,15 +51,18 @@ Reported success rates for pretrained LeRobot~\cite{cadene2024lerobot}
 policies live in self-reported tables across heterogeneous evaluation
 protocols, with no shared seed accounting or confidence intervals. We
 introduce \emph{lerobot-bench}, a public reproducible evaluation suite
-that runs a fixed roster of nine pretrained policies on six LeRobot
-sim envs (PushT, Aloha-transfer-cube, and the four LIBERO task
-suites~\cite{liu2023libero}) under a multi-seed contract (5~seeds
-$\times$ 50~episodes per \textit{(policy, env)} cell, $N{=}250$ binary
-outcomes), reporting Wilson and bootstrap 95\% confidence intervals on
-every cell and paired comparisons across cells with explicit
-minimum-detectable-effect (MDE) bounds. Every policy entry is pinned
-to a fixed git revision SHA at lock-in time so a parquet row is
-replayable bit-for-bit by anyone with the same lerobot version. The
+that runs a fixed roster of six policies --- four pretrained learned
+policies (Diffusion Policy, ACT, SmolVLA, XVLA) and two weights-free
+floor baselines (no-op, uniform-random) --- on six LeRobot sim envs
+(PushT, Aloha-transfer-cube, and the four LIBERO task
+suites~\cite{liu2023libero}), 22~runnable \textit{(policy, env)} cells
+after the checkpoint-availability filter. Each cell is evaluated under
+a multi-seed contract (5~seeds $\times$ 50~episodes, $N{=}250$ binary
+outcomes), and we report Wilson and bootstrap 95\% confidence
+intervals on every cell plus paired comparisons across cells with
+explicit minimum-detectable-effect (MDE) bounds. Every policy entry is
+pinned to a fixed git revision SHA at lock-in time, so a parquet row
+is replayable bit-for-bit by anyone with the same lerobot version. The
 benchmark, the interactive Hugging Face Space, and the analysis
 notebook that produced every figure here are released as open data.
 \todo{Headline finding sentence, one of: ``VLAs underperform classical
@@ -79,26 +82,33 @@ under a shared protocol --- and the protocol we ship is one such.
 
 LeRobot~\cite{cadene2024lerobot} ships pretrained checkpoints for
 Diffusion Policy~\cite{chi2023diffusion}, ACT~\cite{zhao2023learning},
-SmolVLA~\cite{shukor2025smolvla}, and the $\pi_0$
-family~\cite{black2024pi0} across simulated manipulation envs (PushT,
-Aloha, LIBERO). Individual policy papers report success rates on
-these envs, but the protocols differ in seed counts, episode budgets,
-success thresholds, and how confidence intervals (if any) are derived.
-The result is a set of numbers in PDFs that nobody trusts head-to-head
---- a problem that has been documented repeatedly in adjacent
+SmolVLA~\cite{shukor2025smolvla}, XVLA~\cite{bu2025xvla}, and the
+$\pi_0$ family~\cite{black2024pi0} across simulated manipulation envs
+(PushT, Aloha, LIBERO). Individual policy papers report success rates
+on these envs, but the protocols differ in seed counts, episode
+budgets, success thresholds, and how confidence intervals (if any) are
+derived. The result is a set of numbers in PDFs that cannot be trusted
+head-to-head --- a problem documented repeatedly in adjacent
 fields~\cite{henderson2018deep,agarwal2021deep}.
 
 We fill that gap with \emph{lerobot-bench}. The artifact has three
 release surfaces: open data (a public Hub dataset
-\texttt{thrmnn/lerobot-bench-results-v1} of every per-episode
-outcome plus an MP4 of every rollout, indexed by \textit{(policy, env,
-seed, episode)}); open eval (a pinned, scriptable evaluation pipeline
-that re-derives any single parquet row in $<1$\,h on commodity
-hardware, plus the resumable orchestrator that produced the full
-sweep); and open analysis (the notebook
-\texttt{notebooks/01-write-finding.ipynb} that produces every table
-and figure in this paper, including the bootstrap CIs, the
-paired-comparison effect sizes, and the failure-mode taxonomy).
+\texttt{thrmnn/lerobot-bench-results-v1} of every per-episode outcome
+plus an MP4 of every rollout, indexed by \textit{(policy, env, seed,
+episode)}); open eval (a pinned, scriptable evaluation pipeline that
+re-derives any single parquet row in $<1$\,h on commodity hardware,
+plus the resumable orchestrator that produced the full sweep); and
+open analysis (the notebook \texttt{notebooks/01-write-finding.ipynb}
+that produces every table and figure in this paper, including the
+bootstrap CIs, the paired-comparison effect sizes, and the
+failure-mode taxonomy).
+
+The v1 roster is four learned policies (Diffusion Policy, ACT,
+SmolVLA, XVLA) and two weights-free baselines (no-op, uniform-random),
+crossed with six envs. After filtering \textit{(policy, env)} cells to
+those with a public Hub checkpoint, the matrix has 22~runnable cells.
+The $\pi_0$ family is deferred to v1.1 for a host-RAM reason detailed
+in the Limitations.
 
 The contribution is methodological as much as empirical. We document
 the seeding contract that makes per-cell numbers bit-reproducible at
@@ -134,27 +144,27 @@ seed accounting, multi-seed CIs, and re-runnable rows for the
 LeRobot policy stack --- which is the gap lerobot-bench fills.
 
 \paragraph{Statistical rigor in policy evaluation.}
-Henderson et al.~\cite{henderson2018deep} demonstrated that
-single-seed deep RL claims are largely irreproducible across seeds;
-Agarwal et al.~\cite{agarwal2021deep} formalised the prescription for
-multi-seed reporting with stratified bootstrap CIs and per-task
-distributional summaries on Atari and DeepMind Control. We adopt the
-same statistical posture (multi-seed, bootstrap CIs, paired
-comparisons, MDE bounds) for the LeRobot manipulation matrix --- where
-no comparable protocol has been published, and where the single-seed
+Henderson et al.~\cite{henderson2018deep} showed that single-seed deep
+RL claims are largely irreproducible across seeds; Agarwal et
+al.~\cite{agarwal2021deep} formalised the prescription for multi-seed
+reporting with stratified bootstrap CIs and per-task distributional
+summaries on Atari and DeepMind Control. We adopt the same statistical
+posture --- multi-seed evaluation, bootstrap CIs, paired comparisons,
+and MDE bounds --- for the LeRobot manipulation matrix, where no
+comparable protocol has been published and the single-seed
 self-reported numbers in individual policy papers presently fill that
 role.
 
 \paragraph{Floor baselines.}
 A leaderboard without a no-op and a uniform-random baseline cannot
-distinguish ``the env is hard'' from ``the policy is good'': a
-non-trivial fraction of LeRobot envs admit non-zero success under
-random action (PushT in particular has a coverage-style reward whose
-expected value under uniform action is empirically non-zero). We
-therefore ship two weights-free baselines on every cell of the matrix
-as a leaderboard floor, mirroring the convention in the OpenAI
-Gym~\cite{brockman2016openai} ecosystem from which the LeRobot env
-API descends.
+separate ``the env is hard'' from ``the policy is good'': some LeRobot
+envs admit non-zero success under random action --- PushT in
+particular has a coverage-style reward whose expected value under
+uniform action is empirically positive. We therefore evaluate two
+weights-free baselines on every cell of the matrix as a leaderboard
+floor, mirroring the convention in the OpenAI
+Gym~\cite{brockman2016openai} ecosystem from which the LeRobot env API
+descends.
 
 % ---------------------------------------------------------------- %
 % Methods                                                          %
@@ -247,24 +257,29 @@ the per-cell threshold; deltas below it are reported as
 \paragraph{Auto-downscope rule.}
 \label{sec:downscope}
 Total per-cell wall-clock budget is 3~hours on a single RTX~4060
-laptop GPU (8\,GB VRAM). After Day-0 calibration produces per-policy
-$\overline{t}$~ms/step, the per-cell episode count is
+laptop GPU (8\,GB VRAM). After Day-0 calibration produces a per-policy
+mean step latency $\overline{t}$ (ms/step), the per-cell
+episodes-per-seed count is
 \begin{equation}
     n_\text{ep} = \min\!\left(50,\ \left\lfloor
         \frac{3 \cdot 3600}{5 \cdot \texttt{env.max\_steps} \cdot
         \overline{t} / 1000} \right\rfloor\right).
 \end{equation}
-A cell with $\overline{t} > 500$\,ms/step lands at
-$n_\text{ep}{=}25$, $\text{seeds}{=}3$, $N{=}75$, with the wider CI
-flagged in the leaderboard caption. If a policy's per-cell minimum
-(5~episodes/seed $\times$ 5 seeds = 25 episodes) still exceeds budget,
-the policy is dropped from v1, not silently truncated.
+The seed count is held fixed at five; only $n_\text{ep}$ shrinks, so a
+down-scoped cell lands at $N \in \{50, 100\}$ rather than the
+contracted $N{=}250$, with the wider CI flagged in the leaderboard
+caption (per-$N$ half-widths in \texttt{docs/MDE\_TABLE.md}\,\S 3). Two
+cells in v1 were down-scoped after calibration flagged slow inference.
+If a policy's per-cell minimum (5~seeds $\times$ 10~episodes
+$=N{=}50$) still exceeds budget, the policy is dropped from v1, not
+silently truncated.
 
 \paragraph{Sparse-matrix policy.}
 A \textit{(policy, env)} cell is N/A only when no public Hub
-checkpoint exists at lock-in time. Sparsity is reported as a visible
-gap in Table~\ref{tab:leaderboard}, not silently skipped; cross-policy
-comparisons are made only within shared envs.
+checkpoint exists at lock-in time; the 6-policy $\times$ 6-env grid
+therefore reduces to 22~runnable cells. Sparsity is reported as a
+visible gap in Table~\ref{tab:leaderboard}, not silently skipped, and
+cross-policy comparisons are made only within shared envs.
 
 \paragraph{Reproducibility.}
 Each parquet row carries the code commit SHA, the lerobot version
@@ -433,26 +448,28 @@ Cohen's $h$ effect size band.}
     Absolute ms/step on different GPUs will differ; the policy
     \emph{ranking} on a single GPU is what the auto-downscope rule
     consumes and that ranking is portable.
-    \item \textbf{Host-RAM cold-load excludes $\boldsymbol{\pi_0}$
-    family in v1.} The $\pi_0$, $\pi_0$fast, and $\pi_0$.5 checkpoints
-    (PaliGemma-3B-backbone) require approximately 30\,GB of host CPU
-    RAM during cold load --- not from steady-state activations
-    ($<\,4$\,GB peak VRAM), but from the
+    \item \textbf{Host-RAM cold-load excludes the $\boldsymbol{\pi_0}$
+    family in v1.} The $\pi_0$, $\pi_0$-FAST, and $\pi_{0.5}$
+    checkpoints (PaliGemma-3B backbone) require approximately 30\,GB of
+    host CPU RAM during cold load --- not from steady-state
+    activations ($<\,4$\,GB peak VRAM), but from the
     \texttt{from\_pretrained} weight-conversion staging buffers under
     HuggingFace Transformers' default load path. On the 32\,GB WSL2
-    laptop used for v1 calibration this exceeds the headroom
-    available with other tenant workloads running. We defer the
-    $\pi_0$ family to v1.1, where we expect to use a quantized
-    checkpoint (4-bit or 8-bit GPTQ) or
+    laptop used for v1 calibration this exceeds the headroom available
+    once other tenant workloads are running. We defer the $\pi_0$
+    family to v1.1, where a quantized checkpoint (4- or 8-bit GPTQ) or
     \texttt{accelerate}'s \texttt{device\_map="auto"} streaming load
-    to bring cold-load RAM under 12\,GB.
+    is expected to bring cold-load RAM under 12\,GB. v1 therefore
+    compares four learned policies, not the originally targeted seven.
     \item \textbf{Sparse matrix coverage.} The
     \textit{(policy, env)} grid is sparse by design: a cell is N/A
     only when no public Hub checkpoint exists, so cross-policy
-    comparisons are valid only within shared envs. The shared-env
-    set is $\{$LIBERO-spatial, -object, -goal, -10$\}$ for the v1
-    VLAs (SmolVLA and XVLA; $\pi_0$ family deferred as above);
-    PushT and Aloha are single-policy cells.
+    comparisons are valid only within shared envs. The single
+    multi-policy block in v1 is the four LIBERO suites
+    (\textit{spatial}, \textit{object}, \textit{goal}, \textit{10}),
+    shared by SmolVLA and XVLA ($\pi_0$ family deferred as above);
+    PushT and Aloha each carry one learned policy plus the two
+    baselines.
     \item \textbf{Episode budget.} $N{=}250$ is chosen for the GPU
     budget --- not because it suffices to resolve every interesting
     delta. We document the MDE bound explicitly
@@ -468,18 +485,17 @@ Cohen's $h$ effect size band.}
 
 \subsection{Future work}
 
-Four paths. (1)~Onboard the $\pi_0$ family using quantized weights
-or \texttt{accelerate} streaming load (see Limitations) --- this
-restores the policy axis to the originally targeted five VLAs in
-v1.1. (2)~Drop the 4-hour LIBERO install cap and add the remaining
-task variants (LIBERO has 10 tasks per suite; v1 locks
-\texttt{task\_id=0}). (3)~Onboard new policies as they appear on
-the Hub --- the contribution path is one PR adding a row to
-\texttt{configs/policies.yaml}. (4)~Re-run on hardware with the
-sim-to-real bridge of choice and report the gap. The eval pipeline is
-structured for upstream adoption as \texttt{lerobot.eval.multi\_seed};
-a draft PR is in flight at
-\todo{\texttt{huggingface/lerobot}\#TBD}.
+Four paths. (1)~Onboard the $\pi_0$ family ($\pi_0$, $\pi_0$-FAST,
+$\pi_{0.5}$) using quantized weights or \texttt{accelerate} streaming
+load (see Limitations) --- this extends the learned-policy axis from
+four to seven in v1.1. (2)~Add the remaining LIBERO task variants
+(each suite has 10 tasks; v1 locks \texttt{task\_id=0}). (3)~Onboard
+new policies as they appear on the Hub --- the contribution path is a
+single PR adding a row to \texttt{configs/policies.yaml}. (4)~Re-run
+the matrix on hardware with the sim-to-real bridge of choice and
+report the gap as its own table. The eval pipeline is structured for
+upstream adoption as \texttt{lerobot.eval.multi\_seed}; a draft PR is
+in flight at \todo{\texttt{huggingface/lerobot}\#TBD}.
 
 % ---------------------------------------------------------------- %
 % References                                                       %
