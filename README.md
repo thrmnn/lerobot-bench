@@ -13,7 +13,7 @@
 [![HF Space](https://img.shields.io/badge/%F0%9F%A4%97%20Space-lerobot--bench-yellow)](https://huggingface.co/spaces/thrmnn/lerobot-bench)
 [![HF Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-results--v1-yellow)](https://huggingface.co/datasets/thrmnn/lerobot-bench-results-v1)
 
-**Quick links:** [Live leaderboard](https://huggingface.co/spaces/thrmnn/lerobot-bench) · [Dataset](https://huggingface.co/datasets/thrmnn/lerobot-bench-results-v1) · [Paper](paper/main.tex) · [Contributing](CONTRIBUTING.md) · [Reproduce](docs/REPRODUCE.md)
+**Quick links:** [Get started](docs/GETTING_STARTED.md) · [Live leaderboard](https://huggingface.co/spaces/thrmnn/lerobot-bench) · [Dataset](https://huggingface.co/datasets/thrmnn/lerobot-bench-results-v1) · [Paper](paper/main.tex) · [Contributing](CONTRIBUTING.md) · [Reproduce](docs/REPRODUCE.md)
 
 <!-- Hero image: the public HF Space leaderboard. Captured by the maintainer once the Space is live; see docs/assets/README.md. The repo renders fine while this file is absent. -->
 <picture>
@@ -78,22 +78,26 @@ Full design: [`docs/DESIGN.md`](docs/DESIGN.md). Architecture: [`docs/ARCHITECTU
 
 ---
 
-## Quickstart
+## Getting started
+
+From `git clone` to a real benchmark result in three commands. Run them from
+an activated Python 3.12 conda env (`conda activate lerobot`):
 
 ```bash
-# Clone and install
-git clone https://github.com/thrmnn/lerobot-bench.git
-cd lerobot-bench
-
-# Activate the lerobot conda env (Python 3.12, miniforge3)
-conda activate lerobot
-
-# Install in editable mode with sim + dev extras
+# 1. Clone and install (editable, all extras: sim + viz + space + dev)
+git clone https://github.com/thrmnn/lerobot-bench.git && cd lerobot-bench
 pip install -e ".[all]"
 
-# Smoke a single (policy, env, seed) cell — ~1 min
-python scripts/run_one.py --policy act --env aloha_transfer_cube --seed 0 --episodes 5
+# 2. Run a single (policy, env, seed) cell — a couple of minutes on a GPU
+python scripts/run_one.py --policy act --env aloha_transfer_cube --seed 0 --n-episodes 5
 ```
+
+You just produced per-episode rows in `results/results.parquet` and rollout
+MP4s in `results/videos/` — the same artifacts every leaderboard number is
+built from.
+
+**→ Full walkthrough, expected output, and common-issue fixes:
+[`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).**
 
 ### Run the full sweep
 
