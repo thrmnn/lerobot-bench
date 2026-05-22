@@ -1,116 +1,281 @@
 # Model cards
 
-One entry per policy in the v1 leaderboard. Filled at Day 0a (repo IDs +
-revision SHAs locked) and again at Day 7 (failure-mode column populated
-from the failure taxonomy labeling pass).
+One entry per policy in the v1 leaderboard. Repo IDs and revision SHAs
+were locked at Day 0a; the failure-mode column is populated at Day 7
+from the failure-taxonomy labeling pass.
 
-> Anything not yet locked is marked **TBD**. Do not silently fill —
-> if a value is unknown at lockin, that's a sweep blocker per
-> `docs/CEO-PLAN.md`.
+The **v1 roster is six policies**: two classical visuomotor policies
+(`act`, `diffusion_policy`), two VLA action heads (`smolvla_libero`,
+`xvla_libero`), and two weights-free floor baselines (`no_op`,
+`random`). The `pi0` family (`pi0`, `pi0.5`, `pi0fast`) is **deferred
+to v1.1** — see [Deferred policies](#deferred-policies-v11) below for
+the reason and the locked SHAs that carry forward.
+
+> Fields populated only after the sweep completes (VRAM at inference,
+> calibrated ms/step, Day-7 failure modes) are marked **TBD** until the
+> corresponding artifact lands. Per `docs/CEO-PLAN.md`, a `repo_id` or
+> `revision_sha` left unknown at lock-in is a sweep blocker; those are
+> all resolved. Numbers below are pulled from `configs/policies.yaml`
+> and the cited primary sources — none are invented.
 
 ---
 
-## Diffusion Policy
-
-- **Repo ID**: `lerobot/diffusion_pusht`
-- **Revision SHA**: `84a7c23178445c6bbf7e1a884ff497017910f653` (locked 2026-05-03; lastModified 2025-03-06)
-- **License**: apache-2.0
-- **Envs supported**: PushT (this checkpoint is PushT-trained only; an Aloha variant would be a separate Hub entry not yet listed)
-- **Inference precision**: fp32
-- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
-- **Mean ms/step (calibrated)**: TBD
-- **Known failure modes**: TBD (Day 7 taxonomy)
-- **Source paper**: Chi et al., "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion", RSS 2023
-
 ## ACT (Action Chunking Transformer)
 
+- **Architecture**: Action-chunking transformer — a CVAE-conditioned
+  encoder–decoder transformer that, at each inference call, predicts a
+  *chunk* of future actions (a fixed horizon of ~100 steps) rather than
+  a single action, and executes them with temporal ensembling to
+  smooth chunk boundaries. Visuomotor: RGB camera inputs plus joint
+  proprioception, continuous joint-space action output.
 - **Repo ID**: `lerobot/act_aloha_sim_transfer_cube_human`
-- **Revision SHA**: `ba73b2766f1371cdc133ca4efb97eb090d744625` (locked 2026-05-03; lastModified 2025-03-06)
+- **Revision SHA**: `ba73b2766f1371cdc133ca4efb97eb090d744625`
+  (locked 2026-05-03; Hub `lastModified` 2025-03-06)
 - **License**: apache-2.0
-- **Envs supported**: Aloha transfer-cube (this checkpoint is Aloha-trained only; a PushT variant would be a separate Hub entry not yet listed)
+- **Parameter scale**: ≈80M parameters (ACT as introduced by Zhao et
+  al. 2023 is an ~80M-parameter model; the LeRobot checkpoint uses the
+  default ACT config and is in the same class). Exact count for this
+  checkpoint is not separately published on the Hub card.
+- **Training data**: Aloha *Transfer Cube* simulation task, **human
+  teleoperation** demonstrations (the `_human` suffix in the repo ID).
+  The companion `_scripted` checkpoint trains on scripted-policy data;
+  this checkpoint is the human-data variant.
+- **Envs supported**: `aloha_transfer_cube` only. This checkpoint is
+  Aloha-trained; a PushT ACT variant would be a separate Hub entry and
+  is not in the v1 roster.
 - **Inference precision**: fp32
-- **VRAM @ inference**: TBD
-- **Mean ms/step**: TBD
-- **Known failure modes**: TBD
-- **Source paper**: Zhao et al., "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware", RSS 2023
+- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
+- **Mean ms/step (calibrated)**: TBD (Day 0b calibration)
+- **Paper-reported success**: `aloha_transfer_cube` = **0.50**
+  (Zhao et al. 2023, Table I, row "ACT (Ours)", Cube Transfer (sim) /
+  Transfer subtask, human-teleop training column; 3 seeds × 50
+  evaluations). The LeRobot Hub model card additionally reports
+  **83.0%** on 500 episodes from a LeRobot retraining; the model card
+  itself acknowledges the gap from the paper and attributes it to
+  `gym-aloha` success heuristics. lerobot-bench re-runs at 5 seeds ×
+  50 episodes per cell.
+- **Known failure modes**: TBD (Day 7 taxonomy)
+- **Source paper**: Zhao et al., "Learning Fine-Grained Bimanual
+  Manipulation with Low-Cost Hardware", RSS 2023
+  ([arXiv:2304.13705](https://arxiv.org/abs/2304.13705)).
+- **Caveats**: Paper vs. Hub-card success rates differ by ~33pp on the
+  same nominal task — a head-to-head against any other number requires
+  matching the success heuristic and episode budget, which is exactly
+  the comparability gap lerobot-bench exists to close.
 
-## SmolVLA (libero finetune)
+## Diffusion Policy
 
-- **Repo ID**: `lerobot/smolvla_libero`
-- **Revision SHA**: `31d453f7edd78c839a8bbc39744a292686daf0de` (locked 2026-05-03 via `huggingface_hub.HfApi().model_info(repo_id).sha`)
+- **Architecture**: Diffusion visuomotor policy — represents the
+  action distribution as a conditional denoising diffusion process; a
+  noise-prediction network (the LeRobot checkpoint uses the CNN-based
+  U-Net variant) is conditioned on a short history of RGB observations
+  and proprioception, and an action sequence is produced by iterative
+  denoising at inference time.
+- **Repo ID**: `lerobot/diffusion_pusht`
+- **Revision SHA**: `84a7c23178445c6bbf7e1a884ff497017910f653`
+  (locked 2026-05-03; Hub `lastModified` 2025-03-06)
 - **License**: apache-2.0
-- **Envs supported**: libero_spatial, libero_object, libero_goal, libero_10
+- **Parameter scale**: ≈260M parameters (the CNN-based Diffusion Policy
+  on image observations as reported by Chi et al. 2023 is ~260M; the
+  LeRobot checkpoint uses the default Diffusion Policy config and is in
+  the same class). Exact count for this checkpoint is not separately
+  published on the Hub card.
+- **Training data**: PushT task demonstrations (teleoperated pushing of
+  a T-shaped block to a target pose), the standard PushT demonstration
+  set used by the Diffusion Policy paper and the LeRobot `pusht`
+  dataset.
+- **Envs supported**: `pusht` only. This checkpoint is PushT-trained;
+  an Aloha Diffusion Policy variant would be a separate Hub entry and
+  is not in the v1 roster.
+- **Inference precision**: fp32
+- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
+- **Mean ms/step (calibrated)**: TBD (Day 0b calibration)
+- **Paper-reported success**: `pusht` = **0.654** — from the LeRobot
+  Hub model card for `lerobot/diffusion_pusht` (evaluation section):
+  65.4% over 500 episodes on `gym-pusht`, where success := max overlap
+  ≥ 95%. Note this is **not** the number in the original paper: Chi et
+  al. 2023 (Table 2) report PushT as *target-area coverage* (0.91 max
+  / 0.84 avg-of-last-10 for the image-CNN policy), a continuous metric
+  that is not directly comparable to the binary success threshold
+  `gym-pusht` and lerobot-bench use. The Hub-card number is the
+  apples-to-apples reference. lerobot-bench re-runs at 5 seeds × 50
+  episodes per cell.
+- **Known failure modes**: TBD (Day 7 taxonomy)
+- **Source paper**: Chi et al., "Diffusion Policy: Visuomotor Policy
+  Learning via Action Diffusion", RSS 2023
+  ([arXiv:2303.04137](https://arxiv.org/abs/2303.04137)).
+- **Caveats**: The paper's coverage metric and the benchmark's binary
+  success metric measure different things; do not compare the 0.91
+  coverage figure against any binary success rate.
+
+## SmolVLA (LIBERO finetune)
+
+- **Architecture**: Vision-language-action model — a compact VLA that
+  pairs a vision-language backbone (the SmolVLM-2 lineage) with a
+  flow-matching action-expert head that decodes language-conditioned
+  visual observations into continuous action chunks. Designed to be
+  small and fast enough for commodity hardware.
+- **Repo ID**: `lerobot/smolvla_libero`
+- **Revision SHA**: `31d453f7edd78c839a8bbc39744a292686daf0de`
+  (locked 2026-05-03 via `huggingface_hub.HfApi().model_info(repo_id).sha`)
+- **License**: apache-2.0
+- **Parameter scale**: ≈0.45B parameters. The checkpoint inherits from
+  `lerobot/smolvla_base` (0.45B) — its `config.json` `pretrained_path`
+  field points there — so the apples-to-apples paper row is the
+  SmolVLA-0.45B variant (not the 0.24B or 2.25B variants in the same
+  paper table). Smallest VLA in the v1 matrix.
+- **Training data**: LIBERO. Finetuned from the `smolvla_base`
+  pretrained checkpoint on LIBERO task demonstrations; the public
+  README does not break the suite mix down per-suite. All four LIBERO
+  suites run under lerobot's shared observation contract.
+- **Envs supported**: `libero_spatial`, `libero_object`, `libero_goal`,
+  `libero_10`.
 - **Inference precision**: bf16
 - **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
-- **Mean ms/step (calibrated)**: ~160 ms/step measured on a smoke run (12.75s wallclock / 79 steps for libero_spatial seed 0). Full per-cell calibration deferred.
+- **Mean ms/step (calibrated)**: ~160 ms/step measured on a smoke run
+  (12.75s wallclock / 79 steps for `libero_spatial` seed 0). Full
+  per-cell calibration deferred to Day 0b.
+- **Paper-reported success** (Shukor et al. 2025, Table 2, row
+  "SmolVLA (0.45B), VLA Pt. = No"; protocol: 10 trials per task,
+  binary scoring — 1 only if the task is fully completed):
+  - `libero_spatial` = **0.90**
+  - `libero_object`  = **0.96**
+  - `libero_goal`    = **0.92**
+  - `libero_10`      = **0.71**  (paper's "Long" suite; Avg 87.3)
+
+  lerobot-bench re-runs at 5 seeds × 50 episodes per cell, ~5× more
+  rollouts than the paper, so CI widths should be tighter.
 - **Known failure modes**: TBD (Day 7 taxonomy)
-- **Source**: HuggingFace TB
+- **Source paper**: Shukor et al., "SmolVLA: A Vision-Language-Action
+  Model for Affordable and Efficient Robotics", 2025
+  ([arXiv:2506.01844](https://arxiv.org/abs/2506.01844)).
+- **Caveats**: Per-suite training mix is not published, so a low score
+  on one LIBERO suite cannot be cleanly attributed to data scarcity vs.
+  task difficulty. The `libero_10` (long-horizon) score is the lowest
+  cell in the paper — long-horizon compositional tasks are the known
+  weak point of this policy class.
 
-## Pi0 (libero finetune v0.4.4)
+## XVLA (LIBERO)
 
-- **Repo ID**: `lerobot/pi0_libero_finetuned_v044`
-- **Revision SHA**: `45dcc8fc0e02601c8ccf0554fbd1d26a55070c1f` (locked 2026-05-03)
-- **License**: gemma — review terms before redistribution; the underlying LM is Gemma-licensed.
-- **Envs supported**: libero_spatial, libero_object, libero_goal, libero_10
-- **Inference precision**: bf16
-- **VRAM @ inference**: ~6 GB target (3B params @ bf16, plus activations + KV cache). **Drop policy if OOM at bf16** — no quantization in v1.
-- **Mean ms/step**: TBD
-- **Known failure modes**: TBD
-- **Source**: Physical Intelligence (lerobot mirror)
-
-## Pi0.5 (libero finetune v0.4.4)
-
-- **Repo ID**: `lerobot/pi05_libero_finetuned_v044`
-- **Revision SHA**: `dbf8a3f794a9c4297b44f40b752712f50073d945` (locked 2026-05-03)
-- **License**: gemma — review terms before redistribution.
-- **Envs supported**: libero_spatial, libero_object, libero_goal, libero_10
-- **Inference precision**: bf16
-- **VRAM @ inference**: ~6 GB target (Pi0-class). Drop if OOM at bf16.
-- **Mean ms/step**: TBD
-- **Known failure modes**: TBD
-- **Source**: Physical Intelligence (lerobot mirror)
-- **Notes**: The most-downloaded Pi-class libero finetune on the Hub at lockin (~17.5k DL).
-
-## Pi0Fast (libero)
-
-- **Repo ID**: `lerobot/pi0fast-libero`
-- **Revision SHA**: `840f4b503f4c09110421c33c810a85b6684fd658` (locked 2026-05-03)
-- **License**: unspecified on Hub card — treat as "all rights reserved" until clarified upstream. Logged as risk for the v1 publish.
-- **Envs supported**: libero_spatial, libero_object, libero_goal, libero_10
-- **Inference precision**: bf16
-- **VRAM @ inference**: TBD (Pi0Fast claims faster inference than Pi0 baseline)
-- **Mean ms/step**: TBD
-- **Known failure modes**: TBD
-- **Source**: Physical Intelligence (lerobot mirror)
-
-## XVLA (libero)
-
+- **Architecture**: Vision-language-action model — X-VLA is a
+  soft-prompted transformer designed for scalable cross-embodiment
+  control; per-embodiment learnable "soft prompt" tokens condition a
+  shared transformer trunk, and a flow-matching action head emits
+  continuous actions. The LeRobot checkpoint is the LIBERO-specialized
+  variant.
 - **Repo ID**: `lerobot/xvla-libero`
-- **Revision SHA**: `12e8783e996944f5c97e490d37d4c145484ed70a` (locked 2026-05-03)
+- **Revision SHA**: `12e8783e996944f5c97e490d37d4c145484ed70a`
+  (locked 2026-05-03 via `huggingface_hub.HfApi().model_info(repo_id).sha`)
 - **License**: apache-2.0
-- **Envs supported**: libero_spatial, libero_object, libero_goal, libero_10
+- **Parameter scale**: ≈0.9B parameters. The Hub README links X-VLA as
+  the original reference; the LeRobot checkpoint is the
+  LIBERO-specialized 0.9B model (the "X-VLA (Ours), 0.9B" row of the
+  paper's Table 2).
+- **Training data**: LIBERO. The LIBERO-specialized full-finetune of
+  X-VLA; per-suite mix is not separately documented on the Hub card.
+  All four LIBERO suites run under lerobot's shared observation
+  contract.
+- **Envs supported**: `libero_spatial`, `libero_object`, `libero_goal`,
+  `libero_10`.
 - **Inference precision**: bf16
-- **VRAM @ inference**: TBD
-- **Mean ms/step**: TBD
-- **Known failure modes**: TBD
-- **Source**: lerobot mirror
+- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
+- **Mean ms/step (calibrated)**: TBD (Day 0b calibration)
+- **Paper-reported success** (Bu et al. 2025, Table 2, "X-VLA (Ours),
+  0.9B" row, full-finetune LIBERO columns; the paper does not state an
+  explicit episode count for the LIBERO eval — the underlying LIBERO
+  benchmark uses 10 trials per task, Liu et al. 2023):
+  - `libero_spatial` = **0.982**
+  - `libero_object`  = **0.986**
+  - `libero_goal`    = **0.978**
+  - `libero_10`      = **0.976**  (paper's "Long" suite; Avg 98.1)
+
+  lerobot-bench re-runs at 5 seeds × 50 episodes per cell.
+- **Known failure modes**: TBD (Day 7 taxonomy)
+- **Source paper**: Bu et al., "X-VLA: Soft-Prompted Transformer as
+  Scalable Cross-Embodiment Vision-Language-Action Model", 2025
+  ([arXiv:2510.10274](https://arxiv.org/abs/2510.10274)).
+- **Caveats**: Paper-reported LIBERO scores are near-saturated
+  (≥97.6% on all four suites). Near-ceiling cells leave little MDE
+  headroom at N=250 — a re-run delta against the paper number, if
+  small, may be inconclusive rather than a genuine regression.
 
 ## no-op (baseline)
 
-- **Repo ID**: n/a — emits zero action every step
+- **Architecture**: Weights-free baseline. Emits a zero action every
+  step — no model, no inference.
+- **Repo ID**: n/a (no checkpoint)
 - **Revision SHA**: n/a
-- **License**: n/a
-- **Envs supported**: pusht, aloha_transfer_cube, libero_spatial, libero_object, libero_goal, libero_10
+- **License**: MIT (the baseline implementation in this repo; there is
+  no upstream model to license)
+- **Parameter scale**: 0
+- **Training data**: none
+- **Envs supported**: `pusht`, `aloha_transfer_cube`, `libero_spatial`,
+  `libero_object`, `libero_goal`, `libero_10` (all six v1 envs)
 - **Inference precision**: n/a
 - **VRAM @ inference**: 0
-- **Mean ms/step**: ~0.1 ms (Python overhead only)
-- **Purpose**: floor on the leaderboard. A policy that fails to beat no-op on a given env has not learned that env.
+- **Mean ms/step**: ~0.1 ms (Python loop overhead only)
+- **Paper-reported success**: n/a — baseline, no published reference.
+- **Purpose / interpretation**: Leaderboard floor. A policy that fails
+  to beat no-op on a given env has not learned that env. Note that on
+  some envs a zero action is not the same as "do nothing useful" — it
+  holds the arm in place, which can incidentally satisfy a small
+  fraction of a coverage-style reward; the random baseline and no-op
+  together bracket the trivial-policy floor.
+- **Known failure modes**: n/a — by construction it fails every task
+  that requires motion.
 
-## random (baseline, optional)
+## random (baseline)
 
-- **Repo ID**: n/a — uniform-sampled action per step
+- **Architecture**: Weights-free baseline. Uniformly samples an action
+  from the env action space each step — no model, no inference.
+- **Repo ID**: n/a (no checkpoint)
 - **Revision SHA**: n/a
-- **License**: n/a
-- **Envs supported**: pusht, aloha_transfer_cube, libero_spatial, libero_object, libero_goal, libero_10
+- **License**: MIT (the baseline implementation in this repo; there is
+  no upstream model to license)
+- **Parameter scale**: 0
+- **Training data**: none
+- **Envs supported**: `pusht`, `aloha_transfer_cube`, `libero_spatial`,
+  `libero_object`, `libero_goal`, `libero_10` (all six v1 envs)
 - **Inference precision**: n/a
-- **Purpose**: cheap stochastic baseline. Included only if calibration leaves headroom.
+- **VRAM @ inference**: 0
+- **Mean ms/step**: negligible (a single action-space sample per step)
+- **Paper-reported success**: n/a — baseline, no published reference.
+- **Purpose / interpretation**: Cheap stochastic floor. PushT in
+  particular has a coverage-style reward whose expected value under
+  uniform action is empirically non-zero, so the random baseline
+  guards against reading a non-zero success rate as evidence of
+  learning. Action sampling inherits the per-cell torch generator and
+  is reproducible under the seeding contract.
+- **Known failure modes**: n/a — its outcomes are sampling noise, not
+  taxonomy-classifiable failures.
+
+---
+
+## Deferred policies (v1.1)
+
+The `pi0` family is **not in the v1 roster**. The cold-load host-RAM
+footprint of the PaliGemma-3B backbone exceeds the headroom on the v1
+reference machine (see `paper/main.tex` Limitations: ~30GB host RAM
+during `from_pretrained` weight-conversion staging, despite <4GB peak
+VRAM at steady state). Locked SHAs are kept here so v1.1 onboarding
+does not need a fresh lock-in pass.
+
+| Policy   | Repo ID                               | Revision SHA (locked 2026-05-03)           | License | Notes |
+|----------|---------------------------------------|--------------------------------------------|---------|-------|
+| Pi0      | `lerobot/pi0_libero_finetuned_v044`   | `45dcc8fc0e02601c8ccf0554fbd1d26a55070c1f` | gemma   | Pi0 LIBERO finetune (~8.9k DL). Review Gemma terms before redistribution. |
+| Pi0.5    | `lerobot/pi05_libero_finetuned_v044`  | `dbf8a3f794a9c4297b44f40b752712f50073d945` | gemma   | Pi0.5 LIBERO finetune (~17.5k DL); most-downloaded Pi-class LIBERO finetune at lock-in. |
+| Pi0Fast  | `lerobot/pi0fast-libero`              | `840f4b503f4c09110421c33c810a85b6684fd658` | unspecified | License unspecified on Hub card — treat as "all rights reserved" until clarified upstream. Logged as a publish risk. |
+
+- **Architecture (all three)**: VLA action heads on a PaliGemma-class
+  vision-language backbone. Pi0 uses a flow-matching action expert;
+  Pi0Fast uses an autoregressive action tokenization for faster
+  inference; Pi0.5 is the successor checkpoint in the same family.
+- **Parameter scale**: ≈3B parameters (PaliGemma-3B backbone class).
+- **Source**: Physical Intelligence, mirrored under the `lerobot` Hub
+  org. Source paper: Black et al., "$\pi_0$: A Vision-Language-Action
+  Flow Model for General Robot Control", 2024
+  ([arXiv:2410.24164](https://arxiv.org/abs/2410.24164)).
+- **v1.1 plan**: onboard via a quantized checkpoint (4-bit/8-bit GPTQ)
+  or `accelerate` `device_map="auto"` streaming load to bring cold-load
+  RAM under 12GB. Paper-reported success rates and Day-7 failure modes
+  will be filled when these policies enter the sweep.
