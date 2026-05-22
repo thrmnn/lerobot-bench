@@ -55,6 +55,8 @@ _SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 if _SRC_DIR.is_dir() and str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from lerobot_bench.envs import EnvRegistry, EnvSpec  # noqa: E402
+from lerobot_bench.policies import PolicyRegistry, PolicySpec  # noqa: E402
 from lerobot_bench.stats import wilson_ci, wilson_halfwidth_at_p  # noqa: E402
 
 # --------------------------------------------------------------------- #
@@ -1871,6 +1873,552 @@ def column_glossary_markdown(tab: str) -> str:
             f"very high >{VERY_HIGH_VRAM_THRESHOLD_MB:.0f})."
         )
     return ""
+
+
+# --------------------------------------------------------------------- #
+# Scientific-context panels: Policies + Envs tabs (council audit P0)     #
+# --------------------------------------------------------------------- #
+#
+# A reviewer landing on the dashboard cannot tell what `xvla_libero` is
+# or what `libero_10` tests. These helpers render a markdown card per
+# policy / per env so the numbers on the other tabs have scientific
+# context. They are gradio-free (same contract as the rest of this
+# module); ``app.py`` renders the returned strings into ``gr.Markdown``.
+#
+# Policy cards pull architecture + training-data prose out of
+# ``docs/MODEL_CARDS.md`` (parsed below); env cards pull task prose from
+# the hand-authored ``_ENV_CONTEXT`` constant dict (the env YAML is read
+# per-cell by a live sweep, so we deliberately do *not* extend its
+# schema -- the constant-dict route keeps the running sweep untouched).
+
+DEFAULT_POLICIES_YAML = REPO_ROOT / "configs" / "policies.yaml"
+DEFAULT_ENVS_YAML = REPO_ROOT / "configs" / "envs.yaml"
+DEFAULT_MODEL_CARDS = REPO_ROOT / "docs" / "MODEL_CARDS.md"
+
+# Delta-chip colour thresholds for paper-reported-vs-ours. |Δ| below
+# DELTA_GREEN_MAX is a clean reproduction; between green and yellow max
+# is a notable-but-plausible gap; above is a red flag worth a caveat.
+DELTA_GREEN_MAX = 0.05
+DELTA_YELLOW_MAX = 0.15
+
+# Hand-authored scientific context for each v1 env. Sourced from the
+# env's original paper (PushT: Chi et al. 2023; Aloha: Zhao et al. 2023;
+# LIBERO suites: Liu et al. 2023) and cross-checked against
+# ``paper/main.tex`` Related Work. Kept here rather than in
+# ``configs/envs.yaml`` so the running sweep -- which reads the env YAML
+# per cell at dispatch -- is unaffected by this descriptive layer.
+_ENV_CONTEXT: dict[str, dict[str, str]] = {
+    "pusht": {
+        "task": (
+            "Push a T-shaped block across a planar table into a fixed "
+            "target pose using a circular end-effector. Success is a "
+            "coverage threshold: the block must overlap the goal region."
+        ),
+        "obs": "96x96 RGB agent-view image + 2-D end-effector (x, y) position.",
+        "discriminates": (
+            "Fine-grained contact-rich planar control and recovery from "
+            "the block slipping off the pusher."
+        ),
+        "source": (
+            'Chi et al. 2023, "Diffusion Policy: Visuomotor Policy '
+            'Learning via Action Diffusion" (RSS 2023); gym-pusht env.'
+        ),
+    },
+    "aloha_transfer_cube": {
+        "task": (
+            "Bimanual cube transfer: one arm picks a cube from the table "
+            "and hands it to the second arm, which must receive and hold "
+            "it. Success requires a completed mid-air transfer."
+        ),
+        "obs": "480x640 top-camera RGB + 14-D joint state (two 7-DoF arms).",
+        "discriminates": (
+            "Bimanual coordination and gripper timing -- the hand-off "
+            "fails on early/late release or a missed grasp."
+        ),
+        "source": (
+            'Zhao et al. 2023, "Learning Fine-Grained Bimanual '
+            'Manipulation with Low-Cost Hardware" (RSS 2023); gym-aloha '
+            "AlohaTransferCube env."
+        ),
+    },
+    "libero_spatial": {
+        "task": (
+            "Pick-and-place where the target object's identity is fixed "
+            "but its spatial layout (and that of distractors) varies "
+            "across episodes; the instruction names a spatial relation."
+        ),
+        "obs": ("Agent-view + wrist-camera RGB + proprioceptive state (Franka Panda 7-DoF arm)."),
+        "discriminates": (
+            'Spatial grounding -- resolving "the bowl next to the '
+            'plate"-style instructions under layout shift.'
+        ),
+        "source": (
+            'Liu et al. 2023, "LIBERO: Benchmarking Knowledge Transfer '
+            'for Lifelong Robot Learning" (NeurIPS 2023); LIBERO-Spatial '
+            "suite, task 0."
+        ),
+    },
+    "libero_object": {
+        "task": (
+            "Pick-and-place where the spatial layout is fixed but the "
+            "target object identity varies across episodes; the "
+            "instruction names which object to manipulate."
+        ),
+        "obs": ("Agent-view + wrist-camera RGB + proprioceptive state (Franka Panda 7-DoF arm)."),
+        "discriminates": (
+            "Object grounding -- visually distinguishing and selecting "
+            "the named object among distractors."
+        ),
+        "source": ('Liu et al. 2023, "LIBERO" (NeurIPS 2023); LIBERO-Object suite, task 0.'),
+    },
+    "libero_goal": {
+        "task": (
+            "Manipulation where the object set and layout are fixed but "
+            "the goal varies across episodes; the instruction specifies "
+            "which of several goals to achieve."
+        ),
+        "obs": ("Agent-view + wrist-camera RGB + proprioceptive state (Franka Panda 7-DoF arm)."),
+        "discriminates": (
+            "Goal grounding -- conditioning behaviour on the instruction "
+            "rather than memorising one fixed outcome."
+        ),
+        "source": ('Liu et al. 2023, "LIBERO" (NeurIPS 2023); LIBERO-Goal suite, task 0.'),
+    },
+    "libero_10": {
+        "task": (
+            "Long-horizon compositional tasks (the LIBERO-Long / "
+            "LIBERO-10 suite): multi-stage instructions chaining several "
+            "pick-place-and-manipulate subgoals into one episode."
+        ),
+        "obs": ("Agent-view + wrist-camera RGB + proprioceptive state (Franka Panda 7-DoF arm)."),
+        "discriminates": (
+            "Long-horizon credit assignment and recovery -- one dropped "
+            "subgoal fails the whole episode."
+        ),
+        "source": (
+            'Liu et al. 2023, "LIBERO" (NeurIPS 2023); LIBERO-Long ("LIBERO-10") suite, task 0.'
+        ),
+    },
+}
+
+
+@lru_cache(maxsize=1)
+def load_policy_registry(path: str | None = None) -> PolicyRegistry:
+    """Load the v1 :class:`PolicyRegistry` from ``configs/policies.yaml``.
+
+    Cached: the registry is pure data and the dashboard process is
+    single-tenant, so one load per session is plenty. ``path`` is the
+    cache key; ``None`` resolves to the shipped config.
+    """
+    return PolicyRegistry.from_yaml(path or DEFAULT_POLICIES_YAML)
+
+
+@lru_cache(maxsize=1)
+def load_env_registry(path: str | None = None) -> EnvRegistry:
+    """Load the v1 :class:`EnvRegistry` from ``configs/envs.yaml``.
+
+    Cached for the same reason as :func:`load_policy_registry`.
+    """
+    return EnvRegistry.from_yaml(path or DEFAULT_ENVS_YAML)
+
+
+def policy_dropdown_choices(registry: PolicyRegistry | None = None) -> list[str]:
+    """Return the sorted policy names for the Policies-tab dropdown."""
+    reg = registry if registry is not None else load_policy_registry()
+    return reg.names()
+
+
+def env_dropdown_choices(registry: EnvRegistry | None = None) -> list[str]:
+    """Return the sorted env names for the Envs-tab dropdown."""
+    reg = registry if registry is not None else load_env_registry()
+    return reg.names()
+
+
+@lru_cache(maxsize=1)
+def _parse_model_cards(path_str: str) -> dict[str, str]:
+    """Parse ``docs/MODEL_CARDS.md`` into ``{normalized-name: section-body}``.
+
+    The file is one ``## Heading`` section per policy. We key the
+    section bodies on a normalized form of the heading (lower-cased,
+    parenthetical qualifiers stripped) so a YAML policy name can be
+    matched against the prose heading despite formatting differences
+    (``smolvla_libero`` vs ``## SmolVLA (libero finetune)``).
+
+    Returns ``{}`` if the file is missing -- the policy card then
+    renders the architecture / training-data lines as ``"—"``.
+    """
+    path = Path(path_str)
+    if not path.exists():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.warning("model cards %s unreadable: %s", path, exc)
+        return {}
+    sections: dict[str, str] = {}
+    current: str | None = None
+    buf: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if current is not None:
+                sections[current] = "\n".join(buf).strip()
+            current = _normalize_card_heading(line[3:])
+            buf = []
+        elif current is not None:
+            buf.append(line)
+    if current is not None:
+        sections[current] = "\n".join(buf).strip()
+    return sections
+
+
+def _normalize_card_heading(heading: str) -> str:
+    """Normalize a model-card H2 heading to a stable lookup key.
+
+    Drops a trailing parenthetical (``(libero finetune)``), lower-cases,
+    and collapses whitespace -- so ``Pi0.5 (libero finetune v0.4.4)``
+    and a YAML name like ``pi05`` can be brought together by the
+    caller's own normalization of the YAML name.
+    """
+    base = re.sub(r"\(.*?\)", "", heading)
+    return re.sub(r"\s+", " ", base).strip().lower()
+
+
+def _model_card_section(policy_name: str) -> str:
+    """Best-effort lookup of a policy's ``docs/MODEL_CARDS.md`` section body.
+
+    The YAML policy names (``smolvla_libero``, ``pi05_libero_finetuned_v044``)
+    do not match the prose headings (``SmolVLA``, ``Pi0.5``) one-to-one,
+    so we try a small ladder of normalizations. Returns ``""`` when no
+    section matches -- the card then shows ``"—"`` for the prose lines.
+    """
+    sections = _parse_model_cards(str(DEFAULT_MODEL_CARDS))
+    if not sections:
+        return ""
+    # Candidate keys, most-specific first.
+    raw = policy_name.lower()
+    candidates = [raw, raw.replace("_", " ")]
+    # Strip common suffixes the YAML carries but the prose heading omits.
+    stripped = re.sub(r"[_\s]*(libero[_\s]*)?finetuned[_\s]*v[\d.]+$", "", raw)
+    stripped = re.sub(r"[_\s]*libero$", "", stripped)
+    candidates.append(stripped.replace("_", " ").strip())
+    # ``pi05`` -> ``pi0.5``, ``pi0fast`` -> ``pi0fast`` (heading is "Pi0Fast").
+    candidates.append(stripped.replace("pi05", "pi0.5").replace("_", " ").strip())
+    candidates.append("no-op" if raw == "no_op" else raw)
+    for key in candidates:
+        if key and key in sections:
+            return sections[key]
+    return ""
+
+
+def _extract_card_field(section_body: str, field_label: str) -> str:
+    """Pull a single ``- **Label**: value`` bullet from a model-card section.
+
+    Returns ``""`` when the bullet is absent so the caller can render
+    the :data:`STAT_PLACEHOLDER`.
+    """
+    for line in section_body.splitlines():
+        m = re.match(rf"\s*-\s*\*\*{re.escape(field_label)}\*\*\s*:\s*(.+)$", line)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def policy_architecture_line(policy_name: str) -> str:
+    """One-liner: architecture family + training data, from the model card.
+
+    Synthesised from the model-card section's ``Source paper`` /
+    ``Source`` / ``Envs supported`` bullets. Returns :data:`STAT_PLACEHOLDER`
+    when the card has no usable prose (keeps the panel honest rather
+    than inventing an architecture string).
+    """
+    body = _model_card_section(policy_name)
+    if not body:
+        return STAT_PLACEHOLDER
+    paper = _extract_card_field(body, "Source paper")
+    source = _extract_card_field(body, "Source")
+    envs = _extract_card_field(body, "Envs supported")
+    purpose = _extract_card_field(body, "Purpose")
+    parts: list[str] = []
+    if paper:
+        parts.append(f"Architecture/source: {paper}")
+    elif source:
+        parts.append(f"Source: {source}")
+    elif purpose:
+        parts.append(purpose)
+    if envs:
+        parts.append(f"Trained for: {envs}")
+    return " · ".join(parts) if parts else STAT_PLACEHOLDER
+
+
+def delta_chip(paper: float | None, ours: float | None) -> tuple[str, str]:
+    """Return ``(delta_text, chip_emoji)`` for a paper-vs-ours comparison.
+
+    * Either side missing -> ``("—", "")`` (no chip; nothing to compare).
+    * Both present -> signed delta plus a colour chip keyed on ``|Δ|``:
+      green when ``|Δ| < DELTA_GREEN_MAX``, yellow up to
+      ``DELTA_YELLOW_MAX``, red above. The chip is a coloured circle
+      emoji so it survives copy-paste into the operator's notes (the
+      same rationale as the ``⚠`` glyphs elsewhere in this module).
+    """
+    if paper is None or ours is None:
+        return STAT_PLACEHOLDER, ""
+    delta = ours - paper
+    abs_d = abs(delta)
+    if abs_d < DELTA_GREEN_MAX:
+        chip = "🟢"
+    elif abs_d <= DELTA_YELLOW_MAX:
+        chip = "🟡"
+    else:
+        chip = "🔴"
+    return f"{delta:+.3f}", chip
+
+
+def _our_success_rate(
+    results_df: pd.DataFrame | None,
+    *,
+    policy: str,
+    env: str,
+) -> float | None:
+    """Our re-run success rate for one cell, or ``None`` when not on disk.
+
+    Thin wrapper over :func:`compute_cell_episode_stats` so the policy
+    card and the test suite share one definition of "our number".
+    """
+    stats = compute_cell_episode_stats(results_df, policy=policy, env=env)
+    return stats.success_rate if stats is not None else None
+
+
+def build_policy_card_markdown(
+    policy_name: str,
+    *,
+    registry: PolicyRegistry | None = None,
+    results_df: pd.DataFrame | None = None,
+) -> str:
+    """Render the markdown science card for one policy.
+
+    Sections: identity (repo @ short-SHA, license, baseline flag),
+    architecture/training prose from ``docs/MODEL_CARDS.md``, a
+    paper-reported-vs-ours table with a colour-chipped delta per env,
+    the ``paper_reported_notes`` caveat, and the policy ``notes``.
+
+    ``results_df`` is the per-episode results parquet (loaded via
+    :func:`load_results_parquet`); when a cell has no rows yet the
+    "ours" column shows ``(pending)``. ``None`` -> every cell pending.
+    """
+    reg = registry if registry is not None else load_policy_registry()
+    try:
+        spec: PolicySpec = reg.get(policy_name)
+    except KeyError:
+        return f"_Unknown policy `{policy_name}`._"
+
+    short_sha = spec.revision_sha[:12] if spec.revision_sha else STAT_PLACEHOLDER
+    repo = spec.repo_id or STAT_PLACEHOLDER
+    license_str = spec.license or STAT_PLACEHOLDER
+    kind = "baseline (no weights)" if spec.is_baseline else "pretrained checkpoint"
+    fp = spec.fp_precision or STAT_PLACEHOLDER
+
+    lines: list[str] = [
+        f"## {spec.name}",
+        "",
+        f"| Repo | `{repo}` |",
+        "|---|---|",
+        f"| Revision | `{short_sha}` |",
+        f"| License | {license_str} |",
+        f"| Kind | {kind} |",
+        f"| Inference precision | {fp} |",
+        "",
+        "**Architecture & training data.** "
+        + (policy_architecture_line(spec.name) or STAT_PLACEHOLDER),
+        "",
+    ]
+
+    # Paper-reported vs our re-run, one row per supported env.
+    lines.append("### Paper-reported vs. our re-run")
+    lines.append("")
+    paper_map = spec.paper_reported_success or {}
+    if not paper_map:
+        lines.append(
+            "_No published reference for this policy "
+            + ("(baseline)." if spec.is_baseline else "on its supported envs.")
+            + "_"
+        )
+    else:
+        lines.append("| Env | Paper | Ours | Δ (ours−paper) | |")
+        lines.append("|---|---|---|---|---|")
+        for env in spec.env_compat:
+            paper_val = paper_map.get(env)
+            ours_val = _our_success_rate(results_df, policy=spec.name, env=env)
+            paper_cell = f"{paper_val:.3f}" if paper_val is not None else STAT_PLACEHOLDER
+            if ours_val is None:
+                ours_cell = "(pending)"
+                delta_cell, chip = STAT_PLACEHOLDER, ""
+            else:
+                ours_cell = f"{ours_val:.3f}"
+                delta_cell, chip = delta_chip(paper_val, ours_val)
+            lines.append(f"| `{env}` | {paper_cell} | {ours_cell} | {delta_cell} | {chip} |")
+        lines.append("")
+        lines.append(
+            "_Chip: 🟢 |Δ| < "
+            f"{DELTA_GREEN_MAX:.2f} · 🟡 {DELTA_GREEN_MAX:.2f}–{DELTA_YELLOW_MAX:.2f} "
+            f"· 🔴 > {DELTA_YELLOW_MAX:.2f}. `(pending)` = cell not yet in the "
+            "results parquet._"
+        )
+
+    if spec.paper_reported_notes:
+        lines.append("")
+        lines.append(f"> **Reference caveat.** {spec.paper_reported_notes}")
+
+    if spec.notes:
+        lines.append("")
+        lines.append(f"**Notes.** {spec.notes}")
+
+    return "\n".join(lines)
+
+
+def build_env_card_markdown(
+    env_name: str,
+    *,
+    registry: EnvRegistry | None = None,
+) -> str:
+    """Render the markdown science card for one env.
+
+    Combines the runtime fields from :class:`EnvSpec` (``max_steps``,
+    ``success_threshold``, family, construction path) with the
+    hand-authored task / observation / discrimination prose from
+    :data:`_ENV_CONTEXT`. Missing prose degrades to ``"—"`` rather
+    than failing -- the runtime fields always render.
+    """
+    reg = registry if registry is not None else load_env_registry()
+    try:
+        spec: EnvSpec = reg.get(env_name)
+    except KeyError:
+        return f"_Unknown env `{env_name}`._"
+
+    ctx = _ENV_CONTEXT.get(env_name, {})
+    task = ctx.get("task", STAT_PLACEHOLDER)
+    obs = ctx.get("obs", STAT_PLACEHOLDER)
+    discriminates = ctx.get("discriminates", STAT_PLACEHOLDER)
+    source = ctx.get("source", STAT_PLACEHOLDER)
+    construction = "factory" if spec.uses_factory else "gym"
+
+    lines: list[str] = [
+        f"## {spec.name}",
+        "",
+        f"**Task.** {task}",
+        "",
+        f"| Family | {spec.family} |",
+        "|---|---|",
+        f"| Max steps per episode | {spec.max_steps} |",
+        f"| Success threshold | {spec.success_threshold:g} |",
+        f"| Construction path | {construction} |",
+        "",
+        f"**Observation.** {obs}",
+        "",
+        f"**What it discriminates.** {discriminates}",
+        "",
+        f"**Source.** {source}",
+    ]
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------- #
+# Representative-rollout episode selection (Rollout-preview tab)         #
+# --------------------------------------------------------------------- #
+#
+# The rollout tab previously defaulted episode selection to first-
+# alphabetical, which over-samples the episode with index 0 -- not a
+# representative view of the cell. The selector below picks the
+# *representative* episode: the one whose success matches the cell's
+# modal outcome and whose step count is closest to the cell median.
+# A second mode picks the *best* episode (cherry-pick warning attached
+# in the UI). All three modes fall back to first-on-disk when the cell
+# has no parquet rows.
+
+EPISODE_SELECT_REPRESENTATIVE = "representative"
+EPISODE_SELECT_BEST = "best"
+EPISODE_SELECT_FIRST = "first"
+EPISODE_SELECT_MODES: tuple[str, ...] = (
+    EPISODE_SELECT_REPRESENTATIVE,
+    EPISODE_SELECT_BEST,
+    EPISODE_SELECT_FIRST,
+)
+
+
+def select_representative_episode(
+    results_df: pd.DataFrame | None,
+    *,
+    policy: str,
+    env: str,
+    seed: int | str,
+    mode: str = EPISODE_SELECT_REPRESENTATIVE,
+    available_episodes: Iterable[int] | None = None,
+) -> int | None:
+    """Pick an episode index for one ``(policy, env, seed)`` cell.
+
+    Modes:
+
+    * ``representative`` -- among the cell's episodes, the one whose
+      ``success`` equals the cell's modal outcome and whose ``n_steps``
+      is closest to the cell median. Ties on distance break to the
+      lowest episode index for determinism.
+    * ``best`` -- the highest-return episode; with binary success and
+      no return column we proxy "best" as a *successful* episode with
+      the shortest ``n_steps`` (a fast success), falling back to the
+      shortest episode overall when none succeed.
+    * ``first`` -- the lowest episode index on disk (legacy default).
+
+    Returns ``None`` when the parquet has no rows for the cell *and*
+    ``available_episodes`` is empty/None -- the caller then keeps the
+    dropdown's first-on-disk value. When parquet rows are missing but
+    ``available_episodes`` is supplied, returns ``min(available)`` so
+    every mode degrades to first-on-disk rather than blanking the view.
+    """
+    fallback: int | None = None
+    if available_episodes is not None:
+        eps = sorted(int(e) for e in available_episodes)
+        fallback = eps[0] if eps else None
+
+    if results_df is None or results_df.empty:
+        return fallback
+    needed = {"policy", "env", "seed", "episode_index", "success"}
+    if not needed.issubset(results_df.columns):
+        return fallback
+
+    cell = results_df[
+        (results_df["policy"] == policy)
+        & (results_df["env"] == env)
+        & (results_df["seed"].astype(str) == str(seed))
+    ]
+    if cell.empty:
+        return fallback
+
+    if mode == EPISODE_SELECT_FIRST:
+        return int(cell["episode_index"].min())
+
+    has_steps = "n_steps" in cell.columns
+    cell = cell.sort_values("episode_index", kind="stable")
+
+    if mode == EPISODE_SELECT_BEST:
+        successes = cell[cell["success"].astype(bool)]
+        pool = successes if not successes.empty else cell
+        if has_steps:
+            best_idx = pool["n_steps"].astype(float).idxmin()
+            return int(pool.loc[best_idx, "episode_index"])
+        return int(pool["episode_index"].min())
+
+    # Representative: modal outcome, then closest to median step count.
+    outcomes = cell["success"].astype(bool)
+    modal_outcome = bool(outcomes.mean() >= 0.5)
+    modal = cell[outcomes == modal_outcome]
+    if modal.empty:
+        modal = cell
+    if has_steps:
+        median_steps = float(cell["n_steps"].astype(float).median())
+        dist = (modal["n_steps"].astype(float) - median_steps).abs()
+        # Stable sort already applied; idxmin breaks ties to first row.
+        chosen = modal.loc[dist.idxmin()]
+        return int(chosen["episode_index"])
+    return int(modal["episode_index"].min())
 
 
 # --------------------------------------------------------------------- #
