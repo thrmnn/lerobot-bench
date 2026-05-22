@@ -97,6 +97,21 @@ V1_RUNNABLE_CELLS = _dashboard_helpers.V1_RUNNABLE_CELLS
 V1_SEEDS_PER_CELL = _dashboard_helpers.V1_SEEDS_PER_CELL
 V1_TOTAL_SEED_ENTRIES = _dashboard_helpers.V1_TOTAL_SEED_ENTRIES
 
+# Scientific-context panels (Policies + Envs tabs, representative rollout).
+build_env_card_markdown = _dashboard_helpers.build_env_card_markdown
+build_policy_card_markdown = _dashboard_helpers.build_policy_card_markdown
+delta_chip = _dashboard_helpers.delta_chip
+DELTA_GREEN_MAX = _dashboard_helpers.DELTA_GREEN_MAX
+DELTA_YELLOW_MAX = _dashboard_helpers.DELTA_YELLOW_MAX
+env_dropdown_choices = _dashboard_helpers.env_dropdown_choices
+load_env_registry = _dashboard_helpers.load_env_registry
+load_policy_registry = _dashboard_helpers.load_policy_registry
+policy_dropdown_choices = _dashboard_helpers.policy_dropdown_choices
+select_representative_episode = _dashboard_helpers.select_representative_episode
+EPISODE_SELECT_BEST = _dashboard_helpers.EPISODE_SELECT_BEST
+EPISODE_SELECT_FIRST = _dashboard_helpers.EPISODE_SELECT_FIRST
+EPISODE_SELECT_REPRESENTATIVE = _dashboard_helpers.EPISODE_SELECT_REPRESENTATIVE
+
 # --------------------------------------------------------------------- #
 # Helpers to build synthetic manifests / calibration reports            #
 # --------------------------------------------------------------------- #
@@ -1540,3 +1555,208 @@ def test_stale_data_cache_escalates_after_three_failures() -> None:
             assert "File system error" in warning, (
                 f"escalated warning expected at failure #{i + 1}, got: {warning!r}"
             )
+
+
+# --------------------------------------------------------------------- #
+# Scientific-context panels: Policies + Envs tabs                        #
+# --------------------------------------------------------------------- #
+
+
+def test_policy_card_renders_for_every_v1_policy() -> None:
+    """Every policy in the shipped configs/policies.yaml renders a card.
+
+    The card must surface the repo, license, the short revision SHA,
+    and the paper-vs-ours heading -- a reviewer's minimum context. We
+    pass ``results_df=None`` so every cell shows ``(pending)``.
+    """
+    registry = load_policy_registry()
+    names = policy_dropdown_choices(registry)
+    assert len(names) >= 6, "expected the full v1 policy roster"
+    for name in names:
+        card = build_policy_card_markdown(name, registry=registry, results_df=None)
+        assert card.startswith(f"## {name}"), f"card for {name!r} missing its heading"
+        assert "Paper-reported vs. our re-run" in card
+        spec = registry.get(name)
+        if spec.repo_id:
+            assert spec.repo_id in card
+        if spec.is_baseline:
+            assert "baseline" in card.lower()
+
+
+def test_policy_card_paper_vs_ours_pending_and_delta() -> None:
+    """A VLA policy's card shows ``(pending)`` with no parquet, a delta with one."""
+    registry = load_policy_registry()
+    # xvla_libero carries paper_reported_success for all 4 libero suites.
+    no_data = build_policy_card_markdown("xvla_libero", registry=registry, results_df=None)
+    assert "(pending)" in no_data
+    # The paper number for libero_spatial (0.982) must appear.
+    assert "0.982" in no_data
+
+    # Now supply a results frame for one of its cells.
+    df = _results_frame(
+        _cell_rows(
+            policy="xvla_libero",
+            env="libero_spatial",
+            per_seed_successes=[50, 50, 50, 50, 50],
+            n_episodes_per_seed=50,
+        )
+    )
+    with_data = build_policy_card_markdown("xvla_libero", registry=registry, results_df=df)
+    # 250/250 success -> our 1.000 rendered; libero_spatial no longer pending.
+    assert "1.000" in with_data
+    # The other three libero suites still pending.
+    assert "(pending)" in with_data
+
+
+def test_delta_chip_color_thresholds() -> None:
+    """delta_chip's colour buckets honour the green / yellow / red cutoffs."""
+    # |Δ| below the green max -> green chip.
+    _, chip = delta_chip(0.90, 0.90 + DELTA_GREEN_MAX / 2)
+    assert chip == "🟢"
+    # |Δ| at the yellow band -> yellow chip.
+    _, chip = delta_chip(0.90, 0.90 - (DELTA_GREEN_MAX + DELTA_YELLOW_MAX) / 2)
+    assert chip == "🟡"
+    # |Δ| above the yellow max -> red chip.
+    _, chip = delta_chip(0.90, 0.90 - (DELTA_YELLOW_MAX + 0.1))
+    assert chip == "🔴"
+    # Exactly at the green/yellow boundary -> yellow (green is strict <).
+    _, chip = delta_chip(0.50, 0.50 + DELTA_GREEN_MAX)
+    assert chip == "🟡"
+    # Either side missing -> placeholder, no chip.
+    text, chip = delta_chip(None, 0.5)
+    assert text == STAT_PLACEHOLDER and chip == ""
+    text, chip = delta_chip(0.5, None)
+    assert text == STAT_PLACEHOLDER and chip == ""
+    # Delta text is signed to 3 dp.
+    text, _ = delta_chip(0.80, 0.83)
+    assert text == "+0.030"
+    text, _ = delta_chip(0.80, 0.77)
+    assert text == "-0.030"
+
+
+def test_env_card_renders_for_every_v1_env() -> None:
+    """Every env in the shipped configs/envs.yaml renders an informative card.
+
+    The card must carry the runtime fields (max_steps, success
+    threshold) and the hand-authored task / observation / source prose
+    -- no ``"—"`` placeholders for the v1 envs, which are all covered
+    by the _ENV_CONTEXT constant dict.
+    """
+    registry = load_env_registry()
+    names = env_dropdown_choices(registry)
+    assert set(names) >= {
+        "pusht",
+        "aloha_transfer_cube",
+        "libero_spatial",
+        "libero_object",
+        "libero_goal",
+        "libero_10",
+    }
+    for name in names:
+        card = build_env_card_markdown(name, registry=registry)
+        assert card.startswith(f"## {name}")
+        spec = registry.get(name)
+        assert str(spec.max_steps) in card
+        assert "**Task.**" in card
+        assert "**Observation.**" in card
+        assert "**Source.**" in card
+        # Every v1 env has hand-authored context -> no placeholder prose.
+        assert STAT_PLACEHOLDER not in card, f"env card for {name!r} has a placeholder"
+
+
+def test_policy_and_env_card_unknown_name() -> None:
+    """An unknown policy / env name yields a graceful message, not a crash."""
+    assert "Unknown policy" in build_policy_card_markdown("not_a_policy")
+    assert "Unknown env" in build_env_card_markdown("not_an_env")
+
+
+# --------------------------------------------------------------------- #
+# Representative-rollout episode selection                               #
+# --------------------------------------------------------------------- #
+
+
+def _rollout_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
+    """Per-episode frame with an n_steps column for the rollout selector."""
+    return pd.DataFrame(
+        rows, columns=["policy", "env", "seed", "episode_index", "success", "n_steps"]
+    )
+
+
+def test_select_representative_episode_picks_modal_outcome_and_median_steps() -> None:
+    """Representative = modal-outcome episode closest to the cell's median steps.
+
+    Five episodes for one cell: 4 successes, 1 failure (modal outcome =
+    success). Among the 4 successes, the one whose n_steps is closest
+    to the cell's median step count is the representative.
+    """
+    rows = [
+        {"policy": "p", "env": "e", "seed": 0, "episode_index": 0, "success": True, "n_steps": 100},
+        {"policy": "p", "env": "e", "seed": 0, "episode_index": 1, "success": True, "n_steps": 200},
+        {"policy": "p", "env": "e", "seed": 0, "episode_index": 2, "success": True, "n_steps": 150},
+        {"policy": "p", "env": "e", "seed": 0, "episode_index": 3, "success": True, "n_steps": 400},
+        {"policy": "p", "env": "e", "seed": 0, "episode_index": 4, "success": False, "n_steps": 90},
+    ]
+    df = _rollout_frame(rows)
+    # Median of [100, 200, 150, 400, 90] = 150 -> episode 2 (success, 150 steps).
+    chosen = select_representative_episode(
+        df, policy="p", env="e", seed=0, mode=EPISODE_SELECT_REPRESENTATIVE
+    )
+    assert chosen == 2
+
+
+def test_select_representative_episode_best_mode_is_fast_success() -> None:
+    """Best = a successful episode with the shortest step count (fast success)."""
+    rows = [
+        {"policy": "p", "env": "e", "seed": 0, "episode_index": 0, "success": False, "n_steps": 50},
+        {"policy": "p", "env": "e", "seed": 0, "episode_index": 1, "success": True, "n_steps": 300},
+        {"policy": "p", "env": "e", "seed": 0, "episode_index": 2, "success": True, "n_steps": 120},
+    ]
+    df = _rollout_frame(rows)
+    chosen = select_representative_episode(
+        df, policy="p", env="e", seed=0, mode=EPISODE_SELECT_BEST
+    )
+    # Episode 2 is the shortest *successful* episode -- episode 0 is faster
+    # but is a failure, so it must not win "best".
+    assert chosen == 2
+
+    # First mode -> lowest episode index regardless of outcome / steps.
+    first = select_representative_episode(
+        df, policy="p", env="e", seed=0, mode=EPISODE_SELECT_FIRST
+    )
+    assert first == 0
+
+
+def test_select_representative_episode_falls_back_with_no_parquet_rows() -> None:
+    """No parquet rows for the cell -> fall back to first available on disk."""
+    df = _rollout_frame(
+        [
+            {
+                "policy": "p",
+                "env": "e",
+                "seed": 0,
+                "episode_index": 0,
+                "success": True,
+                "n_steps": 100,
+            }
+        ]
+    )
+    # Cell (other, e, 0) is absent from the parquet: fall back to min(available).
+    chosen = select_representative_episode(
+        df,
+        policy="other",
+        env="e",
+        seed=0,
+        mode=EPISODE_SELECT_REPRESENTATIVE,
+        available_episodes=[7, 3, 11],
+    )
+    assert chosen == 3
+
+    # No parquet at all + no available episodes -> None (keep dropdown value).
+    assert select_representative_episode(None, policy="p", env="e", seed=0) is None
+    # No parquet + available episodes -> first on disk.
+    assert (
+        select_representative_episode(
+            None, policy="p", env="e", seed=0, available_episodes=[5, 2, 9]
+        )
+        == 2
+    )

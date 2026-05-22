@@ -7,7 +7,7 @@ This dashboard runs on the operator's laptop, reads sweep state + videos
     "I just launched ``make sweep`` -- what's it actually doing, and
     is the calibration matrix shape I shipped sane?"
 
-Three tabs:
+Tabs:
 
 1. **Sweep progress** -- live table of ``(policy, env)`` cells with
    status / seeds-done / ETA, auto-refreshing every 5 s. Reads
@@ -17,7 +17,12 @@ Three tabs:
    downscope reason.
 3. **Rollout preview** -- (policy, env, seed, episode) dropdown
    cascade -> HTML5 ``gr.Video`` player. Scans the local results dir
-   and the Windows-mounted Robotics-Data drive for MP4s.
+   and the Windows-mounted Robotics-Data drive for MP4s. Episode
+   selection defaults to the cell's representative rollout.
+4. **Live event log** -- colour-coded tail of ``logs/sweep-*.log``.
+5. **Policies** / **Envs** -- scientific-context cards for every
+   policy / sim env in the v1 matrix (repo + revision, license,
+   paper-reported-vs-ours, task description, observation modality).
 
 All non-trivial plumbing lives in :mod:`_helpers`. The companion
 ``tests/test_dashboard.py`` imports that module directly so the
@@ -37,12 +42,17 @@ from _helpers import (
     CALIBRATION_COLUMNS,
     DEFAULT_LOG_TAIL_LINES,
     DEFAULT_VIDEO_ROOTS,
+    EPISODE_SELECT_BEST,
+    EPISODE_SELECT_FIRST,
+    EPISODE_SELECT_REPRESENTATIVE,
     PROGRESS_COLUMNS,
     V1_INCONCLUSIVE_BAND,
     HalfWidthCurve,
     StaleDataCache,
     build_calibration_table,
+    build_env_card_markdown,
     build_halfwidth_curve,
+    build_policy_card_markdown,
     build_progress_table,
     clear_video_cache,
     column_glossary_markdown,
@@ -50,6 +60,7 @@ from _helpers import (
     discover_sweep_runs,
     env_dashboard_logs_dir,
     env_dashboard_results_dir,
+    env_dropdown_choices,
     extract_row_click_target,
     find_latest_calibration,
     find_video_path,
@@ -61,8 +72,10 @@ from _helpers import (
     methodology_markdown,
     per_tab_intro_markdown,
     persistent_header_markdown,
+    policy_dropdown_choices,
     resolved_paths_banner_markdown,
     scan_video_index,
+    select_representative_episode,
     summarize_log,
     tail_log_lines,
     video_index_options,
@@ -404,12 +417,77 @@ def refresh_calibration() -> tuple[pd.DataFrame, str]:
 # --------------------------------------------------------------------- #
 
 
-def _refresh_video_dropdowns() -> tuple[Any, Any, Any, Any, str]:
+# The episode-selection radio choices. Labels carry the cherry-pick
+# caveat for "Best" so an operator skimming the tab is not misled into
+# treating the best episode as typical.
+EPISODE_SELECT_RADIO_CHOICES: list[tuple[str, str]] = [
+    ("Representative (default)", EPISODE_SELECT_REPRESENTATIVE),
+    ("Best (highest return / shortest success)", EPISODE_SELECT_BEST),
+    ("First", EPISODE_SELECT_FIRST),
+]
+
+
+def _episode_options_for(
+    index: Any,
+    *,
+    policy: str | None,
+    env: str | None,
+    seed: str | None,
+) -> list[str]:
+    """Episode values available on disk for one (policy, env, seed)."""
+    if not policy or not env or seed in (None, ""):
+        return []
+    try:
+        seed_int = int(seed)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return []
+    eps = sorted(ep for (p, e, s, ep) in index.by_key if p == policy and e == env and s == seed_int)
+    return [str(e) for e in eps]
+
+
+def _default_episode_value(
+    episodes: list[str],
+    *,
+    policy: str | None,
+    env: str | None,
+    seed: str | None,
+    mode: str,
+) -> str | None:
+    """Resolve the default episode for the dropdown given the selection mode.
+
+    Computes the representative / best episode from the per-episode
+    results parquet via :func:`select_representative_episode`. Falls
+    back to first-on-disk when the cell has no parquet rows yet.
+    """
+    if not episodes:
+        return None
+    if not policy or not env or seed in (None, ""):
+        return episodes[0]
+    chosen = select_representative_episode(
+        _latest_results_df(),
+        policy=policy,
+        env=env,
+        seed=seed,
+        mode=mode,
+        available_episodes=[int(e) for e in episodes],
+    )
+    if chosen is None:
+        return episodes[0]
+    chosen_str = str(chosen)
+    return chosen_str if chosen_str in episodes else episodes[0]
+
+
+def _refresh_video_dropdowns(
+    mode: str = EPISODE_SELECT_REPRESENTATIVE,
+) -> tuple[Any, Any, Any, Any, str]:
     """Scan disk for videos and populate the four dropdowns.
 
     Returns ``(policy_update, env_update, seed_update, episode_update,
-    status_markdown)``. Status reports the count + roots scanned so
-    the operator can confirm the Windows-mounted drive was found.
+    status_markdown)``. The episode dropdown defaults to the
+    *representative* episode of the first (policy, env, seed) on disk
+    (per ``mode``) rather than first-alphabetical. Status reports the
+    count + roots scanned so the operator can confirm the
+    Windows-mounted drive was found.
     """
     index = scan_video_index(DEFAULT_VIDEO_ROOTS)
     opts = video_index_options(index)
@@ -417,12 +495,18 @@ def _refresh_video_dropdowns() -> tuple[Any, Any, Any, Any, str]:
     def _first_or_none(values: list[str]) -> str | None:
         return values[0] if values else None
 
+    policy = _first_or_none(opts["policy"])
+    env = _first_or_none(opts["env"])
+    seed = _first_or_none(opts["seed"])
+    episodes = _episode_options_for(index, policy=policy, env=env, seed=seed)
+    ep_value = _default_episode_value(episodes, policy=policy, env=env, seed=seed, mode=mode)
+
     status = _video_index_status(index)
     return (
-        gr.update(choices=opts["policy"], value=_first_or_none(opts["policy"])),
-        gr.update(choices=opts["env"], value=_first_or_none(opts["env"])),
-        gr.update(choices=opts["seed"], value=_first_or_none(opts["seed"])),
-        gr.update(choices=opts["episode"], value=_first_or_none(opts["episode"])),
+        gr.update(choices=opts["policy"], value=policy),
+        gr.update(choices=opts["env"], value=env),
+        gr.update(choices=opts["seed"], value=seed),
+        gr.update(choices=episodes or opts["episode"], value=ep_value),
         status,
     )
 
@@ -432,10 +516,29 @@ def _video_index_status(index: Any) -> str:
     return f"Indexed **{index.n_videos}** MP4(s) across {roots}."
 
 
-def _on_video_rescan() -> tuple[Any, Any, Any, Any, str]:
+def _on_video_rescan(mode: str) -> tuple[Any, Any, Any, Any, str]:
     """Manual re-scan: clear the cache then repopulate dropdowns."""
     clear_video_cache()
-    return _refresh_video_dropdowns()
+    return _refresh_video_dropdowns(mode)
+
+
+def _on_episode_mode_change(
+    policy: str | None,
+    env: str | None,
+    seed: str | None,
+    mode: str,
+) -> Any:
+    """Re-pick the episode value when the selection radio (or a cell) changes.
+
+    Recomputes the episode dropdown's value for the current
+    (policy, env, seed) under the new ``mode``, leaving the available
+    choices intact. Wired to the episode-selection radio and to the
+    policy / env / seed dropdowns.
+    """
+    index = scan_video_index(DEFAULT_VIDEO_ROOTS)
+    episodes = _episode_options_for(index, policy=policy, env=env, seed=seed)
+    ep_value = _default_episode_value(episodes, policy=policy, env=env, seed=seed, mode=mode)
+    return gr.update(choices=episodes, value=ep_value)
 
 
 def _on_video_select(
@@ -631,11 +734,115 @@ def build_app() -> gr.Blocks:
             with gr.Tab("Live event log"):
                 _build_event_log_tab(demo)
 
-            # -------- Tab 5: About --------
+            # -------- Tab 5: Policies --------
+            with gr.Tab("Policies"):
+                _build_policies_tab(demo)
+
+            # -------- Tab 6: Envs --------
+            with gr.Tab("Envs"):
+                _build_envs_tab(demo)
+
+            # -------- Tab 7: About --------
             with gr.Tab("About"):
                 _build_about_tab()
 
     return demo
+
+
+# --------------------------------------------------------------------- #
+# Tab 5: Policies (scientific-context panel)                            #
+# --------------------------------------------------------------------- #
+
+
+def _latest_results_df() -> pd.DataFrame | None:
+    """Load the per-episode parquet of the newest sweep run, if any.
+
+    Reuses :func:`discover_sweep_runs` + :func:`load_results_parquet`
+    (the shared stale-tolerant parquet reader) so the Policies tab and
+    the Rollout tab share one definition of "our re-run numbers".
+    Returns ``None`` when no run / parquet is on disk yet -- the policy
+    card then shows ``(pending)`` for every cell.
+    """
+    runs = discover_sweep_runs(env_dashboard_results_dir())
+    if not runs:
+        return None
+    return load_results_parquet(runs[0].manifest_path.parent / "results.parquet")
+
+
+def _render_policy_card(policy_name: str | None) -> str:
+    """Render the science card for the selected policy."""
+    if not policy_name:
+        return "_Select a policy above._"
+    return build_policy_card_markdown(policy_name, results_df=_latest_results_df())
+
+
+def _build_policies_tab(demo: gr.Blocks) -> None:
+    """Render the Policies tab -- a per-policy scientific-context card.
+
+    Side-effects on ``demo``: wires the dropdown change + initial load.
+    """
+    with gr.Accordion("What this tab shows", open=False):
+        gr.Markdown(
+            "**What this tab shows.** A scientific-context card for every "
+            "policy in the v1 matrix: HF Hub repo + pinned revision, "
+            "license, architecture / training data, and a "
+            "paper-reported-vs-our-re-run table with a colour-chipped "
+            "delta per supported env. `(pending)` in the Ours column "
+            "means that cell is not in the results parquet yet."
+        )
+
+    choices = policy_dropdown_choices()
+    default = choices[0] if choices else None
+    policy_dd = gr.Dropdown(
+        choices=choices,
+        value=default,
+        label="Policy",
+        interactive=True,
+    )
+    card_md = gr.Markdown(_render_policy_card(default))
+
+    policy_dd.change(fn=_render_policy_card, inputs=[policy_dd], outputs=[card_md])
+    demo.load(fn=lambda: _render_policy_card(default), inputs=None, outputs=[card_md])
+
+
+# --------------------------------------------------------------------- #
+# Tab 6: Envs (scientific-context panel)                                #
+# --------------------------------------------------------------------- #
+
+
+def _render_env_card(env_name: str | None) -> str:
+    """Render the science card for the selected env."""
+    if not env_name:
+        return "_Select an env above._"
+    return build_env_card_markdown(env_name)
+
+
+def _build_envs_tab(demo: gr.Blocks) -> None:
+    """Render the Envs tab -- a per-env scientific-context card.
+
+    Side-effects on ``demo``: wires the dropdown change + initial load.
+    """
+    with gr.Accordion("What this tab shows", open=False):
+        gr.Markdown(
+            "**What this tab shows.** A scientific-context card for every "
+            "sim env in the v1 matrix: the task, observation modality, "
+            "what the env discriminates between policies, plus the "
+            "runtime `max_steps` / `success_threshold` and the source "
+            "paper."
+        )
+
+    choices = env_dropdown_choices()
+    default = choices[0] if choices else None
+    env_dd = gr.Dropdown(
+        choices=choices,
+        value=default,
+        label="Env",
+        interactive=True,
+    )
+    card_md = gr.Markdown(_render_env_card(default))
+
+    env_dd.change(fn=_render_env_card, inputs=[env_dd], outputs=[card_md])
+    demo.load(fn=lambda: _render_env_card(default), inputs=None, outputs=[card_md])
 
 
 def _build_about_tab() -> None:
@@ -773,7 +980,14 @@ def _build_calibration_tab(demo: gr.Blocks) -> None:
 
 
 def _build_rollout_tab(demo: gr.Blocks) -> None:
-    """Render the rollout-preview tab."""
+    """Render the rollout-preview tab.
+
+    The episode dropdown defaults to the *representative* episode of
+    the selected cell (modal outcome, step count closest to the cell
+    median) rather than first-alphabetical; the "Episode selection"
+    radio lets the operator switch to the best (cherry-pickable) or
+    first episode instead.
+    """
     with gr.Accordion("What this tab shows", open=False):
         gr.Markdown(per_tab_intro_markdown("rollouts"))
 
@@ -783,6 +997,17 @@ def _build_rollout_tab(demo: gr.Blocks) -> None:
         env_dd = gr.Dropdown(choices=[], label="Env", interactive=True)
         seed_dd = gr.Dropdown(choices=[], label="Seed", interactive=True)
         ep_dd = gr.Dropdown(choices=[], label="Episode", interactive=True)
+    episode_mode = gr.Radio(
+        choices=EPISODE_SELECT_RADIO_CHOICES,
+        value=EPISODE_SELECT_REPRESENTATIVE,
+        label="Episode selection",
+        info=(
+            "Representative = modal outcome, step count closest to the "
+            "cell median. Best may be cherry-picked. First = lowest "
+            "episode index."
+        ),
+        interactive=True,
+    )
     rescan_btn = gr.Button("Re-scan video disks", variant="secondary")
     video = gr.Video(
         label="Rollout",
@@ -791,17 +1016,34 @@ def _build_rollout_tab(demo: gr.Blocks) -> None:
         visible=False,
     )
 
-    # Initial paint -- on first tab open.
+    # Initial paint -- on first tab open. Episode defaults to the
+    # representative episode of the first cell on disk.
     demo.load(
-        fn=_refresh_video_dropdowns,
+        fn=lambda: _refresh_video_dropdowns(EPISODE_SELECT_REPRESENTATIVE),
         inputs=None,
         outputs=[policy_dd, env_dd, seed_dd, ep_dd, status_md],
     )
 
     rescan_btn.click(
         fn=_on_video_rescan,
-        inputs=None,
+        inputs=[episode_mode],
         outputs=[policy_dd, env_dd, seed_dd, ep_dd, status_md],
+    )
+
+    # policy / env / seed change -> re-pick the representative episode
+    # for the new cell, then resolve the video.
+    for dd in (policy_dd, env_dd, seed_dd):
+        dd.change(
+            fn=_on_episode_mode_change,
+            inputs=[policy_dd, env_dd, seed_dd, episode_mode],
+            outputs=[ep_dd],
+        )
+
+    # Episode-selection radio change -> re-pick the episode value.
+    episode_mode.change(
+        fn=_on_episode_mode_change,
+        inputs=[policy_dd, env_dd, seed_dd, episode_mode],
+        outputs=[ep_dd],
     )
 
     # Any dropdown change -> resolve and (un)render the video.
