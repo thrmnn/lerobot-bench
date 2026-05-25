@@ -736,7 +736,7 @@ def _load_pretrained_policy(
             cfg, dataset_stats=dataset_stats
         )
 
-    postprocessor = _patch_postprocessor_for_policy(cfg, postprocessor)
+    preprocessor, postprocessor = _patch_processors_for_policy(cfg, preprocessor, postprocessor)
 
     model = policy_cls.from_pretrained(repo_id, revision=revision, config=cfg)
     model = model.to(device).eval()
@@ -750,40 +750,113 @@ def _load_pretrained_policy(
     )
 
 
-def _patch_postprocessor_for_policy(cfg: Any, postprocessor: Any) -> Any:
-    """Append policy-specific postprocessor steps the Hub JSON omits.
+def _patch_processors_for_policy(
+    cfg: Any, preprocessor: Any, postprocessor: Any
+) -> tuple[Any, Any]:
+    """Insert policy-specific processor steps the Hub JSON omits.
 
-    Some lerobot policies on the Hub ship a ``policy_postprocessor.json``
-    that does NOT contain every step the policy's dedicated factory
-    (``make_<policy>_libero_pre_post_processors``) would have built.
+    Some lerobot policies on the Hub ship ``policy_preprocessor.json`` /
+    ``policy_postprocessor.json`` files that do NOT contain every step
+    the policy's dedicated factory
+    (``make_<policy>_<env>_pre_post_processors``) would have built.
     Loading via the generic
     :func:`lerobot.policies.factory.make_pre_post_processors` reads
     exactly what's on the Hub and stops there, so the missing step is
-    silently absent and the policy's action lands in the env in the
-    wrong representation.
+    silently absent and inputs/outputs land in the wrong space.
 
-    Concrete case for v1 (``lerobot/xvla-libero``): the Hub
-    postprocessor is ``[UnnormalizerProcessorStep, DeviceProcessorStep]``
-    but XVLA emits a 20-dim action whose first 10 dims are
-    ``[eef(3), rot6d(6), gripper(1)]``. LIBERO needs
-    ``[eef(3), axis_angle(3), gripper(1)] = 7``. Without
-    :class:`XVLARotation6DToAxisAngleProcessorStep` the adapter sees a
-    20-dim vector and (per the multi-embodiment padding convention)
-    truncates to 7 -- which keeps the eef dims but feeds raw rot6d
-    components in place of axis-angle, so the arm wanders and the
-    episode times out. That is the v1 ``xvla_libero`` 0/875 cell.
+    Concrete cases for v1 (``lerobot/xvla-libero``):
 
-    Symmetric Wall-X / future-VLA cases can be added by adding the
-    corresponding ``elif`` branch -- keep this dispatcher tight (single
-    responsibility = closing Hub-JSON gaps) rather than rebuilding the
-    pipeline from scratch via the dedicated factory, because doing so
-    would also rebuild the preprocessor which our
-    :func:`_libero_obs_to_batch` already pre-translates against the
-    Hub-JSON's expected shapes.
+    * **Output side (PR #71).** The Hub postprocessor is
+      ``[UnnormalizerProcessorStep, DeviceProcessorStep]`` but XVLA
+      emits a 20-dim action whose first 10 dims are
+      ``[eef(3), rot6d(6), gripper(1)]``. LIBERO needs
+      ``[eef(3), axis_angle(3), gripper(1)] = 7``. Insert
+      :class:`XVLARotation6DToAxisAngleProcessorStep` before the
+      trailing :class:`DeviceProcessorStep` (move-to-cpu).
+    * **Input side (this fix).** The Hub preprocessor's
+      ``normalizer_processor`` step declares VISUAL features but with
+      ``norm_map = {VISUAL: IDENTITY}`` — so images are passed through
+      raw [0, 1] floats. The training-time
+      :class:`XVLAImageNetNormalizeProcessorStep` is omitted, but
+      XVLA's Florence-2 visual backbone was pretrained against
+      ImageNet-normalized inputs, so raw [0, 1] images produce
+      garbage visual features and ~0% rollout success. Insert
+      :class:`XVLAImageNetNormalizeProcessorStep` before the
+      :class:`DeviceProcessorStep` (matches the ordering in
+      :func:`lerobot.policies.xvla.processor_xvla.make_xvla_pre_post_processors`:
+      tokenizer -> ImageNet -> add_domain_id -> device -> normalizer).
+
+    **Why surgical insertion, not full pipeline replacement.** The
+    obvious alternative — calling ``make_xvla_libero_pre_post_processors()``
+    and swapping in its pipelines wholesale — does NOT work for
+    inference: that factory ships only
+    ``[LiberoProcessorStep, XVLAImageNetNormalize, XVLAAddDomainId]``
+    on the preprocessor side. It drops the
+    :class:`TokenizerProcessorStep` the inference path requires
+    (XVLA's ``select_action`` reads ``input_ids`` from the batch), and
+    its :class:`LiberoProcessorStep` produces a 20-dim state and
+    flipped images — but the Hub checkpoint's config declares
+    ``observation.state`` as 8-dim and our :func:`_libero_obs_to_batch`
+    already produces the 8-dim axis-angle state plus pre-flipped
+    images. Inserting only the missing ImageNet step preserves the
+    Hub pipeline's tokenizer + normalizer (both load-bearing) and
+    keeps our pre-translation contract intact.
+
+    Both XVLA-specific steps are idempotent: re-running this patcher
+    on an already-patched pipeline is a no-op. Non-xvla policies pass
+    through unchanged.
     """
     if getattr(cfg, "type", None) != "xvla":
-        return postprocessor
+        return preprocessor, postprocessor
 
+    preprocessor = _patch_xvla_preprocessor(preprocessor)
+    postprocessor = _patch_xvla_postprocessor(postprocessor)
+    return preprocessor, postprocessor
+
+
+def _patch_xvla_preprocessor(preprocessor: Any) -> Any:
+    """Insert :class:`XVLAImageNetNormalizeProcessorStep` into a Hub-loaded xvla preprocessor.
+
+    Idempotent. Inserts before the trailing :class:`DeviceProcessorStep`
+    so normalization runs on CPU and the device hop stays last (mirrors
+    :func:`lerobot.policies.xvla.processor_xvla.make_xvla_pre_post_processors`).
+    If no device step is present the new step is appended.
+    """
+    from lerobot.policies.xvla.processor_xvla import XVLAImageNetNormalizeProcessorStep
+    from lerobot.processor import DeviceProcessorStep, PolicyProcessorPipeline
+
+    existing_steps = list(preprocessor.steps)
+    if any(isinstance(s, XVLAImageNetNormalizeProcessorStep) for s in existing_steps):
+        return preprocessor
+
+    new_steps: list[Any] = []
+    inserted = False
+    for step in existing_steps:
+        if not inserted and isinstance(step, DeviceProcessorStep):
+            new_steps.append(XVLAImageNetNormalizeProcessorStep())
+            inserted = True
+        new_steps.append(step)
+    if not inserted:
+        new_steps.append(XVLAImageNetNormalizeProcessorStep())
+
+    logger.info(
+        "patched xvla preprocessor: inserted XVLAImageNetNormalizeProcessorStep "
+        "before the device hop -- Hub policy_preprocessor.json sets VISUAL=IDENTITY "
+        "in its normalizer step, so without ImageNet normalization the Florence-2 "
+        "visual backbone sees raw [0, 1] images and emits garbage features (~0% success)"
+    )
+    return PolicyProcessorPipeline(
+        steps=new_steps,
+        name=preprocessor.name,
+    )
+
+
+def _patch_xvla_postprocessor(postprocessor: Any) -> Any:
+    """Insert :class:`XVLARotation6DToAxisAngleProcessorStep` into a Hub-loaded xvla postprocessor.
+
+    See :func:`_patch_processors_for_policy` for the rationale. Idempotent;
+    no-op for already-patched pipelines.
+    """
     from lerobot.policies.xvla.processor_xvla import XVLARotation6DToAxisAngleProcessorStep
     from lerobot.processor import DeviceProcessorStep, PolicyProcessorPipeline
     from lerobot.processor.converters import (
