@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-05-25
+
+### Added
+- **v1 sweep completed.** 6 policies × 6 envs, 107 dispatched cells, **0 failures**.
+  Roster: `act`, `diffusion_policy`, `smolvla_libero`, `xvla_libero`, `no_op`,
+  `random` across `pusht`, `aloha_transfer_cube`, `libero_spatial`,
+  `libero_object`, `libero_goal`, `libero_10`. Per-cell budget: 5 seeds × 50
+  episodes (two cells auto-downscoped per the calibrated SLOW/VRAM rule).
+  Results parquet + sweep manifest + per-episode MP4s pending upload to
+  `huggingface.co/datasets/thrmnn/lerobot-bench-v1`.
+
+### Fixed
+- **act × aloha_transfer_cube silent un-normalization** (PR #51). The buffer-key
+  recovery path in `_recover_dataset_stats_from_safetensors` reversed only the
+  *first* underscore when mapping `buffer_*` keys back to feature keys, so
+  `observation.images_top` was not being matched to `observation.images.top`
+  and image normalization stats were never applied to the act checkpoint at
+  load time. Policy ran with un-normalized image inputs and silently
+  under-performed. Fix lifts the success rate on
+  `act × aloha_transfer_cube` from ≈80% to ≈82%.
+- **xvla rotation post-processor missing from upstream checkpoint** (PR #71).
+  The `lerobot/xvla-libero` Hub checkpoint ships `policy_postprocessor.json`
+  exported via the generic `make_xvla_pre_post_processors` rather than
+  `make_xvla_libero_pre_post_processors`, so the rotation-6D → axis-angle
+  post-processing step is absent. Vanilla loaders would silently produce
+  zero-success rollouts on LIBERO. Our loader now inserts
+  `XVLARotation6DToAxisAngleProcessorStep` before the trailing
+  `DeviceProcessorStep` whenever `cfg.type == "xvla"`. xvla re-run pending.
+
+### Notes
+- **pi-family deferred to v1.1.** `pi0`, `pi0fast`, and `pi0.5` are explicitly
+  out of the v1 matrix per `docs/PI_DEFERRAL.md` (~30 GB host-RAM cold-load
+  spike on the 32 GB reference machine). Locked Hub SHAs are preserved in
+  `docs/MODEL_CARDS.md` § Deferred policies so v1.1 onboarding does not need
+  a fresh lock-in pass.
+- **Upstream PR for xvla wiring planned** as lerobot-bench task #62 — until it
+  lands, downstream consumers loading `lerobot/xvla-libero` via vanilla
+  `lerobot.policies.factory.make_pre_post_processors` will silently get
+  zero-success rollouts.
+
 ## [Unreleased]
 
 ### Added
@@ -78,5 +118,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 - No implementation code yet. Day 0 of the build per `docs/CEO-PLAN.md`.
 
-[Unreleased]: https://github.com/thrmnn/lerobot-bench/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/thrmnn/lerobot-bench/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/thrmnn/lerobot-bench/compare/v0.0.1...v1.0.0
 [0.0.1]: https://github.com/thrmnn/lerobot-bench/releases/tag/v0.0.1

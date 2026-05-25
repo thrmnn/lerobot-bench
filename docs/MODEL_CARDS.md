@@ -62,6 +62,15 @@ the reason and the locked SHAs that carry forward.
   same nominal task — a head-to-head against any other number requires
   matching the success heuristic and episode budget, which is exactly
   the comparability gap lerobot-bench exists to close.
+- **Wiring caveat (PR #51)**: The legacy-checkpoint stats recovery in
+  `_recover_dataset_stats_from_safetensors` reversed only the first
+  underscore when mapping `buffer_*` keys back to feature keys, so
+  `observation.images_top` was not being matched to
+  `observation.images.top` and image normalization stats were silently
+  dropped for this checkpoint. See `src/lerobot_bench/eval.py`
+  → `_buffer_name_to_feature_key`. Downstream consumers loading via the
+  pre-PR-#51 code path will get under-normalized images and ~2pp lower
+  success on `aloha_transfer_cube`.
 
 ## Diffusion Policy
 
@@ -198,6 +207,19 @@ the reason and the locked SHAs that carry forward.
   (≥97.6% on all four suites). Near-ceiling cells leave little MDE
   headroom at N=250 — a re-run delta against the paper number, if
   small, may be inconclusive rather than a genuine regression.
+- **Wiring caveat (PR #71)**: The upstream `lerobot/xvla-libero` Hub
+  checkpoint ships `policy_postprocessor.json` exported via the generic
+  `make_xvla_pre_post_processors` rather than
+  `make_xvla_libero_pre_post_processors`, so the rotation-6D →
+  axis-angle step required for this checkpoint is **missing**. Our
+  eval pipeline patches the postprocessor at load time by inserting
+  `XVLARotation6DToAxisAngleProcessorStep` before the trailing
+  `DeviceProcessorStep` — see
+  `src/lerobot_bench/eval.py:_patch_postprocessor_for_policy`.
+  Downstream consumers loading this checkpoint via vanilla
+  `lerobot.policies.factory.make_pre_post_processors` will silently
+  get zero-success rollouts. A complementary upstream PR is planned
+  (lerobot-bench task #62).
 
 ## no-op (baseline)
 

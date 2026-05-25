@@ -11,10 +11,14 @@
 [![Code style: ruff](https://img.shields.io/badge/code_style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![CI](https://github.com/thrmnn/lerobot-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/thrmnn/lerobot-bench/actions/workflows/ci.yml)
 [![HF Space](https://img.shields.io/badge/%F0%9F%A4%97%20Space-lerobot--bench-yellow)](https://huggingface.co/spaces/thrmnn/lerobot-bench)
+<!-- TODO: badge + link target should become huggingface.co/datasets/thrmnn/lerobot-bench-v1 once the v1.0.0 sweep parquet is uploaded. -->
 [![HF Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-results--v1-yellow)](https://huggingface.co/datasets/thrmnn/lerobot-bench-results-v1)
 
 **Quick links:** [Get started](docs/GETTING_STARTED.md) · [Live leaderboard](https://huggingface.co/spaces/thrmnn/lerobot-bench) · [Dataset](https://huggingface.co/datasets/thrmnn/lerobot-bench-results-v1) · [Paper](paper/main.tex) · [Contributing](CONTRIBUTING.md) · [Reproduce](docs/REPRODUCE.md)
 
+<!-- TODO: dataset upload target = huggingface.co/datasets/thrmnn/lerobot-bench-v1
+     Space leaderboard link above will resolve once that dataset is pushed
+     and the Space picks up the new repo. -->
 <!-- Hero image: the public HF Space leaderboard. Captured by the maintainer once the Space is live; see docs/assets/README.md. The repo renders fine while this file is absent. -->
 <picture>
   <img src="docs/assets/leaderboard.png" alt="lerobot-bench leaderboard: success rate with 95% confidence intervals for 6 pretrained LeRobot policies across 6 simulated manipulation environments" width="820">
@@ -27,7 +31,7 @@
 > Public multi-policy benchmark for pretrained LeRobot policies on PushT, Aloha, and LIBERO sim envs.
 > Multi-seed contract, bootstrap + Wilson CIs, MDE bounds, paired comparisons, failure taxonomy. Arxiv-grade writeup and upstream-ready eval module.
 
-**Status: v1 in progress.** Calibration matrix complete (22 cells across 6 policies × 6 envs). Overnight sweep in flight at the time of writing. Pi0 family deferred to v1.1 (~30 GB host-RAM cold-load spike — see [paper Limitations](paper/main.tex)).
+**Status: v1 finalized (dataset version `v1.0.0`).** Sweep complete: **107/107 cells dispatched, 0 failures** across 6 policies × 6 envs. Pi0 family deferred to v1.1 (~30 GB host-RAM cold-load spike — see [paper Limitations](paper/main.tex)).
 
 ---
 
@@ -35,7 +39,8 @@
 
 Three artifacts, all open:
 
-1. **Public leaderboard** — Hugging Face Space + Hub dataset `thrmnn/lerobot-bench-results-v1`. Every per-episode outcome, every rollout MP4, queryable by `(policy, env, seed, episode)`.
+1. **Public leaderboard** — Hugging Face Space + Hub dataset `thrmnn/lerobot-bench-v1` (v1.0.0, 107 cells, 0 failures). Every per-episode outcome, every rollout MP4, queryable by `(policy, env, seed, episode)`. <!-- TODO: upload sweep results to huggingface.co/datasets/thrmnn/lerobot-bench-v1 -->
+
 2. **4-page arxiv writeup** — `paper/main.tex`. Methodology, related work, results, limitations. Every figure regenerated from `notebooks/01-write-finding.ipynb`.
 3. **Upstream-ready eval pipeline** — `src/lerobot_bench/eval.py` extracted as `lerobot.eval.multi_seed` in a follow-up PR to `huggingface/lerobot`.
 
@@ -50,7 +55,7 @@ Two tools for running and inspecting it:
 
 ## v1 scope
 
-**6 policies × 6 envs (= 22 runnable cells after `env_compat` filter):**
+**6 policies × 6 envs (107 cells dispatched after `env_compat` filter, 0 failures):**
 
 | | pusht | aloha_transfer_cube | libero_spatial | libero_object | libero_goal | libero_10 |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -61,7 +66,7 @@ Two tools for running and inspecting it:
 | `smolvla_libero` | | | ✓ | ✓ | ✓ | ✓ |
 | `xvla_libero` | | | ✓ | ✓ | ✓ | ✓ |
 
-**5 seeds × 50 episodes per cell** (N=250 binary outcomes per cell, with 2 cells auto-downscoped to 25 after calibration flagged slow inference). Pi0 family (`pi0_libero`, `pi0fast_libero`, `pi05_libero_finetuned_v044`) **deferred to v1.1** — they overflow the 32 GB WSL2 host budget during `from_pretrained` cold load (~30 GB CPU RAM peak under HF Transformers' default weight-conversion path). v1.1 paths: quantized weights or `accelerate device_map="auto"` streaming load.
+**5 seeds × 50 episodes per cell** (N=250 binary outcomes per cell; 2 cells were auto-downscoped to 25 after calibration flagged slow inference). Pi0 family (`pi0_libero`, `pi0fast_libero`, `pi05_libero_finetuned_v044`) **deferred to v1.1** — they overflow the 32 GB WSL2 host budget during `from_pretrained` cold load (~30 GB CPU RAM peak under HF Transformers' default weight-conversion path). v1.1 paths: quantized weights or `accelerate device_map="auto"` streaming load.
 
 ---
 
@@ -186,4 +191,6 @@ MIT. See [LICENSE](LICENSE).
 
 ## Citation
 
-The arxiv writeup pre-print lands when the sweep completes and the parquet is published. Citation guidance will appear here at that point. Until then, please link to this repo.
+The arxiv writeup pre-print lands alongside the v1.0.0 dataset upload. Citation guidance will appear here at that point. Until then, please link to this repo.
+<!-- TODO: replace with BibTeX once arxiv ID is assigned and huggingface.co/datasets/thrmnn/lerobot-bench-v1 is live. -->
+
