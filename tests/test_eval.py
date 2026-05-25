@@ -25,7 +25,9 @@ from lerobot_bench.eval import (
     _gym_obs_to_batch,
     _LerobotPolicyAdapter,
     _NoOpPolicy,
-    _patch_postprocessor_for_policy,
+    _patch_processors_for_policy,
+    _patch_xvla_postprocessor,
+    _patch_xvla_preprocessor,
     _RandomPolicy,
     load_env,
     load_policy,
@@ -1639,14 +1641,17 @@ def test_buffer_name_falls_back_when_no_known_key_matches() -> None:
 
 
 # --------------------------------------------------------------------- #
-# XVLA postprocessor patching: rotation 6D -> axis-angle                 #
+# XVLA processor patching: input-side ImageNet + output-side rotation    #
 #                                                                       #
 # Regression for the v1 xvla_libero 0/875-success cell. The Hub's       #
 # `lerobot/xvla-libero` ships a `policy_postprocessor.json` that omits  #
-# `XVLARotation6DToAxisAngleProcessorStep`, so the policy's 20-dim      #
-# `[eef(3), rot6d(6), gripper(1), padding(10)]` action lands in the     #
-# LIBERO env with the rot6d components in place of axis-angle. The      #
-# loader patches the postprocessor to insert the missing step.          #
+# `XVLARotation6DToAxisAngleProcessorStep` AND a `policy_preprocessor.  #
+# json` whose `normalizer_processor` step has `VISUAL: IDENTITY` -- so  #
+# images reach the Florence-2 backbone as raw [0, 1] floats instead of  #
+# the ImageNet-normalized inputs it was pretrained on, and the policy's #
+# 20-dim `[eef(3), rot6d(6), gripper(1), padding(10)]` action lands in  #
+# the LIBERO env with the rot6d components in place of axis-angle. The  #
+# loader patches both pipelines to insert the missing steps.            #
 # --------------------------------------------------------------------- #
 
 
@@ -1710,9 +1715,8 @@ def test_patch_postprocessor_inserts_rotation_step_for_xvla() -> None:
     from lerobot.processor import DeviceProcessorStep, UnnormalizerProcessorStep
 
     pipeline = _build_hub_shaped_xvla_postprocessor()
-    cfg = _StubCfg(policy_type="xvla")
 
-    patched = _patch_postprocessor_for_policy(cfg, pipeline)
+    patched = _patch_xvla_postprocessor(pipeline)
 
     step_types = [type(s) for s in patched.steps]
     assert step_types == [
@@ -1728,9 +1732,8 @@ def test_patch_postprocessor_is_idempotent_for_xvla() -> None:
     pytest.importorskip("lerobot")
     from lerobot.policies.xvla.processor_xvla import XVLARotation6DToAxisAngleProcessorStep
 
-    cfg = _StubCfg(policy_type="xvla")
-    once = _patch_postprocessor_for_policy(cfg, _build_hub_shaped_xvla_postprocessor())
-    twice = _patch_postprocessor_for_policy(cfg, once)
+    once = _patch_xvla_postprocessor(_build_hub_shaped_xvla_postprocessor())
+    twice = _patch_xvla_postprocessor(once)
 
     rotation_steps = [
         s for s in twice.steps if isinstance(s, XVLARotation6DToAxisAngleProcessorStep)
@@ -1738,16 +1741,18 @@ def test_patch_postprocessor_is_idempotent_for_xvla() -> None:
     assert len(rotation_steps) == 1
 
 
-def test_patch_postprocessor_is_noop_for_non_xvla_policies() -> None:
-    """Diffusion/ACT/SmolVLA postprocessors must pass through unchanged."""
+def test_patch_processors_is_noop_for_non_xvla_policies() -> None:
+    """Diffusion/ACT/SmolVLA processors must pass through unchanged."""
     pytest.importorskip("torch")
     pytest.importorskip("lerobot")
 
-    pipeline = _build_hub_shaped_xvla_postprocessor()
+    pre = _build_hub_shaped_xvla_preprocessor()
+    post = _build_hub_shaped_xvla_postprocessor()
     for ptype in ("diffusion", "act", "smolvla", "pi0", "pi0_fast"):
         cfg = _StubCfg(policy_type=ptype)
-        out = _patch_postprocessor_for_policy(cfg, pipeline)
-        assert out is pipeline, f"{ptype} postprocessor was unexpectedly rebuilt"
+        out_pre, out_post = _patch_processors_for_policy(cfg, pre, post)
+        assert out_pre is pre, f"{ptype} preprocessor was unexpectedly rebuilt"
+        assert out_post is post, f"{ptype} postprocessor was unexpectedly rebuilt"
 
 
 def test_patched_xvla_postprocessor_emits_seven_dim_action() -> None:
@@ -1762,8 +1767,7 @@ def test_patched_xvla_postprocessor_emits_seven_dim_action() -> None:
     torch = pytest.importorskip("torch")
     pytest.importorskip("lerobot")
 
-    cfg = _StubCfg(policy_type="xvla")
-    pipeline = _patch_postprocessor_for_policy(cfg, _build_hub_shaped_xvla_postprocessor())
+    pipeline = _patch_xvla_postprocessor(_build_hub_shaped_xvla_postprocessor())
 
     # Build a batched 20-dim action: eef=[0.1,0.2,0.3], rot6d=identity-cols,
     # gripper=0.8 (>0.5 -> +1), 10 trailing padding zeros.
@@ -1785,3 +1789,173 @@ def test_patched_xvla_postprocessor_emits_seven_dim_action() -> None:
     np.testing.assert_allclose(flat[3:6], [0.0, 0.0, 0.0], atol=1e-5)
     # Gripper binarized to +1.
     assert float(flat[6]) == 1.0
+
+
+# --------------------------------------------------------------------- #
+# XVLA preprocessor patching: ImageNet normalization                     #
+# --------------------------------------------------------------------- #
+
+
+def _build_hub_shaped_xvla_preprocessor():
+    """Reconstruct the preprocessor pipeline the Hub JSON loads for xvla-libero.
+
+    Matches the actual ``policy_preprocessor.json`` on
+    ``lerobot/xvla-libero``@``12e8783...``:
+    ``[RenameObservationsProcessorStep, AddBatchDimensionProcessorStep,
+    TokenizerProcessorStep, XVLAAddDomainIdProcessorStep,
+    DeviceProcessorStep, NormalizerProcessorStep]``. Built against the
+    live lerobot 0.5.1 classes so any upstream signature drift surfaces
+    as a test failure.
+
+    Notably absent: :class:`XVLAImageNetNormalizeProcessorStep`. The
+    Hub JSON's :class:`NormalizerProcessorStep` has VISUAL=IDENTITY in
+    its norm_map, so images pass through raw [0, 1] floats and the
+    Florence-2 visual backbone sees the wrong input distribution
+    (pretrained against ImageNet-normalized inputs).
+    """
+    pytest.importorskip("torch")
+    pytest.importorskip("lerobot")
+    # TokenizerProcessorStep wraps a HuggingFace tokenizer; instantiating it
+    # requires transformers, which lives in lerobot's optional
+    # transformers-dep extra and is not installed in the fast CI [dev] env.
+    pytest.importorskip("transformers")
+    from lerobot.configs.types import FeatureType, NormalizationMode, PolicyFeature
+    from lerobot.policies.xvla.processor_xvla import XVLAAddDomainIdProcessorStep
+    from lerobot.processor import (
+        AddBatchDimensionProcessorStep,
+        DeviceProcessorStep,
+        NormalizerProcessorStep,
+        PolicyProcessorPipeline,
+        RenameObservationsProcessorStep,
+        TokenizerProcessorStep,
+    )
+
+    rename = RenameObservationsProcessorStep(rename_map={})
+    to_batch = AddBatchDimensionProcessorStep()
+    tokenizer = TokenizerProcessorStep(
+        tokenizer_name="facebook/bart-large",
+        max_length=50,
+        padding="max_length",
+        padding_side="right",
+    )
+    add_domain = XVLAAddDomainIdProcessorStep(domain_id=3)
+    device = DeviceProcessorStep(device="cpu")
+    normalizer = NormalizerProcessorStep(
+        features={
+            "observation.images.image": PolicyFeature(type=FeatureType.VISUAL, shape=(3, 224, 224)),
+            "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(8,)),
+            "action": PolicyFeature(type=FeatureType.ACTION, shape=(20,)),
+        },
+        norm_map={
+            FeatureType.VISUAL: NormalizationMode.IDENTITY,
+            FeatureType.STATE: NormalizationMode.IDENTITY,
+            FeatureType.ACTION: NormalizationMode.IDENTITY,
+        },
+    )
+    return PolicyProcessorPipeline(
+        steps=[rename, to_batch, tokenizer, add_domain, device, normalizer],
+        name="policy_preprocessor",
+    )
+
+
+def test_patch_preprocessor_inserts_imagenet_step_for_xvla() -> None:
+    """xvla cfg + Hub-shaped preprocessor -> ImageNet step inserted before device hop.
+
+    The XVLA Hub repo's preprocessor lacks ImageNet normalization; the
+    patcher inserts :class:`XVLAImageNetNormalizeProcessorStep` between
+    :class:`XVLAAddDomainIdProcessorStep` and :class:`DeviceProcessorStep`
+    so the visual backbone sees the same input distribution it was
+    pretrained on.
+    """
+    pytest.importorskip("torch")
+    pytest.importorskip("lerobot")
+    from lerobot.policies.xvla.processor_xvla import (
+        XVLAAddDomainIdProcessorStep,
+        XVLAImageNetNormalizeProcessorStep,
+    )
+    from lerobot.processor import (
+        AddBatchDimensionProcessorStep,
+        DeviceProcessorStep,
+        NormalizerProcessorStep,
+        RenameObservationsProcessorStep,
+        TokenizerProcessorStep,
+    )
+
+    pipeline = _build_hub_shaped_xvla_preprocessor()
+    patched = _patch_xvla_preprocessor(pipeline)
+
+    step_types = [type(s) for s in patched.steps]
+    assert step_types == [
+        RenameObservationsProcessorStep,
+        AddBatchDimensionProcessorStep,
+        TokenizerProcessorStep,
+        XVLAAddDomainIdProcessorStep,
+        XVLAImageNetNormalizeProcessorStep,
+        DeviceProcessorStep,
+        NormalizerProcessorStep,
+    ], f"unexpected pipeline shape: {step_types}"
+
+
+def test_patch_preprocessor_is_idempotent_for_xvla() -> None:
+    """Calling the patcher twice must not stack two ImageNet steps."""
+    pytest.importorskip("torch")
+    pytest.importorskip("lerobot")
+    from lerobot.policies.xvla.processor_xvla import XVLAImageNetNormalizeProcessorStep
+
+    once = _patch_xvla_preprocessor(_build_hub_shaped_xvla_preprocessor())
+    twice = _patch_xvla_preprocessor(once)
+
+    normalize_steps = [s for s in twice.steps if isinstance(s, XVLAImageNetNormalizeProcessorStep)]
+    assert len(normalize_steps) == 1
+
+
+def test_patch_processors_loads_real_xvla_libero_pipeline_contains_both_steps() -> None:
+    """Loader-shape smoke against the live ``lerobot/xvla-libero`` Hub repo.
+
+    Pulls the actual pinned Hub preprocessor + postprocessor through
+    :func:`lerobot.policies.factory.make_pre_post_processors`, runs the
+    patcher, and asserts both XVLA-specific steps land in the right
+    pipelines. This is the closest unit-test analogue of the user's GPU
+    sanity run -- it would have caught both the v1 0/875 cell (missing
+    rotation step) and the residual 0/10 sanity (missing ImageNet
+    normalization) without a rollout.
+
+    Marked ``@pytest.mark.sim`` because it touches the Hub cache, the
+    lerobot processor factory, and a tokenizer download. CI fast skips
+    it; the live sanity gate runs it.
+    """
+    pytest.importorskip("torch")
+    pytest.importorskip("lerobot")
+    from lerobot.configs.policies import PreTrainedConfig
+    from lerobot.policies import factory as _factory
+    from lerobot.policies.xvla.processor_xvla import (
+        XVLAImageNetNormalizeProcessorStep,
+        XVLARotation6DToAxisAngleProcessorStep,
+    )
+
+    from lerobot_bench.policies import PolicyRegistry
+
+    registry = PolicyRegistry.from_yaml(Path("configs/policies.yaml"))
+    spec = registry.get("xvla_libero")
+    assert spec.repo_id is not None
+    assert spec.revision_sha is not None
+
+    cfg = PreTrainedConfig.from_pretrained(spec.repo_id, revision=spec.revision_sha)
+    pre, post = _factory.make_pre_post_processors(
+        cfg, pretrained_path=spec.repo_id, revision=spec.revision_sha
+    )
+    pre, post = _patch_processors_for_policy(cfg, pre, post)
+
+    assert any(isinstance(s, XVLAImageNetNormalizeProcessorStep) for s in pre.steps), (
+        "preprocessor is missing XVLAImageNetNormalizeProcessorStep after patch -- "
+        "Florence-2 backbone would see raw [0, 1] images instead of ImageNet-normalized"
+    )
+    assert any(isinstance(s, XVLARotation6DToAxisAngleProcessorStep) for s in post.steps), (
+        "postprocessor is missing XVLARotation6DToAxisAngleProcessorStep after patch -- "
+        "LIBERO env would receive raw rot6d components in place of axis-angle"
+    )
+
+
+test_patch_processors_loads_real_xvla_libero_pipeline_contains_both_steps = pytest.mark.sim(
+    test_patch_processors_loads_real_xvla_libero_pipeline_contains_both_steps
+)
