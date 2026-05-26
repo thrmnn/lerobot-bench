@@ -23,21 +23,31 @@ jobs:
     name: gradio boot
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: hashFiles('space/app.py') != ''
     steps:
       - uses: actions/checkout@v6
+      - name: Skip if space/app.py absent
+        id: probe
+        run: |
+          if [ -f space/app.py ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::space/app.py not present; nothing to smoke-test"
+          fi
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install Space deps
+        if: steps.probe.outputs.exists == 'true'
         working-directory: space
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Boot app.py in background
+        if: steps.probe.outputs.exists == 'true'
         working-directory: space
         run: |
           GRADIO_SERVER_PORT=7860 python app.py &
@@ -54,6 +64,7 @@ jobs:
           exit 1
 
       - name: Curl smoke
+        if: steps.probe.outputs.exists == 'true'
         run: |
           curl -fsS -o /dev/null -w "status=%{http_code} size=%{size_download} time=%{time_total}s\n" http://127.0.0.1:7860/
 

@@ -23,4 +23,4 @@ numpy>=2.0,<3.0
 # stats.wilson_ci, etc.) from GitHub. Pinned to a branch ref while
 # the PR is open; flip to the merged-main SHA when this PR lands so
 # the Space is reproducible from the deployed commit.
-git+https://github.com/thrmnn/lerobot-bench.git@feat/space-app
+git+https://github.com/thrmnn/lerobot-bench.git@870870f352261a6cdb7f0d07c2ef50b9e3b22292
