@@ -187,8 +187,10 @@ _OPTIONAL_SWEEP_KEYS = frozenset(
         "cell_timeout_s",
         "max_parallel",
         "overrides",
+        "criterion",
     }
 )
+_VALID_CRITERIA = frozenset({"v1_legacy", "canonical"})
 _ALL_SWEEP_KEYS = _REQUIRED_SWEEP_KEYS | _OPTIONAL_SWEEP_KEYS
 
 
@@ -220,6 +222,7 @@ class SweepConfig:
     cell_timeout_s: float | None
     max_parallel: int
     overrides: dict[str, dict[str, dict[str, int]]]
+    criterion: str = "v1_legacy"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, source: str = "<dict>") -> SweepConfig:
@@ -284,6 +287,12 @@ class SweepConfig:
             source=f"{source}: overrides",
         )
 
+        criterion = str(data.get("criterion", "v1_legacy"))
+        if criterion not in _VALID_CRITERIA:
+            raise ValueError(
+                f"{source}: criterion must be one of {sorted(_VALID_CRITERIA)}, got {criterion!r}"
+            )
+
         return cls(
             policies=policies,
             envs=envs,
@@ -298,6 +307,7 @@ class SweepConfig:
             cell_timeout_s=cell_timeout_s,
             max_parallel=max_parallel,
             overrides=overrides,
+            criterion=criterion,
         )
 
 
@@ -664,6 +674,8 @@ def _build_run_one_argv(
         argv += ["--videos-dir", str(config.videos_dir)]
     if not config.record_video:
         argv.append("--no-record-video")
+    if config.criterion == "canonical":
+        argv.append("--canonical")
     return argv
 
 
@@ -1135,6 +1147,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="v1: must be 1 (serial dispatch). Param exists for forward compat.",
     )
     parser.add_argument(
+        "--canonical",
+        action="store_true",
+        help=(
+            "Apply each env's canonical overlay (paper / Hub-card rule) instead of the "
+            "v1_legacy default. Wins over the YAML's `criterion:` field. See "
+            "docs/CANONICAL_CRITERIA.md."
+        ),
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -1173,6 +1194,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.results_path is not None:
         config = replace(config, results_path=args.results_path)
+    if args.canonical:
+        config = replace(config, criterion="canonical")
 
     # Schema check on existing parquet (fast, before expanding cells).
     err = _preflight_results_path(config.results_path)

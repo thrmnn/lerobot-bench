@@ -137,22 +137,26 @@ def resolve_specs(
     *,
     policies_yaml: Path,
     envs_yaml: Path,
+    criterion: str = "v1_legacy",
 ) -> tuple[PolicySpec, EnvSpec]:
     """Load both registries, look up by name, validate compat.
+
+    ``criterion`` selects the per-env scoring rule: ``v1_legacy``
+    (default, replays v1.0 bit-identically) or ``canonical`` (applies
+    each env's :class:`CanonicalOverlay`; see ``docs/CANONICAL_CRITERIA.md``).
 
     Raises:
         KeyError: if either name is not registered. The registry's own
             ``KeyError`` carries the ``available: ...`` list, which is
             re-raised verbatim.
-        ValueError: if ``env_name`` is not in ``policy.env_compat``.
-            Message lists the policy's full compat tuple so the operator
-            can pick a valid env without grep-ing the YAML.
+        ValueError: if ``env_name`` is not in ``policy.env_compat``,
+            or if ``criterion`` is not one of the accepted labels.
     """
     policies = PolicyRegistry.from_yaml(policies_yaml)
     envs = EnvRegistry.from_yaml(envs_yaml)
 
     policy = policies.get(policy_name)  # KeyError on miss
-    env = envs.get(env_name)  # KeyError on miss
+    env = envs.get(env_name).with_criterion(criterion)  # KeyError on miss; ValueError on bad label
 
     if env_name not in policy.env_compat:
         compat = ", ".join(policy.env_compat) if policy.env_compat else "<empty>"
@@ -246,6 +250,7 @@ def run_one(
     policies_yaml: Path,
     envs_yaml: Path,
     dry_run: bool,
+    criterion: str = "v1_legacy",
 ) -> RunOneOutcome:
     """Run one cell end-to-end. Pure orchestration; lazy-imports torch/lerobot.
 
@@ -277,6 +282,7 @@ def run_one(
             env_name,
             policies_yaml=policies_yaml,
             envs_yaml=envs_yaml,
+            criterion=criterion,
         )
     except (KeyError, ValueError) as exc:
         msg = str(exc).strip("'\"")
@@ -315,7 +321,9 @@ def run_one(
     if dry_run:
         log = (
             f"[run-one] dry-run: would run {cell_key} "
-            f"({n_episodes} episodes, record_video={record_video}, device={device})"
+            f"({n_episodes} episodes, record_video={record_video}, "
+            f"device={device}, criterion={criterion}, "
+            f"max_steps={env_spec.max_steps}, success_metric={env_spec.success_metric})"
         )
         return RunOneOutcome(
             exit_code=0,
@@ -475,6 +483,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Resolve specs + log the plan; do NOT import torch/lerobot or write rows.",
     )
+    parser.add_argument(
+        "--canonical",
+        action="store_true",
+        help=(
+            "Apply each env's canonical overlay (paper / Hub-card rule) instead of the "
+            "v1_legacy default. See docs/CANONICAL_CRITERIA.md for the per-env table."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable DEBUG logging.")
     return parser.parse_args(argv)
 
@@ -499,6 +515,7 @@ def main(argv: list[str] | None = None) -> int:
             policies_yaml=args.policies_yaml,
             envs_yaml=args.envs_yaml,
             dry_run=args.dry_run,
+            criterion="canonical" if args.canonical else "v1_legacy",
         )
     except FileNotFoundError as exc:
         # Missing yaml is operator error -- treat as runtime-missing.
