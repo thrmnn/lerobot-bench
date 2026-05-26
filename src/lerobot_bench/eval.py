@@ -27,12 +27,25 @@ This module is the keystone for the sweep. Everything in ``scripts/``
 
 **Termination & success.** Each episode runs until any of:
 ``terminated``, ``truncated``, or ``step_count == env_spec.max_steps``.
-For v1 we use the conservative rule ``success = (final_reward >=
-env_spec.success_threshold)`` — the reward at the final step (the last
-step before exit). This matches Aloha/Libero task-complete semantics
-and is a defensible (if slightly under-counting) PushT score; PushT's
-reward is monotonically related to coverage so the final step usually
-carries the peak. The choice is documented in the public methodology.
+The success rule is driven by ``env_spec.success_metric`` (see
+:mod:`lerobot_bench.envs`):
+
+* ``final_reward_threshold`` (v1_legacy default for every env) —
+  ``success := final_reward >= env_spec.success_threshold``. Defensible
+  for binary-reward envs (Aloha, LIBERO via terminating-step semantics);
+  *over-counts* on PushT because the lax 0.9025 coverage window admits
+  near-converged truncations that the paper / Hub-card sticky rule does
+  not (``docs/SUCCESS_CRITERION_AUDIT.md`` §5.2).
+* ``sticky_is_success`` — ``success := any(info['is_success'])`` across
+  the rollout. Matches the lerobot canonical eval. Used by the PushT
+  ``canonical`` overlay.
+* ``sticky_reward_eq`` — ``success := any(reward == strict_reward_value)``.
+  Used by the Aloha ``canonical`` overlay so reward in {1, 2, 3} (touched
+  / lifted / attempted) is no longer counted as a transfer.
+
+The criterion is fixed on the :class:`EnvSpec` the eval loop receives;
+flipping between v1_legacy and canonical happens at config-load time via
+:meth:`lerobot_bench.envs.EnvSpec.with_criterion`.
 
 **Lazy imports.** ``torch`` and ``lerobot`` are imported lazily inside
 :func:`seed_everything` and :func:`load_policy` respectively; importing
@@ -1386,6 +1399,8 @@ def run_cell(
             episode_seed=episode_seed,
             max_steps=env_spec.max_steps,
             success_threshold=env_spec.success_threshold,
+            success_metric=env_spec.success_metric,
+            strict_reward_value=env_spec.strict_reward_value,
             record_video=record_video,
         )
         if stream_encode and episode.error is None and len(episode.frames) > 0:
@@ -1467,14 +1482,35 @@ def _run_one_episode(
     episode_seed: int,
     max_steps: int,
     success_threshold: float,
+    success_metric: str = "final_reward_threshold",
+    strict_reward_value: float | None = None,
     record_video: bool,
 ) -> EpisodeResult:
-    """Inner loop. Catches per-episode exceptions and records them."""
+    """Inner loop. Catches per-episode exceptions and records them.
+
+    ``success_metric`` is the rule used to flip a rollout into a boolean
+    -- see the module docstring for the three accepted values. The
+    sticky variants OR-accumulate a per-step signal across the rollout
+    so a flag that fires once-and-decays still counts; the
+    ``final_reward_threshold`` default reads only the terminating step's
+    reward (v1_legacy behaviour).
+
+    ``strict_reward_value`` is required when ``success_metric ==
+    'sticky_reward_eq'`` (e.g. ``4.0`` for ACT's Aloha-Transfer rule);
+    a ``None`` here with that metric raises before the rollout starts.
+    """
+    if success_metric == "sticky_reward_eq" and strict_reward_value is None:
+        raise ValueError(
+            "_run_one_episode: success_metric='sticky_reward_eq' requires strict_reward_value"
+        )
+
     t0 = time.perf_counter()
     frames: list[NDArray[np.uint8]] = []
     cumulative_return = 0.0
     n_steps = 0
     final_reward = 0.0
+    sticky_is_success = False
+    sticky_reward_match = False
 
     try:
         obs, _info = env.reset(seed=episode_seed)
@@ -1484,10 +1520,21 @@ def _run_one_episode(
 
         for _ in range(max_steps):
             action = policy(obs)
-            obs, reward, terminated, truncated, _info = env.step(action)
+            obs, reward, terminated, truncated, info = env.step(action)
             n_steps += 1
             cumulative_return += float(reward)
             final_reward = float(reward)
+            # Sticky accumulators: OR across the rollout. The env may
+            # terminate immediately when is_success fires (PushT, Aloha,
+            # LIBERO all do), but accumulating lets the metric survive
+            # a hypothetical decay-after-success and matches the
+            # lerobot canonical eval's ``any(is_success)`` reduction.
+            if isinstance(info, dict):
+                is_success_flag = info.get("is_success")
+                if isinstance(is_success_flag, bool | int | np.bool_) and bool(is_success_flag):
+                    sticky_is_success = True
+            if strict_reward_value is not None and float(reward) == float(strict_reward_value):
+                sticky_reward_match = True
             if record_video:
                 frames.append(env.render())
             if terminated or truncated:
@@ -1507,7 +1554,13 @@ def _run_one_episode(
         )
 
     wallclock = time.perf_counter() - t0
-    success = final_reward >= success_threshold
+    if success_metric == "sticky_is_success":
+        success = sticky_is_success
+    elif success_metric == "sticky_reward_eq":
+        success = sticky_reward_match
+    else:
+        # final_reward_threshold (v1_legacy default).
+        success = final_reward >= success_threshold
     return EpisodeResult(
         episode_index=episode_index,
         success=success,

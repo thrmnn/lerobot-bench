@@ -25,12 +25,25 @@ Two construction paths are supported:
 
 Exactly one of ``gym_id`` / ``factory`` must be set; both-set or
 neither-set is a YAML schema error caught at registry load.
+
+**Success criterion (v1.1).** v1 shipped a single per-env scoring
+rule: ``success := final_reward >= success_threshold``. The v1.0.1
+audit (``docs/SUCCESS_CRITERION_AUDIT.md``, ``docs/CANONICAL_CRITERIA.md``)
+identified three places where the v1 rule diverges from the canonical
+paper / Hub eval (PushT sticky any-window, Aloha strict ``reward == 4``,
+LIBERO 600-step cap). Rather than break replay of v1.0 parquets, v1.1
+makes the rule *selectable*: every spec carries the v1 fields plus an
+optional ``canonical`` overlay (``canonical_max_steps``,
+``canonical_success_metric``, ``canonical_strict_reward_value``).
+:meth:`EnvSpec.with_criterion` returns a fresh spec with the overlay
+applied; ``v1_legacy`` is the default and produces bit-identical
+behaviour to v1.0.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +51,47 @@ import yaml
 
 # Required keys every env entry must have. Validated at registry load.
 _REQUIRED_FIELDS = frozenset({"name", "family", "max_steps", "success_threshold", "lerobot_module"})
-_OPTIONAL_FIELDS = frozenset({"gym_id", "gym_kwargs", "factory", "factory_kwargs"})
+_OPTIONAL_FIELDS = frozenset(
+    {
+        "gym_id",
+        "gym_kwargs",
+        "factory",
+        "factory_kwargs",
+        "canonical",  # v1.1 overlay; see _coerce_canonical_overlay
+    }
+)
 _ALL_FIELDS = _REQUIRED_FIELDS | _OPTIONAL_FIELDS
+
+# Per-env scoring rule names. ``final_reward_threshold`` matches the v1
+# behaviour: ``success := final_reward >= success_threshold``.
+# ``sticky_is_success`` reads ``info["is_success"]`` each step and
+# OR-accumulates -- the lerobot canonical eval's ``any(is_success)``.
+# ``sticky_reward_eq`` OR-accumulates ``reward == strict_reward_value``
+# (used by the ACT paper's Aloha ``reward == 4`` Transfer rule).
+SUCCESS_METRICS = frozenset({"final_reward_threshold", "sticky_is_success", "sticky_reward_eq"})
+
+# Selectable criterion labels. ``v1_legacy`` is the back-compat default;
+# ``canonical`` opts into the paper / Hub-card rule per env.
+CRITERION_LABELS = frozenset({"v1_legacy", "canonical"})
+
+
+@dataclass(frozen=True)
+class CanonicalOverlay:
+    """Per-env overrides applied when ``criterion == 'canonical'``.
+
+    Every field is optional. ``None`` means "keep the v1 value". The
+    overlay is the source of truth for what *changes* when the operator
+    opts into the canonical rule; the v1 fields on :class:`EnvSpec` are
+    untouched so a default-criterion run still replays v1.0 bit-identically.
+
+    See ``docs/CANONICAL_CRITERIA.md`` for the per-env table and the
+    paper citations behind each field.
+    """
+
+    max_steps: int | None = None
+    success_metric: str | None = None
+    success_threshold: float | None = None
+    strict_reward_value: float | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +122,14 @@ class EnvSpec:
     receive the image+state observations they were trained on; the
     baseline ``random``/``no_op`` policies are obs-shape-agnostic, so
     the same env spec works for both.
+
+    **Success rule fields.** ``success_metric`` selects how the eval
+    loop turns a rollout into a boolean; defaults to
+    ``"final_reward_threshold"`` (v1 behaviour). When the metric is
+    ``"sticky_reward_eq"``, ``strict_reward_value`` is the integer-valued
+    target (e.g. ``4.0`` for Aloha Transfer). The ``canonical`` overlay
+    is the v1.1 mechanism for opting into the paper rule per env; see
+    :meth:`with_criterion`.
     """
 
     name: str
@@ -81,6 +141,9 @@ class EnvSpec:
     gym_kwargs: tuple[tuple[str, Any], ...] = field(default_factory=tuple)
     factory: str | None = None
     factory_kwargs: tuple[tuple[str, Any], ...] = field(default_factory=tuple)
+    success_metric: str = "final_reward_threshold"
+    strict_reward_value: float | None = None
+    canonical: CanonicalOverlay = field(default_factory=CanonicalOverlay)
 
     def __post_init__(self) -> None:
         # Mutual exclusion + at-least-one. Loader catches this too with a
@@ -90,6 +153,25 @@ class EnvSpec:
             raise ValueError(f"env '{self.name}': exactly one of 'gym_id' or 'factory' must be set")
         if self.gym_id is not None and self.factory is not None:
             raise ValueError(f"env '{self.name}': 'gym_id' and 'factory' are mutually exclusive")
+        if self.success_metric not in SUCCESS_METRICS:
+            raise ValueError(
+                f"env '{self.name}': success_metric must be one of "
+                f"{sorted(SUCCESS_METRICS)}, got {self.success_metric!r}"
+            )
+        if self.success_metric == "sticky_reward_eq" and self.strict_reward_value is None:
+            raise ValueError(
+                f"env '{self.name}': success_metric='sticky_reward_eq' requires "
+                "strict_reward_value to be set"
+            )
+        # Validate the canonical overlay's metric (if it overrides one).
+        if (
+            self.canonical.success_metric is not None
+            and self.canonical.success_metric not in SUCCESS_METRICS
+        ):
+            raise ValueError(
+                f"env '{self.name}': canonical.success_metric must be one of "
+                f"{sorted(SUCCESS_METRICS)}, got {self.canonical.success_metric!r}"
+            )
 
     def gym_kwargs_dict(self) -> dict[str, Any]:
         """Materialize :attr:`gym_kwargs` as a fresh ``dict`` for ``gym.make``."""
@@ -103,6 +185,48 @@ class EnvSpec:
     def uses_factory(self) -> bool:
         """True iff this spec is constructed via the factory path."""
         return self.factory is not None
+
+    def with_criterion(self, criterion: str) -> EnvSpec:
+        """Return a copy of this spec under the requested scoring criterion.
+
+        ``criterion='v1_legacy'`` returns ``self`` unchanged -- the
+        spec's primary fields already encode the v1 behaviour.
+        ``criterion='canonical'`` applies the ``canonical`` overlay
+        (any ``None`` field falls through to the v1 value).
+
+        Used by ``scripts/run_one.py`` and ``scripts/run_sweep.py`` at
+        the boundary between config load and eval dispatch, so the eval
+        loop itself never needs to know which criterion is active --
+        the spec it receives already carries the right ``max_steps``,
+        ``success_metric``, ``success_threshold`` and
+        ``strict_reward_value``.
+        """
+        if criterion not in CRITERION_LABELS:
+            raise ValueError(
+                f"unknown criterion '{criterion}'; expected one of {sorted(CRITERION_LABELS)}"
+            )
+        if criterion == "v1_legacy":
+            return self
+        ov = self.canonical
+        return replace(
+            self,
+            max_steps=ov.max_steps if ov.max_steps is not None else self.max_steps,
+            success_metric=(
+                ov.success_metric if ov.success_metric is not None else self.success_metric
+            ),
+            success_threshold=(
+                ov.success_threshold if ov.success_threshold is not None else self.success_threshold
+            ),
+            strict_reward_value=(
+                ov.strict_reward_value
+                if ov.strict_reward_value is not None
+                else self.strict_reward_value
+            ),
+            # Clear the overlay on the returned spec so a second
+            # with_criterion('canonical') call is a no-op rather than
+            # double-applying.
+            canonical=CanonicalOverlay(),
+        )
 
 
 class EnvRegistry:
@@ -145,6 +269,12 @@ class EnvRegistry:
 
     def by_family(self, family: str) -> list[EnvSpec]:
         return [s for s in self._specs.values() if s.family == family]
+
+    def with_criterion(self, criterion: str) -> EnvRegistry:
+        """Return a fresh registry with :meth:`EnvSpec.with_criterion` applied to every spec."""
+        return EnvRegistry(
+            {name: spec.with_criterion(criterion) for name, spec in self._specs.items()}
+        )
 
     def __contains__(self, name: object) -> bool:
         return isinstance(name, str) and name in self._specs
@@ -201,6 +331,64 @@ def _freeze_value(value: Any, *, source: str, field_name: str) -> Any:
     return value
 
 
+_CANONICAL_FIELDS = frozenset(
+    {"max_steps", "success_metric", "success_threshold", "strict_reward_value"}
+)
+
+
+def _coerce_canonical_overlay(raw: Any, *, source: str) -> CanonicalOverlay:
+    """Validate + build a :class:`CanonicalOverlay` from a YAML sub-mapping.
+
+    Missing keys fall through to ``None``; unknown keys raise. Type
+    checking is per-field (positive int for ``max_steps``, string for
+    ``success_metric``, number for the two reward fields).
+    """
+    if raw is None:
+        return CanonicalOverlay()
+    if not isinstance(raw, dict):
+        raise ValueError(f"{source}: canonical must be a mapping, got {type(raw).__name__}")
+    extras = set(raw) - _CANONICAL_FIELDS
+    if extras:
+        raise ValueError(f"{source}: canonical has unknown fields: {sorted(extras)}")
+
+    max_steps = raw.get("max_steps")
+    if max_steps is not None:
+        if not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps <= 0:
+            raise ValueError(
+                f"{source}: canonical.max_steps must be a positive int, got {max_steps!r}"
+            )
+
+    success_metric = raw.get("success_metric")
+    if success_metric is not None and not isinstance(success_metric, str):
+        raise ValueError(
+            f"{source}: canonical.success_metric must be a string, "
+            f"got {type(success_metric).__name__}"
+        )
+
+    success_threshold = raw.get("success_threshold")
+    if success_threshold is not None and not isinstance(success_threshold, int | float):
+        raise ValueError(
+            f"{source}: canonical.success_threshold must be a number, "
+            f"got {type(success_threshold).__name__}"
+        )
+
+    strict_reward_value = raw.get("strict_reward_value")
+    if strict_reward_value is not None and not isinstance(strict_reward_value, int | float):
+        raise ValueError(
+            f"{source}: canonical.strict_reward_value must be a number, "
+            f"got {type(strict_reward_value).__name__}"
+        )
+
+    return CanonicalOverlay(
+        max_steps=int(max_steps) if max_steps is not None else None,
+        success_metric=str(success_metric) if success_metric is not None else None,
+        success_threshold=float(success_threshold) if success_threshold is not None else None,
+        strict_reward_value=(
+            float(strict_reward_value) if strict_reward_value is not None else None
+        ),
+    )
+
+
 def _spec_from_dict(entry: dict[str, Any], *, source: str) -> EnvSpec:
     keys = set(entry)
     missing = _REQUIRED_FIELDS - keys
@@ -234,6 +422,8 @@ def _spec_from_dict(entry: dict[str, Any], *, source: str) -> EnvSpec:
         entry.get("factory_kwargs", {}), source=source, field_name="factory_kwargs"
     )
 
+    canonical = _coerce_canonical_overlay(entry.get("canonical"), source=source)
+
     return EnvSpec(
         name=str(entry["name"]),
         family=str(entry["family"]),
@@ -244,4 +434,5 @@ def _spec_from_dict(entry: dict[str, Any], *, source: str) -> EnvSpec:
         max_steps=int(max_steps),
         success_threshold=float(success_threshold),
         lerobot_module=str(entry["lerobot_module"]),
+        canonical=canonical,
     )

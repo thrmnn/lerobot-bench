@@ -1,9 +1,10 @@
 # Sim env registry. Loaded by lerobot_bench.envs.EnvRegistry.from_yaml.
 #
 # success_threshold values are the per-env reward at/above which an
-# episode is considered successful. Source-of-truth verification:
-# `lerobot.envs.<lerobot_module>.config.SUCCESS_REWARD` if it exists in
-# lerobot 0.5.1, otherwise locked here per docs/DESIGN.md § Methodology.
+# episode is considered successful under the v1_legacy criterion. Source-
+# of-truth verification: `lerobot.envs.<lerobot_module>.config.SUCCESS_REWARD`
+# if it exists in lerobot 0.5.1, otherwise locked here per
+# docs/DESIGN.md § Methodology.
 #
 # Two construction paths (mutually exclusive — exactly one of `gym_id`
 # or `factory` must be set):
@@ -30,6 +31,14 @@
 # default config (pointing at libero's bundled bddl_files / init_files)
 # before any libero-touching import to keep the eval loop non-interactive.
 # Set the env var LIBERO_CONFIG_PATH to override the location.
+#
+# Success criterion (v1.1). The top-level `max_steps`, `success_threshold`
+# (and the implicit `success_metric: final_reward_threshold`) describe
+# v1_legacy behaviour — bit-identical to v1.0 sweeps. The optional
+# `canonical:` sub-block declares the paper / Hub-card rule per env;
+# `scripts/run_sweep.py --canonical` (or `scripts/run_one.py --canonical`)
+# swaps it in via `EnvSpec.with_criterion('canonical')`. Per-env citations
+# live in docs/CANONICAL_CRITERIA.md.
 
 envs:
   - name: pusht
@@ -41,6 +50,12 @@ envs:
     gym_kwargs:
       # 96x96 RGB pixels + (2,) agent xy — what lerobot/diffusion_pusht expects.
       obs_type: pixels_agent_pos
+    canonical:
+      # gym-pusht puts `is_success := coverage > 0.95` into info each step
+      # and terminates the moment it fires. Sticky `any(is_success)` matches
+      # the lerobot canonical eval that the `lerobot/diffusion_pusht` Hub card
+      # 65.4% number was produced under. Cap stays at 300 (same as v1).
+      success_metric: sticky_is_success
 
   - name: aloha_transfer_cube
     family: aloha
@@ -52,6 +67,13 @@ envs:
       # 480x640 top-cam RGB + (14,) agent_pos — matches
       # lerobot/act_aloha_sim_transfer_cube_human input_features.
       obs_type: pixels_agent_pos
+    canonical:
+      # ACT paper Table I "Cube Transfer (sim) / Transfer" only counts
+      # `reward == 4` (cube actually transferred between grippers).
+      # Bench v1 accepted `reward ∈ {1, 2, 3, 4}` via final_reward >= 1.0.
+      # Cap stays at 400 (matches paper text).
+      success_metric: sticky_reward_eq
+      strict_reward_value: 4.0
 
   # ------------------------------------------------------------------
   # LIBERO — 4 task suites, factory path. lerobot wraps libero's
@@ -66,6 +88,12 @@ envs:
   # evaluate (smolvla / pi0 / pi05 / pi0fast / xvla — all libero finetunes).
   # success_threshold=1.0 = libero's per-task `check_success()` flag
   # (binary; rewarded as 1.0 on completion).
+  #
+  # Canonical overlay: LIBERO upstream eval (libero/lifelong/metric.py)
+  # uses cfg.eval.max_steps=600 for every suite. The scoring rule is
+  # bit-equivalent to v1 (`final_reward >= 1.0` on a binary-reward env
+  # is the same as sticky `any(is_success)` — see audit §5.1), so only
+  # max_steps is overridden.
   # ------------------------------------------------------------------
 
   - name: libero_spatial
@@ -80,6 +108,8 @@ envs:
     max_steps: 280
     success_threshold: 1.0
     lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
 
   - name: libero_object
     family: libero
@@ -93,6 +123,8 @@ envs:
     max_steps: 280
     success_threshold: 1.0
     lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
 
   - name: libero_goal
     family: libero
@@ -106,6 +138,8 @@ envs:
     max_steps: 300
     success_threshold: 1.0
     lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
 
   - name: libero_10
     family: libero
@@ -119,3 +153,5 @@ envs:
     max_steps: 520
     success_threshold: 1.0
     lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
