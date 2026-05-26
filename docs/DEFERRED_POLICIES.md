@@ -93,6 +93,16 @@ empty-camera placeholder handling, or a tokenizer / language-prompt
 contract mismatch — but isolating it is **out of scope for the v1
 window**.
 
+**Probe — `control_mode=absolute` (ruled out):** Closed upstream issue
+[huggingface/lerobot#3401](https://github.com/huggingface/lerobot/issues/3401)
+documents the same 0%-success symptom and was resolved by the reporter
+with `--env.control_mode=absolute` (X-VLA is trained on absolute end-effector
+poses, not deltas). We tested this hypothesis: 5 episodes of
+`xvla_libero × libero_spatial × seed 0` with `control_mode: absolute`
+patched into `configs/envs.yaml::libero_spatial.factory_kwargs`. Result:
+**0/5**, `n_steps=280` (full timeout) on every episode. The patch is
+reverted; absolute-pose mode is not Bug 3.
+
 ### What to expect when reproducing
 
 Anyone reproducing the xvla rows today should expect **0% xvla**
