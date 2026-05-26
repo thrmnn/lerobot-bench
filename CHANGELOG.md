@@ -32,14 +32,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   post-processing step is absent. Vanilla loaders would silently produce
   zero-success rollouts on LIBERO. Our loader now inserts
   `XVLARotation6DToAxisAngleProcessorStep` before the trailing
-  `DeviceProcessorStep` whenever `cfg.type == "xvla"`. xvla re-run pending.
+  `DeviceProcessorStep` whenever `cfg.type == "xvla"` — but a third deeper
+  issue remains; xvla deferred to v1.1, see `docs/DEFERRED_POLICIES.md`.
+- **xvla preprocessor skipping ImageNet normalization** (PR #74). The
+  `lerobot/xvla-libero` Hub `policy_preprocessor.json` declares
+  `norm_map: {VISUAL: IDENTITY}` so images bypass ImageNet normalization on
+  the input side, even though the model was trained against ImageNet-
+  normalized images. Our loader now inserts
+  `XVLAImageNetNormalizeProcessorStep` before the trailing
+  `DeviceProcessorStep` whenever `cfg.type == "xvla"` — but a third deeper
+  issue remains; xvla deferred to v1.1, see `docs/DEFERRED_POLICIES.md`.
+
+### Deferred to v1.1
+- **pi-family** (`pi0`, `pi0fast`, `pi0.5`) — out of the v1 matrix due to a
+  ~30 GB host-RAM cold-load spike on the 32 GB reference machine. Locked Hub
+  SHAs preserved in `docs/DEFERRED_POLICIES.md` so v1.1 onboarding does not
+  need a fresh lock-in pass.
+- **xvla_libero** — two upstream Hub-artifact wiring bugs were patched in our
+  loader (PR #71 postprocessor; PR #74 preprocessor) but a third unresolved
+  issue still produces 0/10 rollouts across all 4 LIBERO suites in our sanity
+  check. Out of scope for the v1 window; see `docs/DEFERRED_POLICIES.md` for
+  the full account and v1.1 plan.
 
 ### Notes
-- **pi-family deferred to v1.1.** `pi0`, `pi0fast`, and `pi0.5` are explicitly
-  out of the v1 matrix per `docs/PI_DEFERRAL.md` (~30 GB host-RAM cold-load
-  spike on the 32 GB reference machine). Locked Hub SHAs are preserved in
-  `docs/MODEL_CARDS.md` § Deferred policies so v1.1 onboarding does not need
-  a fresh lock-in pass.
 - **Upstream PR for xvla wiring planned** as lerobot-bench task #62 — until it
   lands, downstream consumers loading `lerobot/xvla-libero` via vanilla
   `lerobot.policies.factory.make_pre_post_processors` will silently get

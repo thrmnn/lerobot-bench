@@ -4,12 +4,14 @@ One entry per policy in the v1 leaderboard. Repo IDs and revision SHAs
 were locked at Day 0a; the failure-mode column is populated at Day 7
 from the failure-taxonomy labeling pass.
 
-The **v1 roster is six policies**: two classical visuomotor policies
-(`act`, `diffusion_policy`), two VLA action heads (`smolvla_libero`,
-`xvla_libero`), and two weights-free floor baselines (`no_op`,
-`random`). The `pi0` family (`pi0`, `pi0.5`, `pi0fast`) is **deferred
-to v1.1** — see [Deferred policies](#deferred-policies-v11) below for
-the reason and the locked SHAs that carry forward.
+The **v1 roster is five policies in the leaderboard** (`act`,
+`diffusion_policy`, `smolvla_libero`, and the `no_op` / `random` floor
+baselines), plus `xvla_libero` which was *executed* but is **deferred
+from the v1 leaderboard** (see the xvla card below and
+[`DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md)). The `pi0` family
+(`pi0`, `pi0.5`, `pi0fast`) is also **deferred to v1.1** — see
+[`DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md) for both deferrals and
+the locked SHAs that carry forward.
 
 > Fields populated only after the sweep completes (VRAM at inference,
 > calibrated ms/step, Day-7 failure modes) are marked **TBD** until the
@@ -166,6 +168,12 @@ the reason and the locked SHAs that carry forward.
 
 ## XVLA (LIBERO)
 
+- **Deferred to v1.1.** Executed in the v1 sweep but excluded from the
+  v1 leaderboard — two upstream Hub-artifact wiring bugs were patched
+  in our loader (PR #71, PR #74) and a third unresolved issue still
+  produces 0/10 rollouts across all 4 LIBERO suites. See
+  [`docs/DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md) for the full
+  account and v1.1 plan.
 - **Architecture**: Vision-language-action model — X-VLA is a
   soft-prompted transformer designed for scalable cross-embodiment
   control; per-embodiment learnable "soft prompt" tokens condition a
@@ -220,6 +228,25 @@ the reason and the locked SHAs that carry forward.
   `lerobot.policies.factory.make_pre_post_processors` will silently
   get zero-success rollouts. A complementary upstream PR is planned
   (lerobot-bench task #62).
+- **Wiring caveat (PR #74)**: The upstream `lerobot/xvla-libero` Hub
+  `policy_preprocessor.json` declares `norm_map: {VISUAL: IDENTITY}`,
+  so images **skip** ImageNet normalization on the input side even
+  though the model was trained against ImageNet-normalized images. Our
+  eval pipeline patches the preprocessor at load time by inserting
+  `XVLAImageNetNormalizeProcessorStep` before the trailing
+  `DeviceProcessorStep`. Downstream consumers loading this checkpoint
+  via vanilla `lerobot.policies.factory.make_pre_post_processors` will
+  silently get un-normalized image inputs. Same upstream PR (task #62)
+  is planned to fix this end-to-end on the Hub side.
+- **Unresolved (deferral driver)**: Even with both patches above
+  firing at load time (log lines `patched xvla preprocessor` /
+  `patched xvla postprocessor` confirmed), xvla on LIBERO still scores
+  0/10 across all 4 suites in our sanity rollout. A third bug,
+  most likely in the model-arch / inference pipeline (e.g. the
+  chunked-action layout or empty-camera placeholder), remains
+  unresolved and is out of scope for the v1 window. See
+  [`docs/DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md) for the full
+  account and v1.1 plan.
 
 ## no-op (baseline)
 

@@ -4,7 +4,7 @@
 
 ### A public, reproducible benchmark of pretrained LeRobot manipulation policies.
 
-6 policies × 6 sim envs · multi-seed contract · Wilson + bootstrap CIs · MDE bounds · paired comparisons · failure taxonomy.
+5 policies in v1 (plus xvla executed-but-deferred) × 6 sim envs · multi-seed contract · Wilson + bootstrap CIs · MDE bounds · paired comparisons · failure taxonomy.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -31,7 +31,7 @@
 > Public multi-policy benchmark for pretrained LeRobot policies on PushT, Aloha, and LIBERO sim envs.
 > Multi-seed contract, bootstrap + Wilson CIs, MDE bounds, paired comparisons, failure taxonomy. Arxiv-grade writeup and upstream-ready eval module.
 
-**Status: v1 finalized (dataset version `v1.0.0`).** Sweep complete: **107/107 cells dispatched, 0 failures** across 6 policies × 6 envs. Pi0 family deferred to v1.1 (~30 GB host-RAM cold-load spike — see [paper Limitations](paper/main.tex)).
+**Status: v1 finalized (dataset version `v1.0.0`).** Sweep complete: **107/107 cells dispatched, 0 failures** across 6 policies × 6 envs. Pi0 family deferred to v1.1 (~30 GB host-RAM cold-load spike — see [paper Limitations](paper/main.tex)). `xvla_libero` was executed but is **deferred from the v1 leaderboard** — two upstream Hub-artifact wiring bugs were patched in our loader but a third unresolved issue still produces 0% rollouts; see [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
 
 ---
 
@@ -55,7 +55,7 @@ Two tools for running and inspecting it:
 
 ## v1 scope
 
-**6 policies × 6 envs (107 cells dispatched after `env_compat` filter, 0 failures):**
+**5 leaderboard policies + xvla executed-but-deferred × 6 envs (107 cells dispatched after `env_compat` filter, 0 failures):**
 
 | | pusht | aloha_transfer_cube | libero_spatial | libero_object | libero_goal | libero_10 |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -64,9 +64,11 @@ Two tools for running and inspecting it:
 | `diffusion_policy` | ✓ | | | | | |
 | `act` | | ✓ | | | | |
 | `smolvla_libero` | | | ✓ | ✓ | ✓ | ✓ |
-| `xvla_libero` | | | ✓ | ✓ | ✓ | ✓ |
+| `xvla_libero` | | | 🅓 | 🅓 | 🅓 | 🅓 |
 
-**5 seeds × 50 episodes per cell** (N=250 binary outcomes per cell; 2 cells were auto-downscoped to 25 after calibration flagged slow inference). Pi0 family (`pi0_libero`, `pi0fast_libero`, `pi05_libero_finetuned_v044`) **deferred to v1.1** — they overflow the 32 GB WSL2 host budget during `from_pretrained` cold load (~30 GB CPU RAM peak under HF Transformers' default weight-conversion path). v1.1 paths: quantized weights or `accelerate device_map="auto"` streaming load.
+Legend: ✓ runnable cell in v1 leaderboard · 🅓 cell *executed* in the v1 sweep but **deferred from the leaderboard**; upstream Hub artifacts ship with wiring bugs (PR #71 + PR #74 patch two; a third manifestation remained unresolved in the v1 window). See [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
+
+**5 seeds × 50 episodes per cell** (N=250 binary outcomes per cell; 2 cells were auto-downscoped to 25 after calibration flagged slow inference). Pi0 family (`pi0_libero`, `pi0fast_libero`, `pi05_libero_finetuned_v044`) **deferred to v1.1** — they overflow the 32 GB WSL2 host budget during `from_pretrained` cold load (~30 GB CPU RAM peak under HF Transformers' default weight-conversion path). v1.1 paths: quantized weights or `accelerate device_map="auto"` streaming load. The `xvla_libero` deferral is documented alongside the pi-family in [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
 
 ---
 
@@ -193,4 +195,3 @@ MIT. See [LICENSE](LICENSE).
 
 The arxiv writeup pre-print lands alongside the v1.0.0 dataset upload. Citation guidance will appear here at that point. Until then, please link to this repo.
 <!-- TODO: replace with BibTeX once arxiv ID is assigned and huggingface.co/datasets/thrmnn/lerobot-bench-v1 is live. -->
-
