@@ -54,12 +54,14 @@ from _helpers import (  # noqa: E402  (sys.path mutation must precede import)
     HUB_RAW_PREFIX,
     LEADERBOARD_COLUMNS,
     PAIRED_COLUMNS,
+    V1_POLICIES,
     clear_results_cache,
     compute_failure_counts,
     compute_leaderboard_table,
     compute_paired_table,
     episode_metadata,
     filter_episodes,
+    filter_to_v1_policies,
     format_video_url,
     list_unique,
     load_results_df,
@@ -111,13 +113,14 @@ def synthetic_parquet(tmp_path: Path) -> Path:
     """3 policies × 2 envs × 3 seeds × 50 episodes synthetic parquet.
 
     Success rates are deliberately stratified per policy so the
-    leaderboard sort order is checkable: ``good`` succeeds always,
-    ``mid`` half the time, ``bad`` never. Same per env to keep the
-    asserts simple; cross-env sort tie-break exercises the secondary
-    sort key.
+    leaderboard sort order is checkable: ``act`` succeeds always,
+    ``diffusion_policy`` half the time, ``random`` never. Policy names
+    are drawn from :data:`V1_POLICIES` because :func:`load_results_df`
+    drops non-v1 rows on read (xvla deferral, PR #76); fake names like
+    ``good``/``bad`` would get filtered out before any assert ran.
     """
     rows: list[dict[str, Any]] = []
-    for policy, success_rate in [("good", 1.0), ("mid", 0.5), ("bad", 0.0)]:
+    for policy, success_rate in [("act", 1.0), ("diffusion_policy", 0.5), ("random", 0.0)]:
         for env in ["pusht", "aloha"]:
             for seed in [0, 1, 2]:
                 for ep in range(50):
@@ -182,17 +185,18 @@ def test_leaderboard_row_count_and_sort(synthetic_parquet: Path) -> None:
     # Sort: success_rate descending.
     rates = list(table["success_rate"])
     assert rates == sorted(rates, reverse=True)
-    # Top two rows are "good"; bottom two are "bad".
-    assert set(table.head(2)["policy"]) == {"good"}
-    assert set(table.tail(2)["policy"]) == {"bad"}
+    # Top two rows are the always-succeed policy; bottom two are
+    # never-succeed.
+    assert set(table.head(2)["policy"]) == {"act"}
+    assert set(table.tail(2)["policy"]) == {"random"}
 
 
 def test_leaderboard_wilson_half_width_matches_stats(synthetic_parquet: Path) -> None:
     df = load_results_df(synthetic_parquet)
     table = compute_leaderboard_table(df)
 
-    # Pick the "mid" / "pusht" cell: 3 seeds × 25 successes = 75 / 150.
-    row = table[(table["policy"] == "mid") & (table["env"] == "pusht")].iloc[0]
+    # Pick the half-success / pusht cell: 3 seeds × 25 successes = 75 / 150.
+    row = table[(table["policy"] == "diffusion_policy") & (table["env"] == "pusht")].iloc[0]
     assert int(row["n_episodes"]) == 150
     assert int(row["n_successes"]) == 75
     lo_ref, hi_ref = wilson_ci(75, 150, ci=0.95)
@@ -222,7 +226,7 @@ def test_leaderboard_columns_are_canonical(synthetic_parquet: Path) -> None:
 
 def test_list_unique_returns_sorted_strings(synthetic_parquet: Path) -> None:
     df = load_results_df(synthetic_parquet)
-    assert list_unique(df, "policy") == ["bad", "good", "mid"]
+    assert list_unique(df, "policy") == ["act", "diffusion_policy", "random"]
     assert list_unique(df, "env") == ["aloha", "pusht"]
     # Seeds are ints in the parquet; helper normalises to strings for
     # the dropdown.
@@ -231,7 +235,7 @@ def test_list_unique_returns_sorted_strings(synthetic_parquet: Path) -> None:
 
 def test_filter_episodes_returns_sorted_cell(synthetic_parquet: Path) -> None:
     df = load_results_df(synthetic_parquet)
-    cell = filter_episodes(df, policy="mid", env="aloha", seed="1")
+    cell = filter_episodes(df, policy="diffusion_policy", env="aloha", seed="1")
     assert len(cell) == 50
     assert list(cell["episode_index"]) == list(range(50))
 
@@ -346,15 +350,20 @@ def test_helpers_does_not_import_gradio() -> None:
 def _make_paired_parquet(
     tmp_path: Path,
     *,
-    policy_a: str = "A",
-    policy_b: str = "B",
+    policy_a: str = "act",
+    policy_b: str = "random",
     env: str = "pusht",
     n_seeds: int = 5,
     n_episodes_per_seed: int = 10,
     a_success_rate: float = 0.8,
     b_success_rate: float = 0.2,
 ) -> Path:
-    """Build a tiny synthetic parquet for paired-comparison tests."""
+    """Build a tiny synthetic parquet for paired-comparison tests.
+
+    Defaults to ``act`` / ``random`` because :func:`load_results_df`
+    drops rows whose policy is not in :data:`V1_POLICIES`; the old
+    placeholder names ``A`` / ``B`` would be silently filtered out.
+    """
     rows: list[dict[str, Any]] = []
     cutoff_a = int(n_episodes_per_seed * a_success_rate)
     cutoff_b = int(n_episodes_per_seed * b_success_rate)
@@ -374,15 +383,15 @@ def test_paired_comparison_table_renders_synthetic_parquet(tmp_path: Path) -> No
     """
     path = _make_paired_parquet(
         tmp_path,
-        policy_a="A",
-        policy_b="B",
+        policy_a="act",
+        policy_b="random",
         n_seeds=5,
         n_episodes_per_seed=50,
         a_success_rate=0.8,
         b_success_rate=0.2,
     )
     df = load_results_df(path)
-    table = compute_paired_table(df, policy_a="A", policy_b="B")
+    table = compute_paired_table(df, policy_a="act", policy_b="random")
 
     # Right column set and exactly one row (single env).
     assert tuple(table.columns) == PAIRED_COLUMNS
@@ -392,7 +401,7 @@ def test_paired_comparison_table_renders_synthetic_parquet(tmp_path: Path) -> No
     assert row["env"] == "pusht"
     assert int(row["n_A"]) == 250
     assert int(row["n_B"]) == 250
-    # A is the stronger policy → delta should be ≈ +0.6 and clearly
+    # act is the stronger policy → delta should be ≈ +0.6 and clearly
     # exceed the per-cell MDE bound at N=250.
     assert float(row["delta"]) == pytest.approx(0.6, abs=1e-9)
     assert float(row["delta"]) > 0
@@ -410,12 +419,12 @@ def test_paired_comparison_handles_n_a_env(
     a log line, not a crash.
     """
     rows: list[dict[str, Any]] = []
-    # Both policies in pusht; only A in aloha.
+    # Both policies in pusht; only act in aloha.
     for seed in range(2):
         for ep in range(20):
-            rows.append(_row("A", "pusht", seed, ep, success=True))
-            rows.append(_row("B", "pusht", seed, ep, success=False))
-            rows.append(_row("A", "aloha", seed, ep, success=True))
+            rows.append(_row("act", "pusht", seed, ep, success=True))
+            rows.append(_row("random", "pusht", seed, ep, success=False))
+            rows.append(_row("act", "aloha", seed, ep, success=True))
     path = tmp_path / "asym.parquet"
     _df(rows).to_parquet(path, index=False)
     clear_results_cache()
@@ -423,13 +432,15 @@ def test_paired_comparison_handles_n_a_env(
     df = load_results_df(path)
 
     # No explicit ``envs``: shared-env logic drops aloha silently.
-    table = compute_paired_table(df, policy_a="A", policy_b="B")
+    table = compute_paired_table(df, policy_a="act", policy_b="random")
     assert list(table["env"]) == ["pusht"]
     assert len(table) == 1
 
     # Explicit ``envs`` requesting both: aloha is dropped with a log line.
     with caplog.at_level("INFO", logger="_helpers"):
-        table2 = compute_paired_table(df, policy_a="A", policy_b="B", envs=["pusht", "aloha"])
+        table2 = compute_paired_table(
+            df, policy_a="act", policy_b="random", envs=["pusht", "aloha"]
+        )
     assert list(table2["env"]) == ["pusht"]
     # Log mentions the dropped env.
     log_messages = [r.getMessage() for r in caplog.records]
@@ -445,11 +456,11 @@ def test_narrate_top_finding_describes_winning_env(tmp_path: Path) -> None:
         n_episodes_per_seed=50,
     )
     df = load_results_df(path)
-    table = compute_paired_table(df, policy_a="A", policy_b="B")
-    sentence = narrate_top_finding(table, policy_a="A", policy_b="B")
+    table = compute_paired_table(df, policy_a="act", policy_b="random")
+    sentence = narrate_top_finding(table, policy_a="act", policy_b="random")
     assert "pusht" in sentence
-    assert "A" in sentence and "B" in sentence
-    # Either "outperforms" or "underperforms" — A > B here.
+    assert "act" in sentence and "random" in sentence
+    # Either "outperforms" or "underperforms" — act > random here.
     assert "outperforms" in sentence
     # Sample size is reported.
     assert "N=" in sentence
@@ -465,15 +476,15 @@ def test_narrate_top_finding_honest_when_below_mde(tmp_path: Path) -> None:
         n_episodes_per_seed=50,
     )
     df = load_results_df(path)
-    table = compute_paired_table(df, policy_a="A", policy_b="B")
-    sentence = narrate_top_finding(table, policy_a="A", policy_b="B")
+    table = compute_paired_table(df, policy_a="act", policy_b="random")
+    sentence = narrate_top_finding(table, policy_a="act", policy_b="random")
     assert "No env clears the MDE bound" in sentence
 
 
 def test_paired_comparison_empty_inputs_returns_canonical_empty() -> None:
     """Empty df → empty frame with the canonical column set."""
     empty = pd.DataFrame(columns=list(RESULT_SCHEMA))
-    table = compute_paired_table(empty, policy_a="A", policy_b="B")
+    table = compute_paired_table(empty, policy_a="act", policy_b="random")
     assert tuple(table.columns) == PAIRED_COLUMNS
     assert len(table) == 0
 
@@ -580,19 +591,18 @@ def test_failure_taxonomy_drops_unknown_labels(
 
 
 def test_leaderboard_sorted_by_mean_success_rate(tmp_path: Path) -> None:
-    """Synthetic parquet with policies A, B, C → sorted output matches
+    """Synthetic parquet with three v1 policies → sorted output matches
     expected order.
 
-    Per-policy mean success rates: C=0.7, A=0.5, B=0.3. The sort key is
-    per-policy mean descending, so the table reads C-rows, A-rows,
-    B-rows from top to bottom regardless of per-cell rate within a
-    policy.
+    Per-policy mean success rates: smolvla_libero=0.7, act=0.5,
+    diffusion_policy=0.3. The sort key is per-policy mean descending,
+    so the table reads smolvla_libero-rows, act-rows, diffusion_policy-
+    rows from top to bottom regardless of per-cell rate within a policy.
+    Names drawn from :data:`V1_POLICIES` because the loader filters out
+    non-v1 rows.
     """
     rows: list[dict[str, Any]] = []
-    # Stratify per-cell rates so each policy's mean lands at the
-    # target. Two envs per policy; same rate across envs keeps the
-    # arithmetic trivial.
-    targets = {"A": 0.5, "B": 0.3, "C": 0.7}
+    targets = {"act": 0.5, "diffusion_policy": 0.3, "smolvla_libero": 0.7}
     for policy, rate in targets.items():
         for env in ["pusht", "aloha"]:
             for seed in [0, 1]:
@@ -606,13 +616,12 @@ def test_leaderboard_sorted_by_mean_success_rate(tmp_path: Path) -> None:
     table = compute_leaderboard_table(df)
 
     # Six cells total (3 policies × 2 envs). Policy order top→bottom
-    # follows the per-policy mean descending: C, A, B.
+    # follows the per-policy mean descending: smolvla, act, diffusion.
     assert len(table) == 6
     policy_order = list(table["policy"])
-    # First 2 rows are C, then 2 of A, then 2 of B.
-    assert policy_order[:2] == ["C", "C"]
-    assert policy_order[2:4] == ["A", "A"]
-    assert policy_order[4:6] == ["B", "B"]
+    assert policy_order[:2] == ["smolvla_libero", "smolvla_libero"]
+    assert policy_order[2:4] == ["act", "act"]
+    assert policy_order[4:6] == ["diffusion_policy", "diffusion_policy"]
     # Within each policy, envs are alphabetical.
     assert list(table.iloc[:2]["env"]) == ["aloha", "pusht"]
     assert list(table.iloc[2:4]["env"]) == ["aloha", "pusht"]
@@ -644,3 +653,72 @@ def test_render_v1_status_uses_manifest_counts_when_passed() -> None:
     md = render_v1_status(manifest)
     assert "2/4 cells completed" in md
     assert "completed=2" in md and "pending=1" in md and "failed=1" in md
+
+
+# --------------------------------------------------------------------- #
+# v1 policy filter (xvla_libero deferral, PR #76)                       #
+# --------------------------------------------------------------------- #
+
+
+def test_v1_policies_excludes_xvla() -> None:
+    """xvla_libero is deferred to v1.1; the leaderboard tuple must not list it."""
+    assert "xvla_libero" not in V1_POLICIES
+    # Sanity: the v1 roster is exactly the five publicly-shipped policies.
+    assert set(V1_POLICIES) == {
+        "act",
+        "diffusion_policy",
+        "smolvla_libero",
+        "no_op",
+        "random",
+    }
+
+
+def test_filter_to_v1_policies_drops_xvla_rows() -> None:
+    """The standalone helper drops non-v1 rows without touching the rest."""
+    df = pd.DataFrame(
+        {
+            "policy": ["act", "xvla_libero", "diffusion_policy", "pi0", "random"],
+            "env": ["pusht"] * 5,
+            "success": [True, False, True, False, True],
+        }
+    )
+    out = filter_to_v1_policies(df)
+    assert set(out["policy"]) == {"act", "diffusion_policy", "random"}
+    assert "xvla_libero" not in set(out["policy"])
+    assert "pi0" not in set(out["policy"])
+
+
+def test_filter_to_v1_policies_empty_passthrough() -> None:
+    """Empty / missing-column input returns the frame unchanged."""
+    empty = pd.DataFrame(columns=["policy", "env", "success"])
+    assert filter_to_v1_policies(empty).empty
+    # No policy column → no filter applied (degrades to identity).
+    no_col = pd.DataFrame({"other": [1, 2, 3]})
+    assert len(filter_to_v1_policies(no_col)) == 3
+
+
+def test_load_results_df_filters_xvla_but_parquet_preserves_it(tmp_path: Path) -> None:
+    """The published parquet still carries xvla rows for reproducibility;
+    :func:`load_results_df` drops them so the Space's leaderboard, paired
+    comparisons, and rollout dropdowns never see them.
+    """
+    rows: list[dict[str, Any]] = []
+    for policy in ("act", "xvla_libero", "diffusion_policy"):
+        for ep in range(5):
+            rows.append(_row(policy, "pusht", 0, ep, success=(ep < 3)))
+    path = tmp_path / "with-xvla.parquet"
+    _df(rows).to_parquet(path, index=False)
+    clear_results_cache()
+
+    # Raw parquet on disk still has every policy — reproducibility contract.
+    raw = pd.read_parquet(path)
+    assert "xvla_libero" in set(raw["policy"])
+
+    # But the loader gates v1 surfaces to V1_POLICIES.
+    df = load_results_df(path)
+    assert "xvla_libero" not in set(df["policy"])
+    assert set(df["policy"]) == {"act", "diffusion_policy"}
+
+    # Downstream leaderboard never surfaces an xvla row.
+    table = compute_leaderboard_table(df)
+    assert "xvla_libero" not in set(table["policy"])
