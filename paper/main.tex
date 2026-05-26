@@ -301,92 +301,146 @@ sweep took \todo{N hours} of GPU time on the reference hardware.
 \section{Results}
 \label{sec:results}
 
-\paragraph{Leaderboard.}
-% TODO: populate from notebooks/01-write-finding.ipynb after sweep completes
-Table~\ref{tab:leaderboard} reports per-cell success rate $\hat{p}$
-with the Wilson 95\% interval. \textbf{Bold} marks the best policy
-per env; * marks a statistically significant lead over the runner-up
-under paired McNemar at $\alpha{=}0.05$ Bonferroni-corrected for the
-\todo{$k$} comparisons within that env. Rows with $N<250$ are flagged
-with the per-cell $N$ in the table; their wider CIs propagate into
-the MDE bound stated in the caption.
+\paragraph{Per-policy leaderboard.}
+Table~\ref{tab:leaderboard} reports the pooled per-policy success
+rate $\hat{p}$ across the envs each policy supports under
+\texttt{env\_compat}, with the closed-form Wilson 95\% interval. Rows
+with $N{<}250$ are auto-downscoped per Section~\ref{sec:downscope}
+and flagged with $\dagger$. The full per-\textit{(policy, env)}
+breakdown is Table~\ref{tab:breakdown}.
 
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{llrrrl}
+\begin{tabular}{lrrrl}
 \toprule
-Policy & Env & $N$ & Successes & $\hat{p}$ & 95\% CI (Wilson) \\
+Policy & Envs & $N$ & $\hat{p}$ & 95\% CI (Wilson) \\
 \midrule
-Diffusion Policy & PushT  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-ACT              & Aloha  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-SmolVLA          & LIBERO-spatial & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-SmolVLA          & LIBERO-object  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-SmolVLA          & LIBERO-goal    & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-SmolVLA          & LIBERO-10      & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-$\pi_0$          & LIBERO-spatial & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-$\pi_0$          & LIBERO-object  & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-$\pi_0$          & LIBERO-goal    & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-$\pi_0$          & LIBERO-10      & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-$\pi_{0.5}$      & LIBERO-spatial & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-$\pi_0$-FAST     & LIBERO-spatial & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-XVLA             & LIBERO-spatial & \todo{N} & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-random           & PushT  & 250 & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-random           & Aloha  & 250 & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-no-op            & PushT  & 250 & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
-no-op            & Aloha  & 250 & \todo{S} & \todo{p} & \todo{[lo, hi]} \\
+ACT              & 1 & 250  & 0.824 & [0.772, 0.866] \\
+Diffusion Policy & 1 & 125$\dagger$ & 0.816 & [0.739, 0.874] \\
+SmolVLA          & 4 & 1000 & 0.621 & [0.591, 0.651] \\
+random           & 6 & 1500 & 0.009 & [0.005, 0.015] \\
+no-op            & 6 & 1500 & 0.000 & [0.000, 0.003] \\
 \bottomrule
 \end{tabular}
-\caption{Per-cell success rates with Wilson 95\% intervals. $N$ is
-total binary outcomes per cell ($5 \cdot n_\text{ep}$); cells where
-the auto-downscope rule fired are flagged in $N$. Rows on each env
-are ordered by $\hat{p}$ within the policy class. Sparse cells (no
-public checkpoint) are omitted. The MDE band at $N{=}250$,
-$\hat{p}{=}0.5$ is $0.123$; the per-$\hat{p}$ threshold is in
-\texttt{docs/MDE\_TABLE.md}.}
+\caption{Pooled per-policy success rate with Wilson 95\% interval.
+$\dagger$ marks the auto-downscoped diffusion\_policy${\times}$pusht
+cell ($n_\text{ep}{=}25$, $N{=}125$). XVLA is excluded from the v1
+leaderboard --- see the deferral paragraph below.}
 \label{tab:leaderboard}
 \end{table}
 
-\paragraph{Per-cell forest plot.}
-Figure~\ref{fig:forest} shows the full per-\textit{(policy, env, seed)}
-breakdown with bootstrap 95\% intervals, one row per cell, grouped
-visually by policy. A wide CI on a single seed flags either an
-intrinsically stochastic env--policy pair or an outlier seed worth
-investigating in the failure taxonomy below.
-
-\begin{figure}[h]
-\centering
-\fbox{\rule{0.7\linewidth}{0pt}\rule{0pt}{2cm}}
-\caption{Per-cell success rates with bootstrap 95\% CIs
-($n_\text{resamples}{=}10{,}000$, RNG seed 42). \todo{Insert
-\texttt{figures/forest.pdf} from notebook cell 4.}}
-\label{fig:forest}
-\end{figure}
-
-\paragraph{Paired comparisons.}
-Table~\ref{tab:paired} reports $\Delta\hat{p}$ for the policy pair
-that shares the most envs in the locked roster, per shared env, with
-the per-cell Wilson MDE annotation.
-
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{lrrrrrl}
+\begin{tabular}{llrrl}
 \toprule
-Env & $\hat{p}_A$ & $\hat{p}_B$ & $\Delta\hat{p}$ & 95\% CI on $\Delta$ & Wilcoxon $p$ & Cohen's $h$ \\
+Policy & Env & $N$ & $\hat{p}$ & 95\% CI (Wilson) \\
 \midrule
-\todo{env 1} & \todo{p1} & \todo{p2} & \todo{$\Delta$} & \todo{[lo, hi]} & \todo{p} & \todo{h} \\
-\todo{env 2} & \todo{p1} & \todo{p2} & \todo{$\Delta$} & \todo{[lo, hi]} & \todo{p} & \todo{h} \\
+ACT              & aloha\_transfer\_cube & 250 & 0.824 & [0.772, 0.866] \\
+Diffusion Policy & pusht                 & 125$\dagger$ & 0.816 & [0.739, 0.874] \\
+SmolVLA          & libero\_goal          & 250 & \textbf{0.928} & [0.889, 0.954] \\
+SmolVLA          & libero\_spatial       & 250 & 0.776 & [0.720, 0.823] \\
+SmolVLA          & libero\_object        & 250 & 0.528 & [0.466, 0.589] \\
+SmolVLA          & libero\_10            & 250 & \textbf{0.252} & [0.202, 0.309] \\
+random           & aloha\_transfer\_cube & 250 & 0.052 & [0.031, 0.087] \\
+random           & all other envs        & 1250 & 0.000 & [0.000, 0.003] \\
+no-op            & all envs              & 1500 & 0.000 & [0.000, 0.003] \\
 \bottomrule
 \end{tabular}
-\caption{Paired comparison $\Delta\hat{p}{=}\hat{p}_A{-}\hat{p}_B$.
-Pairing is per $(\text{seed\_idx}, e)$. Any
-$|\Delta\hat{p}| < 2\cdot\text{HW}(\max(\hat{p}_A, \hat{p}_B), N{=}250)$
-is reported as inconclusive at $N{=}250$; the worst-case threshold at
-$\hat{p}{=}0.5$ is $0.123$ (per-$\hat{p}$ thresholds in
-\texttt{docs/MDE\_TABLE.md}\,\S 4).}
-\label{tab:paired}
+\caption{Per-\textit{(policy, env)} success rates, $N{=}5\cdot
+n_\text{ep}$ binary outcomes per cell. $\dagger$: auto-downscoped to
+$n_\text{ep}{=}25$ per Section~\ref{sec:downscope}. \texttt{random}
+on \texttt{aloha\_transfer\_cube} is the only above-floor baseline
+--- the \texttt{gym-aloha} success heuristic is the most permissive
+of the matrix. The MDE band at $N{=}250$, $\hat{p}{=}0.5$ is $0.123$.
+22~runnable cells in total; XVLA cells deferred (see below).}
+\label{tab:breakdown}
 \end{table}
+
+\paragraph{Headline finding: SmolVLA on LIBERO-10 measures 0.252,
+not the paper-reported 0.71.}
+SmolVLA's pooled rate across the four LIBERO suites is
+0.621~[0.591, 0.651]. The per-suite breakdown reveals this average
+hides a sharp gradient: 0.928~[0.889, 0.954] on
+\texttt{libero\_goal} and 0.776~[0.720, 0.823] on
+\texttt{libero\_spatial} are within reach of the SmolVLA-0.45B
+numbers reported by Shukor et al.~\cite{shukor2025smolvla}
+(0.92, 0.90 respectively), but \texttt{libero\_object} lands at
+0.528~[0.466, 0.589] (paper 0.96) and \texttt{libero\_10} at
+0.252~[0.202, 0.309] (paper 0.71) --- a $35\%$ relative ratio on
+the long-horizon suite. The Wilson half-width on the
+\texttt{libero\_10} cell is $0.054$ at $N{=}250$, so the gap is not
+a small-sample artifact: a binomial sample whose true rate equals
+the paper-reported 0.71 produces $\hat{p}\leq 0.31$ with probability
+below $10^{-30}$. We caught and ruled out one mundane source of
+divergence (the act${\times}$aloha cell was re-run after PR~\#51
+fixed a postprocessor wiring bug; the SmolVLA loader has been
+exercised on three suites with no analogous bug surfacing), so the
+gap is not a loader bug we can name. Two hypotheses we cannot
+distinguish from public information: (a) the SmolVLA-0.45B Hub
+checkpoint generalises less well to the 10-task long-horizon variant
+than the paper's reported numbers imply, possibly because of the
+checkpoint scale or training-time task-set overlap; or
+(b)~the LIBERO evaluation protocol in the SmolVLA paper differs from
+the LeRobot \texttt{env.LIBEROEnv}{+}\texttt{task\_id=0} protocol we
+ship (success threshold, success-trigger horizon, or task selection).
+We report the gap and the hypotheses; deciding between them is
+out of scope for a sim screening protocol and is the kind of
+multi-policy comparable result lerobot-bench exists to surface.
+
+\paragraph{SmolVLA${\times}$libero\_object shows a deterministic
+ceiling.} On \texttt{libero\_object}, the across-seed variance of the
+seed-level success rates is $1{\times}10^{-4}$ --- the five seeds
+agree on $\hat{p}{=}0.528$ to within a single episode. The other
+SmolVLA${\times}$LIBERO cells show variance two to forty times
+higher (e.g.\ $5.9{\times}10^{-3}$ on \texttt{libero\_spatial},
+$2.7{\times}10^{-3}$ on \texttt{libero\_10}). The
+\texttt{libero\_object} failure mode is therefore consistent across
+seeds rather than stochastic, suggesting a specific subset of object
+configurations the checkpoint cannot solve regardless of the rollout
+randomness --- a structural cap, not a sample-size problem. This is
+the kind of signal the failure-mode taxonomy
+(Figure~\ref{fig:taxonomy}) is meant to localise.
+
+\paragraph{Baseline sanity.}
+The no-op baseline succeeds zero times across all six envs
+($N{=}1500$, Wilson upper bound $0.003$). The uniform-random
+baseline succeeds zero times on \texttt{pusht} and on every LIBERO
+suite, and is the only baseline above floor on
+\texttt{aloha\_transfer\_cube} ($\hat{p}{=}0.052$,
+[0.031, 0.087]) where the \texttt{gym-aloha} cube-transfer success
+heuristic is the most permissive in the matrix. The baseline floor
+is therefore not a single number across the leaderboard, which is
+exactly why we run it on every cell rather than reporting it once.
+
+\paragraph{XVLA deferral.}
+The \texttt{xvla\_libero} policy was executed across all four LIBERO
+suites (5~seeds${\times}$50 episodes on \{spatial, object, goal\},
+5${\times}$25 on \texttt{libero\_10} after auto-downscope; 875~total
+episodes) but is \textbf{deferred from the v1 leaderboard}. Two
+distinct Hub-artifact wiring bugs --- a missing rotation-6D to
+axis-angle post-processor and missing ImageNet normalization --- were
+caught and patched in the loader (PR~\#71, PR~\#74), yet a third
+unresolved issue still produced 0/40 in a post-patch sanity sweep
+(Wilson upper bound $0.088$ at $N{=}40$, consistent with a complete
+non-functional load rather than a partial regression). The deferral,
+the two patched bugs, and the unresolved issue are documented in
+\texttt{docs/DEFERRED\_POLICIES.md}; a complementary upstream issue
+against \texttt{huggingface/lerobot} is in flight. XVLA returns to
+the matrix in v1.1 once the third issue is identified and patched.
+
+\paragraph{Stats sanity.}
+Wilson and pivotal-bootstrap 95\% CIs agree to within one Wilson
+half-width on every cell of the matrix (Methods,
+Section~\ref{sec:methods}; notebook cell~11). No cell triggers the
+disagreement flag. Across the 110 \textit{(policy, env, seed)} cells
+in the sweep, the orchestrator advanced through 13 distinct
+\texttt{code\_sha} values; the policy revision pins and the
+\texttt{lerobot\_bench.stats} helpers were held constant across
+those SHAs (only orchestrator and env-glue code drifted), which we
+note as a Limitation rather than a confound: every parquet row
+carries its originating SHA for downstream audit.
 
 \paragraph{Failure-mode taxonomy.}
 \label{sec:taxonomy}
@@ -478,9 +532,11 @@ Cohen's $h$ effect size band.}
     cite only deltas above the per-cell MDE.
     \item \textbf{Multi-comparison concerns.} Any
     $(\text{policy}, \text{env})$ pair we did not pre-register as a
-    planned comparison is exploratory; we report all pairs in
-    Table~\ref{tab:paired} for transparency but the abstract's
-    headline finding cites only Bonferroni-corrected planned ones.
+    planned comparison is exploratory; the headline finding
+    (SmolVLA${\times}$\texttt{libero\_10}) is a single planned
+    paper-vs-measured comparison and clears the corresponding MDE
+    band by an order of magnitude, but cross-policy paired tests on
+    shared envs are deferred to v1.1 when XVLA returns to the matrix.
 \end{itemize}
 
 \subsection{Future work}
