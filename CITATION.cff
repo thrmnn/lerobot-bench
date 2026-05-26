@@ -3,8 +3,8 @@ message: "If you use lerobot-bench in your research, please cite this repository
 title: "lerobot-bench: a multi-policy reproducible evaluation suite for pretrained LeRobot policies"
 abstract: "A public, reproducible benchmark of pretrained LeRobot manipulation policies across PushT, Aloha, and LIBERO sim environments, with a multi-seed contract, Wilson and bootstrap confidence intervals, MDE bounds, paired comparisons, and a failure taxonomy."
 type: software
-version: 0.0.1
-date-released: 2026-05-22
+version: 1.0.0
+date-released: 2026-05-26
 license: MIT
 repository-code: "https://github.com/thrmnn/lerobot-bench"
 url: "https://github.com/thrmnn/lerobot-bench"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lerobot-bench"
-version = "0.0.1"
+version = "1.0.0"
 description = "Public multi-policy benchmark for pretrained LeRobot policies on PushT, Aloha, and Libero sim envs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["robotics", "reinforcement-learning", "benchmark", "lerobot", "imitation-learning"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
