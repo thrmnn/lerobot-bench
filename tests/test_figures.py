@@ -21,10 +21,10 @@ import pytest
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
 
-import pandas as pd
+import pandas as pd  # noqa: E402  -- after pytest.importorskip("matplotlib") guard
 
-from lerobot_bench import figures as fig_mod
-from lerobot_bench.figures import (
+from lerobot_bench import figures as fig_mod  # noqa: E402
+from lerobot_bench.figures import (  # noqa: E402
     MDE_BAND,
     STYLES,
     act_probe_bar,
@@ -32,7 +32,7 @@ from lerobot_bench.figures import (
     forest_plot,
     replication_scatter,
 )
-from lerobot_bench.policies import PolicyRegistry, PolicySpec
+from lerobot_bench.policies import PolicyRegistry, PolicySpec  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
