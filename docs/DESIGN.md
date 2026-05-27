@@ -49,10 +49,12 @@ There is no public, reproducible, multi-policy leaderboard for LeRobot's sim env
 
 ## Methodology (added per review)
 
-**Episode definition.** An episode runs from `env.reset(seed=s_episode)` until either (a) `terminated=True`, (b) `truncated=True`, or (c) `step_count == max_steps`. Per-env `max_steps`:
+**Episode definition.** An episode runs from `env.reset(seed=s_episode)` until either (a) `terminated=True`, (b) `truncated=True`, or (c) `step_count == max_steps`. Per-env `max_steps` as shipped in `configs/envs.yaml` for the v1 sweep:
 - PushT: 300
 - Aloha (each task): 400
-- Libero (each task): 600
+- LIBERO: `{spatial=280, object=280, goal=300, libero_10=520}` (inherited from `lerobot.envs.libero.TASK_SUITE_MAX_STEPS`)
+
+⚠ **v1.0.1 audit caveat (PR #89):** the canonical LIBERO protocol (Liu et al., NeurIPS 2023 D&B) uses `max_steps=600` for every suite. The v1 sweep ran with the lerobot defaults above, which are below canonical. 74.8% of failed `libero_10` episodes hit the v1 cap, so the v1 LIBERO numbers — `libero_10` in particular — are **lower bounds** at the v1 caps. PR #90 ships a selectable `--canonical` step-cap option; v1.0.2 documents the empirical lower-bound gap in `docs/PROBE_RESULTS_V1.0.1.md`.
 
 Success is the per-env standard reward threshold from `lerobot.envs.<env>.config.SUCCESS_REWARD` — not redefined here.
 

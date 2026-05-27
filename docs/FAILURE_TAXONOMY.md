@@ -66,7 +66,10 @@ still in their commanded-closed pose.
 ### 3. Timeout
 
 **Definition.** Agent runs out of `env.max_steps` (PushT 300, Aloha
-400, Libero 600) without ever satisfying the success threshold. Includes
+400, LIBERO `{spatial=280, object=280, goal=300, libero_10=520}` per the
+v1 sweep's `configs/envs.yaml` — canonical LIBERO is 600 for every
+suite, flagged in `docs/DESIGN.md` § Methodology as a v1.0.1 audit
+caveat) without ever satisfying the success threshold. Includes
 both "still trying" and "stuck" — distinguish from **drift** (mode 6)
 by whether the agent is making non-zero progress toward the goal.
 
