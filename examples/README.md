@@ -10,6 +10,7 @@ here invents a function that does not exist in `src/`.
 | [`run_one_cell.md`](run_one_cell.md) | Run a single `(policy, env, seed)` cell with `run_one.py` and inspect the per-episode parquet rows it produces. | Copy-paste the commands. Documents a GPU command — does not run on import. |
 | [`read_results.py`](read_results.py) | Load `results.parquet`, pool a cell's seeds, compute success rate + **Wilson 95% CI** with `lerobot_bench.stats`. | `python examples/read_results.py` |
 | [`compare_two_policies.py`](compare_two_policies.py) | **Paired comparison** of two policies on a shared env: Δsuccess with a bootstrap CI, Wilcoxon test, Cohen's h, and the **MDE inconclusive check**. | `python examples/compare_two_policies.py` |
+| [`write_a_probe.md`](write_a_probe.md) | Re-run a specific cell under a modified condition (paper inference settings, canonical env caps) and write the result to `results/probes/`. The ACT × aloha 0.016 → 0.764 finding ran via this exact pattern. | Copy-paste the override snippet; use `scripts/probes/probe_act_temporal_ensemble.py` as the runnable template. |
 
 ## Running the Python examples
 
