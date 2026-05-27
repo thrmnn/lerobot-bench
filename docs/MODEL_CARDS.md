@@ -221,14 +221,24 @@ the locked SHAs that carry forward.
     suite average"), the paper's is a suite-averaged claim. v1.1 will
     expand to all 10 tasks per suite and close the apples-to-apples
     question. Full audit: [`docs/CLAIM_AUDIT_SMOLVLA.md`](CLAIM_AUDIT_SMOLVLA.md).
-  - **Step caps (PR #89)**: canonical LIBERO uses `max_steps=600` for
-    every suite; v1 inherited lerobot's tighter caps
-    `{spatial=280, object=280, goal=300, libero_10=520}`. Cap-hit
-    rates on **failed** episodes are 22.4%, 47.2%, 7.2%, and **74.8%**
-    respectively, so all four numbers are **lower bounds at our caps**
-    and `libero_10` is the most sensitive. v1.1 reruns under PR #90's
-    selectable canonical criterion. Full audit:
-    [`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md).
+  - **Step caps (PR #89; v1.0.2 probe PR #108 RESOLVED for `libero_10`)**:
+    canonical LIBERO uses `max_steps=600` for every suite; v1 inherited
+    lerobot's tighter caps `{spatial=280, object=280, goal=300, libero_10=520}`.
+    Cap-hit rates on **failed** episodes are 22.4%, 47.2%, 7.2%, and
+    **74.8%** respectively. **The v1.0.2 probe re-ran `libero_10` at
+    canonical cap=600 and measured 0.256 [0.206, 0.314] vs. v1's 0.252
+    at cap=520 — Δ +0.4 pp, essentially zero. Cap-hits stayed at 74.4%
+    even at 600.** Verdict: the cap is binding at both budgets but
+    extending it doesn't recover successes. The 0.252 reading is
+    **policy-bottlenecked, not cap-bottlenecked** — the policy is
+    stuck-while-still-trying (drift-style failure mid-task), not
+    slow-but-eventually-correct. The earlier "lower bound at our cap"
+    framing was technically correct but the lower bound essentially
+    equals the value. The other three LIBERO suites (`spatial`,
+    `object`, `goal`) have far lower cap-hit rates and their numbers
+    remain provisional lower bounds pending re-runs at cap=600 in v1.1.
+    Full audit: [`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md);
+    probe: [`docs/PROBE_RESULTS_V1.0.1.md`](PROBE_RESULTS_V1.0.1.md).
 
   Both caveats compound on the `libero_10` headline cell.
   The within-protocol measurements are bit-reproducible and tight

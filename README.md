@@ -27,7 +27,7 @@
 > Public multi-policy benchmark for pretrained LeRobot policies on PushT, Aloha, and LIBERO sim envs.
 > Multi-seed contract, bootstrap + Wilson CIs, MDE bounds, paired comparisons, failure taxonomy. Arxiv-grade writeup and upstream-ready eval module.
 
-**Status: v1 finalized (dataset version `v1.0.0`), with v1.0.1 methodology audit incorporated into framing.** Sweep complete: **107/107 cells dispatched, 0 failures** across 6 policies × 6 envs. Pi0 family deferred to v1.1 (~30 GB host-RAM cold-load spike — see [paper Limitations](paper/main.tex)). `xvla_libero` was executed but is **deferred from the v1 leaderboard** — two upstream Hub-artifact wiring bugs were patched in our loader but a third unresolved issue still produces 0% rollouts; see [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
+**Status: v1 finalized (dataset version `v1.0.0`), with v1.0.1 methodology audit incorporated into framing.** Sweep complete: **110/110 cells dispatched, 0 failures** across 6 policies × 6 envs (107 from the original sweep plan + 3 xvla re-sanity cells re-run after the PR #74 input-side fix; the published parquet contains all 110). Pi0 family deferred to v1.1 (~30 GB host-RAM cold-load spike — see [paper Limitations](paper/main.tex)). `xvla_libero` was executed but is **deferred from the v1 leaderboard** — two upstream Hub-artifact wiring bugs were patched in our loader but a third unresolved issue still produces 0% rollouts; see [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
 
 > **Headline finding — inference settings, not architecture, are the load-bearing variable.**
 > ACT × `aloha_transfer_cube` at paper inference settings (`temporal_ensemble_coeff=0.01`, `n_action_steps=1`) measures **0.764** [0.708, 0.812] — vs. **0.016** [0.006, 0.040] at the Hub-default `temporal_ensemble_coeff=None, n_action_steps=100`. The two Wilson 95% CIs are **disjoint by an order of magnitude**. The Hub default was hiding ~75 pp of ACT's published competence on this env; the architecture clears the Zhao et al. 2023 paper number (0.50) by +26 pp at correct settings. **The v1.0.0 "act fails on aloha" reading is a Hub-default inference artifact, not architecture failure.** Probe: [PR #97](https://github.com/thrmnn/lerobot-bench/pull/97) · audit: [PR #86](https://github.com/thrmnn/lerobot-bench/pull/86) · doc: [`docs/PROBE_RESULTS_V1.0.1.md`](docs/PROBE_RESULTS_V1.0.1.md).
@@ -41,7 +41,7 @@
 
 Three artifacts, all open:
 
-1. **Public leaderboard** — Hugging Face Space + Hub dataset `thrmnn/lerobot-bench-v1` (v1.0.0, 107 cells, 0 failures). Every per-episode outcome, every rollout MP4, queryable by `(policy, env, seed, episode)`.
+1. **Public leaderboard** — Hugging Face Space + Hub dataset `thrmnn/lerobot-bench-v1` (v1.0.0, 110 cells, 0 failures). Every per-episode outcome, every rollout MP4, queryable by `(policy, env, seed, episode)`.
 
 2. **4-page arxiv writeup** — `paper/main.tex`. Methodology, related work, results, limitations. Every figure regenerated from `notebooks/01-write-finding.ipynb`.
 3. **Upstream-ready eval pipeline** — `src/lerobot_bench/eval.py` extracted as `lerobot.eval.multi_seed` in a follow-up PR to `huggingface/lerobot`.
@@ -57,7 +57,7 @@ Two tools for running and inspecting it:
 
 ## v1 scope
 
-**5 leaderboard policies + xvla executed-but-deferred × 6 envs (107 cells dispatched after `env_compat` filter, 0 failures):**
+**5 leaderboard policies + xvla executed-but-deferred × 6 envs (110 cells dispatched after `env_compat` filter, 0 failures):**
 
 | | pusht | aloha_transfer_cube | libero_spatial | libero_object | libero_goal | libero_10 |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
