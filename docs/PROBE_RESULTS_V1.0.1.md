@@ -1,10 +1,12 @@
 # v1.0.1 audit probe results
 
-> **Status: Probe 1 (ACT temporal-ensembling) — RESOLVED.** The Hub-default inference settings were hiding nearly all of ACT's competence on `aloha_transfer_cube`: pooled rate jumps from **0.016** → **0.764** at paper settings (+74.8 pp, Wilson CIs disjoint by an order of magnitude). The v1.0.0 act-aloha cell is an inference-config artifact, not an architecture failure.
+> **Status: BOTH probes RESOLVED.**
 >
-> **Probe 2 (SmolVLA × libero_10 cap=600) — running** (task #122). Numbers fill on completion.
+> **Probe 1 — ACT temporal-ensembling:** Hub-default inference settings hide ~75 pp of ACT's competence on `aloha_transfer_cube`. Pooled rate **0.016 → 0.764** at paper settings (Wilson CIs disjoint by an order of magnitude). The v1.0.0 act-aloha cell is an inference-config artifact, not an architecture failure.
 >
-> Last update: 2026-05-27 14:05 UTC.
+> **Probe 2 — SmolVLA × libero_10 at canonical cap=600:** essentially no change. Pooled rate **0.252 → 0.256** (Δ +0.4 pp, within Wilson half-width). Cap-hits stay high (74.4% at cap=600 vs. 74.8% at cap=520) — the policy is **stuck-while-still-trying**, not slow-but-eventually-correct. The v1.0.1 "lower bound at our cap" caveat was technically correct but the lower bound essentially equals the value; extending the cap does not recover successes. The smolvla scope caveat (single-task vs. paper 10-task) is **NOT** resolved by this probe and remains v1.1 work.
+>
+> Last update: 2026-05-27 15:55 UTC.
 
 ## What this doc is
 
@@ -47,31 +49,38 @@ The PR #84 scope mismatch can only be resolved by a 10-task sweep (deferred to v
 
 **Probe wall-clock.** ~50 minutes on 1× RTX 4060 (vs. ~12 minutes for the same cell at `n_action_steps=100`; the 4× wall-clock cost is the price of inference-every-step, which is exactly what the paper protocol requires).
 
-## Probe 2 — SmolVLA × LIBERO-10 canonical step cap (task #122)
+## Probe 2 — SmolVLA × LIBERO-10 canonical step cap (task #122) ✅ RESOLVED
 
 **Canonical reference:** Liu et al., _LIBERO: Benchmarking Knowledge Transfer for Lifelong Robot Learning_ (NeurIPS 2023 D&B). The canonical LIBERO termination rule uses `max_steps=600` for every suite (spatial, object, goal, 10).
 
 **v1 sweep value:** **0.252** [0.202, 0.309] pooled across 5 seeds × 50 ep on `libero_10`, with `max_steps=520`. 74.8% of failed episodes hit the cap.
 
-**v1.0.2 probe value:** TBD _(see `results/probes/smolvla-libero-10-cap600/summary.json` once `probe_smolvla_libero_canonical_cap.py` completes)._
+**v1.0.2 probe value:** **0.256** [0.206, 0.314] pooled across 5 seeds × 50 ep at `max_steps=600`. Source: `results/probes/smolvla-libero-10-cap600/summary.json`.
 
 | Seed | v1.0.0 (cap=520) | v1.0.2 probe (cap=600) | Δ | cap-hits @ 600 |
 |---|---|---|---|---|
-| 0 | TBD | TBD | TBD | TBD/50 |
-| 1 | TBD | TBD | TBD | TBD/50 |
-| 2 | TBD | TBD | TBD | TBD/50 |
-| 3 | TBD | TBD | TBD | TBD/50 |
-| 4 | TBD | TBD | TBD | TBD/50 |
-| **pooled** | **0.252** | **TBD** | **TBD** | **TBD/250** |
-| **Wilson 95% CI** | [0.202, 0.309] | TBD | — | — |
+| 0 | 0.22 | 0.24 | +0.02 | 38/50 |
+| 1 | 0.26 | 0.24 | −0.02 | 38/50 |
+| 2 | 0.26 | 0.32 | +0.06 | 34/50 |
+| 3 | 0.26 | 0.24 | −0.02 | 38/50 |
+| 4 | 0.26 | 0.24 | −0.02 | 38/50 |
+| **pooled** | **0.252** | **0.256** | **+0.004** | **186/250 (74.4%)** |
+| **Wilson 95% CI** | [0.202, 0.309] | **[0.206, 0.314]** | — | — |
+| **across-seed stdev** | 0.018 | 0.036 | — | — |
 
-**Probe methodology.** `scripts/probes/probe_smolvla_libero_canonical_cap.py` calls `dataclasses.replace` on the env spec to set `max_steps=600`, then runs through the standard `run_cell_from_specs` pipeline. The cap-hit count is captured per-seed (`n_steps == 600 and not success`) so we can quantify how much of the v1 lower-bound gap was cap-truncation vs. policy failure.
+**Verdict: this is the "scaffold outcome (1) variant" — probe ≈ v1, but cap-hits stay high at cap=600.** The 520 → 600 step-cap bump produced essentially no recovery (Δ = +0.4 pp, well within the Wilson half-width of either CI). Cap-hits dropped only fractionally (74.8% at 520 → 74.4% at 600) — so the cap *is* binding at both budgets, but extending it doesn't translate into more successes. The policy is **stuck-while-still-trying** (drift-style failure mid-task) rather than slow-but-eventually-correct.
 
-**Reading the result.** Same three-bucket logic as Probe 1, plus the cap-hit count tells us the policy's typical episode length when it isn't successful:
+**v1.0.2 framing implication.** The v1.0.1 "lower bound at our caps" caveat in the README + MODEL_CARDS + paper was technically correct but somewhat misleading — it implied "more time would help materially." It does not. The 0.252 reading is approximately the policy's true rate at all reasonable step caps for this single-task setup. The correct reframe:
 
-1. **Probe ≈ v1 (within ±5pp), low cap-hits at 600.** The 520 → 600 bump didn't reach the additional successes because most failures aren't time-bounded — the policy gets stuck, not slow. v1.0.2 framing: keep "lower bound" but note that the lower-bound gap is small.
-2. **Probe materially higher, high cap-hits at 600 too.** Cap is still binding; canonical 600 is itself a lower bound at the v1.0.2 measurement; the policy probably could finish more tasks with longer episodes. v1.0.2 framing: report cap=600 number, flag that even canonical LIBERO under-measures this policy.
-3. **Probe materially higher, near-zero cap-hits at 600.** The policy succeeds when given enough time; 520 was eating the tail of slow-but-correct rollouts. v1.0.2 framing: replace 0.252 with the cap=600 number as the canonical reading; the lower-bound claim was justified and now resolved.
+> SmolVLA × `libero_10` measures **0.252** [0.202, 0.309] at v1's cap=520 and **0.256** [0.206, 0.314] at canonical cap=600 — essentially the same number. The policy is bottlenecked by behavior (drift on long-horizon `libero_10` task 0), not by truncation. The cap=520 reading is not materially under-counting the policy's competence at this task; what bounds it is policy behavior, not the step budget.
+
+The **scope** caveat (single-task vs. paper's 10-task average, PR #84) still stands and is **not** addressed by this probe — it requires the all-10-tasks LIBERO sweep planned for v1.1.
+
+**Probe methodology.** `scripts/probes/probe_smolvla_libero_canonical_cap.py` calls `dataclasses.replace` on the env spec to set `max_steps=600`, then runs through the standard `run_cell_from_specs` pipeline. The cap-hit count is captured per-seed (`n_steps == 600 and not success`). 5 seeds × 50 ep × 1 cell = 250 episodes, matches v1 contract for direct comparability.
+
+**Probe wall-clock.** ~1h45 on 1× RTX 4060 (vs. ~1h15 for the cap=520 cell in v1 — the 30-min overhead is the per-episode tail that hits the new 80-step-larger cap). SmolVLA forward pass per step is ~30 ms on the 4060; with ~70% of episodes running the full 600 steps, the linear overhead vs. cap=520 is bounded by `(600-520) × 0.030 s × 250 ep × 0.7 cap-hit-rate ≈ 700 s ≈ 12 min`; the additional 18 min was extra inference on the additional successful-near-the-cap episodes plus env reset overhead.
+
+**Important caveat for future reads.** This probe holds the LIBERO step cap (the env caveat) constant. It does NOT hold the SCOPE caveat (`task_id=0` only) constant — that would require an all-10-tasks sweep. The two v1.0.1 caveats on smolvla × LIBERO compound; this probe resolves one and leaves the other as v1.1 work.
 
 ## What this doc UNBLOCKS in the v1.0.2 release
 
