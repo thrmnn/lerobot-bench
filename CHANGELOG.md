@@ -7,11 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> v1.0.1 + v1.0.2 work in flight on `main`. The two reads on the v1 dataset that the audit changed:
+> - **act × aloha** : **0.016 → 0.764** at paper inference settings (PR #97 probe, task #121). The Hub-default `temporal_ensemble_coeff=None, n_action_steps=100` were hiding ~75 pp of ACT's competence on this env. The v1.0.0 cell rows stay published as-is (audit-trail integrity); the reframing changes what those rows *mean*, not what they record.
+> - **smolvla × LIBERO** : single-task (`task_id=0`) probe, not 10-task average like the paper. Step caps `{280, 280, 300, 520}` are below canonical 600 (74.8 % of failed `libero_10` episodes hit our cap → the 0.252 is a lower bound; cap=600 probe in flight as of this commit, task #122).
+
 ### Added
+- **v1.0.1 audit cascade** — comprehensive methodology audit against each policy's source paper and each env's canonical protocol:
+  - `docs/CLAIM_AUDIT_SMOLVLA.md` (PR #84) — SmolVLA paper Table 2 averages 10 tasks × 10 trials/suite; v1 ran `task_id=0` × 5 seeds × 50 ep. The "0.71 → 0.252 on libero_10" gap reframed as single-task-scope, not a clean replication failure.
+  - `docs/INFERENCE_AUDIT.md` (PR #86) — ACT Hub config defaults `temporal_ensemble_coeff=None, n_action_steps=100`; Zhao et al. 2023 Table I uses `coeff=0.01, n_action_steps=1`. Now empirically resolved (see PR #97).
+  - `docs/SUCCESS_CRITERION_AUDIT.md` (PR #89) — LIBERO step caps {280, 280, 300, 520} vs canonical 600; PushT + Aloha success-rule parity vs paper. Cap-truncation accounts for 74.8 % of failed `libero_10` episodes.
+  - `docs/CANONICAL_CRITERIA.md` + `--canonical` flag (PR #90) — selectable canonical termination + step-cap option on `scripts/run_one.py` + `scripts/run_sweep.py`; v1.1 reruns affected cells under this. Per-env table of canonical-vs-v1 differences.
+  - `docs/PROBE_RESULTS_V1.0.1.md` (PRs #94 scaffold + #97 ACT fill) — empirical resolution of the inference-settings + step-cap audits. Per-seed tables + Wilson CIs + reading-outcome interpretation.
+- **v1.0.1 audit probes** (`scripts/probes/`, PR #92):
+  - `probe_act_temporal_ensemble.py` — monkey-patches `PreTrainedConfig.from_pretrained` to set `cfg.temporal_ensemble_coeff=0.01, n_action_steps=1` on ACT configs only, before instantiation. 5 seeds × 50 ep on `aloha_transfer_cube`. Result (task #121, PR #97): **0.764 [0.708, 0.812]** vs Hub default **0.016 [0.006, 0.040]**; Wilson CIs disjoint by an order of magnitude. The architecture clears the paper number (0.50) by 26 pp at correct settings; the v1.0.0 cell rate is an inference-config artifact, not architecture failure.
+  - `probe_smolvla_libero_canonical_cap.py` — `dataclasses.replace` on env spec to set `max_steps=600` (canonical LIBERO), then `run_cell_from_specs`. 5 seeds × 50 ep on `libero_10`. Captures per-seed cap-hit count so we can quantify the lower-bound gap. (task #122, running at time of this commit.)
+- **stats**: `stats.holm_bonferroni` + `stats.family_correction` (PR #85, `scripts/family_correction.py`) — family-wise correction across the cell matrix's paired comparisons. Returns per-comparison adjusted *p*-values + reject/fail-to-reject under Holm's step-down procedure at α=0.05. Honours the existing MDE-gate ordering: comparisons inside the MDE band are dropped from the family before correction (gating before testing, not the other way around).
+- **figures**: `feat/replication-scatter-fig` (PR #87 in-flight) — replication scatter plot rendered from the parquet via the notebook + saved to `docs/assets/fig-replication-scatter.{svg,png}`. Carries the paper-vs-measured pairs as scatter points + the y=x line; cells inside the MDE band rendered greyscale. (Awaiting user review.)
 
 ### Changed
+- **`docs/MODEL_CARDS.md`** (PR #91) — per-policy "paper vs. measured" paragraphs added for `act` (Hub-default vs. paper temporal-ensembling) and `smolvla_libero` (scope + step cap). v1.0.2 probe pending flagged inline; will be replaced by empirical numbers in a follow-up.
+- **`README.md`** (PR #91) — Status line flagged "v1.0.1 audit incorporated"; new "Methodology caveats (v1.0.1 audit)" table block (one row per confirmed audit) + link to PR #90's selectable `--canonical` criterion.
+- **`paper/main.tex`** (PR #91) — Abstract + Results headline restated to reflect the audit; Methods step-cap caveat added with forward-pointer to a new §sec:results-audit subsection. Numbers unchanged; framing softened from "clean replication failure" to "single-task-at-truncated-cap probe with explicit scope labels".
+- **`paper/deck/index.html`** (PR #88, awaiting your review):
+  - Slide 02 (replication-gap table) — smolvla paper baselines corrected from 0.94/0.93/0.94 (wrong) → 0.96/0.90/0.92 (authoritative, per `configs/policies.yaml`); libero_goal Δ flipped from −1.2 pp to +0.8 pp (we narrowly beat paper on goal, not under-perform). New act × aloha row showing v1.0.0 default (0.016) + v1.0.2 probe (0.764) side-by-side with the +26 pp paper-beat at correct settings.
+  - Slide 08 (audit caveats) — PR #86 audit row flipped from "⚠ probe queued" to "✓ RESOLVED" with the empirical 0.764 result; counter "3 of 6 §1 audits closed" → "4 of 6".
+  - Slide 09 (baseline callout) — "act fails on aloha at our default settings" now followed by "✓ at paper inference settings: 76.4 % [70.8, 81.2]".
+  - Slides 06, 10, 11 — softened smolvla-scope framing; step-cap caveat with cap-hit %.
+- **`docs/DESIGN.md`** + **`docs/FAILURE_TAXONOMY.md`** (PR #95) — both incorrectly claimed "Libero (each task): 600". Corrected to the actual v1 caps `{spatial=280, object=280, goal=300, libero_10=520}` (inherited from `lerobot.envs.libero.TASK_SUITE_MAX_STEPS`); v1.0.1 audit caveat added with forward-pointer to `PROBE_RESULTS_V1.0.1.md`.
+- **`docs/tutorials/interpreting-the-leaderboard.md`** (PR #96) — worked example showing `smolvla=0.600` / `xvla=0.504` on `libero_spatial` flagged with "⚠ Illustrative example — numbers below are pedagogical, not real v1 cells"; pedagogy preserved (INCONCLUSIVE verdict regime), but the reader is no longer misled about what the dataset contains.
 
 ### Fixed
+- **HF dataset URL canonicalization completion** (PR #93) — PR #78 canonicalized `lerobot-bench-results-v1` → `lerobot-bench-v1` across README/docs/paper/space but explicitly deferred `scripts/`, `tests/`, `dashboard/`, and `RELEASE.md`. PR #93 finishes the work: `scripts/publish_results.py` (`DEFAULT_HUB_REPO` constant + module docstring), `scripts/reproduce_cell.py` (printed `huggingface-cli download` fetch command), `tests/test_publish_results.py` (`HfApi` mock `repo_info.id`), `RELEASE.md` (Phase 4 publish + reproduce-verify commands), `dashboard/_helpers.py` (About-tab prose). `make publish` now targets the correct Hub repo by default.
 
 ### Removed
 
