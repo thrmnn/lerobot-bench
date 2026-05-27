@@ -422,6 +422,106 @@ def bootstrap_pivotal_ci(
     return lo, hi
 
 
+def holm_bonferroni(
+    p_raw: list[float] | NDArray[np.floating],
+    alpha: float = 0.05,
+) -> tuple[NDArray[np.float64], NDArray[np.bool_]]:
+    """Holm step-down family-wise error rate (FWER) correction.
+
+    Given ``m = len(p_raw)`` raw p-values forming the *family* of
+    hypotheses tested (in this benchmark: one one-sample test per
+    cell-vs-paper comparison across the 22 runnable cells of the v1.1
+    matrix), Holm's procedure controls the FWER at level ``alpha``
+    while being uniformly more powerful than plain Bonferroni.
+
+    **Algorithm** (Holm 1979, Eq. 1-3). Sort raw p-values in ascending
+    order ``p_(1) <= p_(2) <= ... <= p_(m)``. Walk the sorted list and
+    compare each to a *decreasing* threshold:
+
+    .. math::
+
+        p_{(i)} \\leq \\alpha / (m - i + 1)
+
+    The first index ``i*`` where the comparison fails marks the
+    boundary: indices ``1..i*-1`` are rejected; ``i*..m`` are retained.
+    The adjusted p-value at rank ``i`` is
+
+    .. math::
+
+        \\tilde p_{(i)} = \\max_{j \\leq i}\\; (m - j + 1) \\cdot p_{(j)}
+
+    clipped to ``[0, 1]``. The running max enforces *monotonicity* —
+    without it, an early small p could give a smaller adjusted value
+    than a later larger one, which would violate the step-down logic.
+    The returned ``adjusted_p`` is reordered back to the input order.
+
+    **Family definition** (DESIGN.md § Methodology, v1.1 multi-cell).
+    A "family" is the set of comparisons whose joint rejection we want
+    to control. For this benchmark the natural family is the set of
+    one-sample cell-vs-paper tests across all runnable cells in a
+    single figure / paragraph. Cross-figure families (e.g. paper
+    Methods + Results in one batch) should be corrected together; the
+    operator is responsible for collecting the p-values into one
+    ``p_raw`` array before calling this function — Holm cannot infer
+    the family from the per-cell tests.
+
+    **vs plain Bonferroni.** Plain Bonferroni rejects ``p_i <= alpha/m``
+    for every ``i`` (same threshold for all). Holm's threshold *grows*
+    along the sorted list, so any hypothesis Bonferroni rejects, Holm
+    also rejects (``alpha/m <= alpha/(m - i + 1)`` for ``i >= 1``);
+    Holm may additionally reject hypotheses Bonferroni misses.
+    Uniformly more powerful, same FWER guarantee.
+
+    Args:
+        p_raw: 1-D iterable of raw two-sided p-values in ``[0, 1]``.
+            Order is preserved in the outputs.
+        alpha: family-wise significance level (default 0.05).
+
+    Returns:
+        ``(adjusted_p, reject)`` both of length ``m``, in the *input*
+        order:
+
+        * ``adjusted_p[i]``: Holm-adjusted p-value for hypothesis ``i``.
+        * ``reject[i]``: ``True`` iff hypothesis ``i`` is rejected at
+          level ``alpha``. Equivalent to ``adjusted_p <= alpha`` by
+          construction.
+
+    Raises:
+        ValueError: empty input, any p outside ``[0, 1]``, or ``alpha``
+            outside ``(0, 1)``.
+
+    References:
+        Holm, S. (1979). "A simple sequentially rejective multiple test
+        procedure." Scandinavian Journal of Statistics, 6(2), 65-70.
+        Cross-check: Wright (1992); Dudoit & van der Laan (2008) for
+        the running-max formulation of adjusted p-values.
+    """
+    p_arr = np.asarray(p_raw, dtype=np.float64)
+    if p_arr.ndim != 1:
+        raise ValueError(f"p_raw must be 1-D, got shape {p_arr.shape}")
+    if p_arr.size == 0:
+        raise ValueError("p_raw must be non-empty")
+    if np.any((p_arr < 0.0) | (p_arr > 1.0)):
+        bad = p_arr[(p_arr < 0.0) | (p_arr > 1.0)]
+        raise ValueError(f"all p-values must be in [0, 1]; offending: {bad.tolist()}")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha must be in (0, 1), got {alpha}")
+
+    m = p_arr.size
+    order = np.argsort(p_arr, kind="stable")
+    p_sorted = p_arr[order]
+
+    multipliers = np.arange(m, 0, -1, dtype=np.float64)
+    raw_adjusted_sorted = p_sorted * multipliers
+    monotone_sorted = np.maximum.accumulate(raw_adjusted_sorted)
+    clipped_sorted = np.minimum(monotone_sorted, 1.0)
+
+    adjusted_p = np.empty(m, dtype=np.float64)
+    adjusted_p[order] = clipped_sorted
+    reject = adjusted_p <= alpha
+    return adjusted_p, reject
+
+
 def paired_diff_ci(
     a: NDArray[np.floating] | NDArray[np.bool_],
     b: NDArray[np.floating] | NDArray[np.bool_],

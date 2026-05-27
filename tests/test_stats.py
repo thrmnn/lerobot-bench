@@ -17,6 +17,7 @@ from lerobot_bench.stats import (
     bootstrap_ci,
     bootstrap_pivotal_ci,
     cohens_h,
+    holm_bonferroni,
     mcnemar_paired,
     paired_delta_bootstrap,
     paired_diff_ci,
@@ -506,3 +507,163 @@ def test_paired_diff_ci_rejects_invalid_inputs() -> None:
         paired_diff_ci(a, b, alpha=0.0, seed=0)
     with pytest.raises(ValueError, match="n_resamples must be positive"):
         paired_diff_ci(a, b, n_resamples=0, seed=0)
+
+
+# --------------------------------------------------------------------- #
+# holm_bonferroni                                                       #
+# --------------------------------------------------------------------- #
+
+
+def test_holm_bonferroni_ordered_input_matches_hand_calc() -> None:
+    """Sorted ascending input: adjusted p_i = max_{j<=i} (m - j + 1) * p_(j).
+
+    Hand calc with m=4, p = [0.01, 0.02, 0.03, 0.50]:
+      rank 1: max(4 * 0.01)                     = 0.04
+      rank 2: max(0.04, 3 * 0.02)               = 0.06
+      rank 3: max(0.06, 2 * 0.03)               = 0.06
+      rank 4: max(0.06, 1 * 0.50)               = 0.50
+    """
+    p_raw = [0.01, 0.02, 0.03, 0.50]
+    adjusted, reject = holm_bonferroni(p_raw, alpha=0.05)
+    assert adjusted == pytest.approx([0.04, 0.06, 0.06, 0.50])
+    assert reject.tolist() == [True, False, False, False]
+
+
+def test_holm_bonferroni_unsorted_input_preserves_input_order() -> None:
+    """Adjusted p-values come back in the input order, not sorted order."""
+    p_raw = [0.50, 0.01, 0.03, 0.02]  # same set as above, scrambled
+    adjusted, reject = holm_bonferroni(p_raw, alpha=0.05)
+    # Position 0 was 0.50 (rank 4) → 0.50
+    # Position 1 was 0.01 (rank 1) → 0.04
+    # Position 2 was 0.03 (rank 3) → 0.06
+    # Position 3 was 0.02 (rank 2) → 0.06
+    assert adjusted == pytest.approx([0.50, 0.04, 0.06, 0.06])
+    assert reject.tolist() == [False, True, False, False]
+
+
+def test_holm_bonferroni_step_down_thresholds_at_alpha_0_05() -> None:
+    """Smallest p must clear alpha/m; second-smallest alpha/(m-1); etc."""
+    m = 5
+    alpha = 0.05
+    # Each sorted p exactly equal to its step-down threshold ⇒ all reject.
+    p_sorted = np.array([alpha / (m - i) for i in range(m)])  # alpha/5, /4, /3, /2, /1
+    adjusted, reject = holm_bonferroni(p_sorted, alpha=alpha)
+    # Every step-down comparison hits equality, so every hypothesis rejects.
+    assert reject.all()
+    # And the adjusted values are exactly alpha at every rank (running max
+    # of (m - j + 1) * (alpha / (m - j + 1)) = alpha).
+    assert adjusted == pytest.approx([alpha] * m)
+
+
+def test_holm_bonferroni_stops_at_first_failure() -> None:
+    """When sorted p_(i) > alpha/(m - i + 1), that hypothesis and all
+    larger ones are retained even if a larger raw p happens to clear
+    its own (lower) bar — Holm is a step-down procedure.
+    """
+    alpha = 0.05
+    # m = 4. p_(1) = 0.02 vs threshold alpha/4 = 0.0125 → FAIL at first step.
+    # Even though p_(4) = 0.04 < alpha (its lone threshold), Holm
+    # stops the rejection sequence at rank 1 and all four are retained.
+    p_raw = [0.02, 0.025, 0.03, 0.04]
+    _, reject = holm_bonferroni(p_raw, alpha=alpha)
+    assert reject.tolist() == [False, False, False, False]
+
+
+def test_holm_bonferroni_reject_vector_matches_adjusted_threshold() -> None:
+    """`reject[i]` must equal `adjusted_p[i] <= alpha` element-wise."""
+    rng = np.random.default_rng(20260526)  # deterministic
+    p_raw = rng.uniform(size=30)
+    for alpha in [0.01, 0.05, 0.10]:
+        adjusted, reject = holm_bonferroni(p_raw, alpha=alpha)
+        assert np.array_equal(reject, adjusted <= alpha)
+
+
+def test_holm_bonferroni_uniformly_more_powerful_than_bonferroni() -> None:
+    """Holm must reject ≥ everything plain Bonferroni rejects (deterministic).
+
+    Bonferroni at level alpha rejects p_i <= alpha/m for every i. Holm's
+    first-rank threshold equals alpha/m and its later thresholds are larger,
+    so any Bonferroni rejection is also a Holm rejection.
+    """
+    rng = np.random.default_rng(7)
+    for _ in range(50):
+        m = int(rng.integers(2, 40))
+        p_raw = rng.uniform(size=m)
+        alpha = 0.05
+        _, holm_reject = holm_bonferroni(p_raw, alpha=alpha)
+        bonf_reject = p_raw <= alpha / m
+        # Every Bonferroni-rejected index must also be Holm-rejected.
+        assert np.all(holm_reject[bonf_reject]), (
+            f"Holm missed a Bonferroni rejection: m={m}, p={p_raw.tolist()}"
+        )
+
+
+def test_holm_bonferroni_all_ones_rejects_nothing() -> None:
+    """p = 1 everywhere → adjusted = 1, reject = False everywhere."""
+    adjusted, reject = holm_bonferroni([1.0, 1.0, 1.0, 1.0], alpha=0.05)
+    assert adjusted == pytest.approx([1.0, 1.0, 1.0, 1.0])
+    assert not reject.any()
+
+
+def test_holm_bonferroni_single_hypothesis_passthrough() -> None:
+    """m=1 reduces to comparing the single p against alpha — no correction."""
+    adjusted, reject = holm_bonferroni([0.04], alpha=0.05)
+    assert adjusted == pytest.approx([0.04])
+    assert reject.tolist() == [True]
+    adjusted, reject = holm_bonferroni([0.06], alpha=0.05)
+    assert adjusted == pytest.approx([0.06])
+    assert reject.tolist() == [False]
+
+
+def test_holm_bonferroni_adjusted_values_are_monotone_in_sort_order() -> None:
+    """Sorted by raw p ascending, adjusted p must be non-decreasing.
+
+    This is the running-max property: a later (larger) raw p cannot
+    receive a smaller adjusted value than an earlier (smaller) one.
+    """
+    rng = np.random.default_rng(99)
+    p_raw = rng.uniform(size=20)
+    adjusted, _ = holm_bonferroni(p_raw, alpha=0.05)
+    order = np.argsort(p_raw, kind="stable")
+    adjusted_sorted = adjusted[order]
+    assert np.all(np.diff(adjusted_sorted) >= -1e-12), adjusted_sorted.tolist()
+
+
+def test_holm_bonferroni_ties_handled_consistently() -> None:
+    """Ties in raw p must yield the same adjusted value (running-max).
+
+    Two equal raw values at ranks i and i+1 give adjusted values
+    (m - i + 1) * p and max(..., (m - i) * p) = (m - i + 1) * p (the
+    earlier, larger one wins after running max).
+    """
+    p_raw = [0.02, 0.02, 0.10]
+    adjusted, _ = holm_bonferroni(p_raw, alpha=0.05)
+    # Tied at rank 1 and rank 2 of m=3.
+    # rank 1: 3 * 0.02 = 0.06
+    # rank 2: max(0.06, 2 * 0.02) = 0.06
+    # rank 3: max(0.06, 1 * 0.10) = 0.10
+    assert adjusted == pytest.approx([0.06, 0.06, 0.10])
+
+
+def test_holm_bonferroni_rejects_invalid_inputs() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        holm_bonferroni([], alpha=0.05)
+    with pytest.raises(ValueError, match="1-D"):
+        holm_bonferroni(np.zeros((2, 3)), alpha=0.05)
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        holm_bonferroni([0.1, -0.01, 0.5], alpha=0.05)
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        holm_bonferroni([0.1, 1.5], alpha=0.05)
+    with pytest.raises(ValueError, match="alpha must be in"):
+        holm_bonferroni([0.1, 0.2], alpha=0.0)
+    with pytest.raises(ValueError, match="alpha must be in"):
+        holm_bonferroni([0.1, 0.2], alpha=1.0)
+
+
+def test_holm_bonferroni_caps_adjusted_at_one() -> None:
+    """Multiplier × p can exceed 1.0; the function must clip at 1.0."""
+    # m = 10, smallest p = 0.5: 10 * 0.5 = 5.0 ⇒ clip to 1.0.
+    p_raw = [0.5] * 10
+    adjusted, reject = holm_bonferroni(p_raw, alpha=0.05)
+    assert np.all(adjusted == 1.0)
+    assert not reject.any()

@@ -241,6 +241,31 @@ saturated and near-zero cells. The notebook gate (cell 5, see §5)
 uses the per-cell threshold; the paper text quotes the worst-case
 0.123 for clarity.
 
+## 4a. Family-wise correction for cross-cell claims (v1.1)
+
+Sections 1–4 size a *single* comparison. The v1.1 cell matrix has 22
+runnable cells across 5 policies; any figure or paragraph that quotes
+per-cell p-values across more than one cell is implicitly running a
+family of tests and the per-cell α=0.05 threshold no longer controls
+the false-positive rate at the family level.
+
+**Recommended correction:** **Holm-Bonferroni step-down**
+(`lerobot_bench.stats.holm_bonferroni`; Holm, 1979). Holm controls the
+family-wise error rate (FWER) at α and is uniformly more powerful
+than plain Bonferroni — every hypothesis Bonferroni rejects, Holm
+also rejects, and Holm may reject more. The family for a given claim
+is the set of cells the claim covers; the operator collects the raw
+p-values into one array and calls the function once. See
+`scripts/family_correction.py` for the canonical pipeline that joins
+per-cell exact binomial p-values against `paper_reported_success` and
+emits the corrected table.
+
+When a comparison reports more than ~5 paired Δsuccess p-values in
+one figure, the writeup MUST apply Holm (or, for very large families
+where FWER is overly strict, BH-FDR per DESIGN.md § Methodology).
+Per-cell α=0.05 claims without family correction are flagged in
+review as a paper-killing error.
+
 ## 5. Practical interpretation
 
 If any (policy, env) pair has observed `|Δp̂|` smaller than the MDE
