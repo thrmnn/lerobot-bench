@@ -172,5 +172,6 @@ module = [
     "torch.*",
     "huggingface_hub.*",
     "safetensors.*",
+    "matplotlib.*",
 ]
 ignore_missing_imports = true
