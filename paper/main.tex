@@ -65,12 +65,22 @@ pinned to a fixed git revision SHA at lock-in time, so a parquet row
 is replayable bit-for-bit by anyone with the same lerobot version. The
 benchmark, the interactive Hugging Face Space, and the analysis
 notebook that produced every figure here are released as open data.
-\todo{Headline finding sentence, one of: ``VLAs underperform classical
-policies on PushT but dominate on LIBERO'' / ``no cross-policy delta
-exceeds the MDE band at $N{=}250$, the leaderboard \emph{is} the
-result.''  Choose the version the data supports; do not fabricate.}
-The implication is that single-seed published numbers from individual
-policy papers should not be compared head-to-head without re-running
+SmolVLA on LIBERO-10 measures $\hat{p}{=}0.252$ [0.202, 0.309] under
+the lerobot-bench v1 default protocol, against the 0.71 reported by
+Shukor et al.~\cite{shukor2025smolvla} --- but a v1.0.1 methodology
+audit (PRs~\#84, \#86, \#89) has since established that this gap
+is bounded by two scope mismatches with the paper protocol and is
+\emph{not} a clean replication number: (i) the paper averages
+10~tasks $\times$ 10~trials per suite, whereas we ran
+\texttt{task\_id=0} $\times$ 5~seeds $\times$ 50~episodes; and
+(ii) 74.8\% of our failed \texttt{libero\_10} episodes hit the 520-step
+cap, whereas canonical LIBERO uses 600~steps for every suite, so
+0.252 is a lower bound on what the same checkpoint would score
+under the paper's termination rule. The number is real for the
+single-task-at-truncated-cap scope; the audit constrains what it
+means, not whether the measurement happened. The broader implication
+is that single-seed self-reported numbers from individual policy
+papers should not be compared head-to-head without re-running
 under a shared protocol --- and the protocol we ship is one such.
 \end{abstract}
 
@@ -183,10 +193,17 @@ size at the contract is $N = 5 \cdot 50 = 250$ binary outcomes. An
 episode runs from \texttt{env.reset(seed=$s$)} until
 \texttt{terminated=True}, \texttt{truncated=True}, or step count
 equals env-specific \texttt{max\_steps} (PushT 300, Aloha 400, LIBERO
-$\in\{280,280,300,520\}$ for spatial/object/goal/10). Success is the
+$\in\{280,280,300,520\}$ for spatial/object/goal/10 --- inherited
+from lerobot defaults; the canonical LIBERO protocol uses
+\texttt{max\_steps=600} for all four suites, flagged as a v1.0.1
+audit caveat in Section~\ref{sec:results-audit}). Success is the
 per-env standard reward threshold from
 \texttt{lerobot.envs.<env>.config.SUCCESS\_REWARD}; the episode
-succeeds iff its final-step reward meets or exceeds it.
+succeeds iff its final-step reward meets or exceeds it. PR~\#90
+adds a selectable \texttt{--canonical} criterion that swaps in the
+paper-canonical termination rule and 600-step LIBERO cap; v1 ships
+the lerobot-default rule, and v1.1 reruns affected cells under the
+canonical option (Section~\ref{sec:results-audit}).
 
 \paragraph{Seeding contract.}
 Per cell, three RNGs are seeded with the same value:
@@ -358,36 +375,25 @@ of the matrix. The MDE band at $N{=}250$, $\hat{p}{=}0.5$ is $0.123$.
 \label{tab:breakdown}
 \end{table}
 
-\paragraph{Headline finding: SmolVLA on LIBERO-10 measures 0.252,
-not the paper-reported 0.71.}
+\paragraph{Headline: SmolVLA on LIBERO-10 at task~0 measures 0.252
+under our default protocol.}
 SmolVLA's pooled rate across the four LIBERO suites is
-0.621~[0.591, 0.651]. The per-suite breakdown reveals this average
-hides a sharp gradient: 0.928~[0.889, 0.954] on
+0.621~[0.591, 0.651] under our protocol (\texttt{task\_id=0},
+5~seeds $\times$ 50~episodes, env-default step caps). The per-suite
+breakdown shows a sharp gradient: 0.928~[0.889, 0.954] on
 \texttt{libero\_goal} and 0.776~[0.720, 0.823] on
-\texttt{libero\_spatial} are within reach of the SmolVLA-0.45B
-numbers reported by Shukor et al.~\cite{shukor2025smolvla}
-(0.92, 0.90 respectively), but \texttt{libero\_object} lands at
-0.528~[0.466, 0.589] (paper 0.96) and \texttt{libero\_10} at
-0.252~[0.202, 0.309] (paper 0.71) --- a $35\%$ relative ratio on
-the long-horizon suite. The Wilson half-width on the
-\texttt{libero\_10} cell is $0.054$ at $N{=}250$, so the gap is not
-a small-sample artifact: a binomial sample whose true rate equals
-the paper-reported 0.71 produces $\hat{p}\leq 0.31$ with probability
-below $10^{-30}$. We caught and ruled out one mundane source of
-divergence (the act${\times}$aloha cell was re-run after PR~\#51
-fixed a postprocessor wiring bug; the SmolVLA loader has been
-exercised on three suites with no analogous bug surfacing), so the
-gap is not a loader bug we can name. Two hypotheses we cannot
-distinguish from public information: (a) the SmolVLA-0.45B Hub
-checkpoint generalises less well to the 10-task long-horizon variant
-than the paper's reported numbers imply, possibly because of the
-checkpoint scale or training-time task-set overlap; or
-(b)~the LIBERO evaluation protocol in the SmolVLA paper differs from
-the LeRobot \texttt{env.LIBEROEnv}{+}\texttt{task\_id=0} protocol we
-ship (success threshold, success-trigger horizon, or task selection).
-We report the gap and the hypotheses; deciding between them is
-out of scope for a sim screening protocol and is the kind of
-multi-policy comparable result lerobot-bench exists to surface.
+\texttt{libero\_spatial}, against 0.528~[0.466, 0.589] on
+\texttt{libero\_object} and 0.252~[0.202, 0.309] on
+\texttt{libero\_10}. Published SmolVLA-0.45B
+numbers~\cite{shukor2025smolvla} are suite averages over
+10~tasks $\times$ 10~trials per task (0.90/0.96/0.92/0.71 for the
+same four suites): ours is a single-task probe at \texttt{task\_id=0},
+not an apples-to-apples replication, and the \texttt{libero\_10}
+number is additionally a lower bound at our 520-step cap (74.8\% of
+failed episodes truncated; canonical LIBERO uses 600). The
+within-protocol measurement is tight (Wilson half-width $0.054$ at
+$N{=}250$); the apples-to-apples claim defers to v1.1
+(Section~\ref{sec:results-audit}, Future work).
 
 \paragraph{SmolVLA${\times}$libero\_object shows a deterministic
 ceiling.} On \texttt{libero\_object}, the across-seed variance of the
@@ -413,6 +419,53 @@ suite, and is the only baseline above floor on
 heuristic is the most permissive in the matrix. The baseline floor
 is therefore not a single number across the leaderboard, which is
 exactly why we run it on every cell rather than reporting it once.
+For ACT on \texttt{aloha\_transfer\_cube} we measure
+$\hat{p}{=}0.016$ [0.005, 0.038] --- below the
+\texttt{aloha\_transfer\_cube} random floor --- but at the Hub-default
+inference settings (\texttt{temporal\_ensemble\_coeff=None},
+\texttt{n\_action\_steps=100}); the paper-canonical settings probe
+is pending (see Methodology caveats below).
+
+\paragraph{Methodology caveats (v1.0.1 audit).}
+\label{sec:results-audit}
+After v1.0 sweep completion we conducted a static methodology audit
+against each policy's source paper and each env's canonical
+protocol. Three mismatches were confirmed; all three constrain what
+the headline cells mean without invalidating the underlying
+measurements. (1)~\emph{Task coverage scope.} The SmolVLA
+paper~\cite{shukor2025smolvla} Table~2 reports per-suite averages
+over 10~tasks $\times$ 10~trials per task; v1 runs
+\texttt{task\_id=0} $\times$ 5~seeds $\times$ 50~episodes per
+suite. Every paper-vs-measured delta in Section~\ref{sec:results}
+that cites a SmolVLA number is therefore a single-task envelope claim,
+not a paper-replication claim
+(PR~\#84, \texttt{docs/CLAIM\_AUDIT\_SMOLVLA.md}).
+(2)~\emph{Inference settings: ACT temporal ensembling.} The pinned
+\texttt{lerobot/act\_aloha\_sim\_transfer\_cube\_human} Hub config
+defaults \texttt{temporal\_ensemble\_coeff=None},
+\texttt{n\_action\_steps=100}; Zhao et al.~\cite{zhao2023learning}
+Table~I used \texttt{coeff=0.01}, \texttt{n\_action\_steps=1}
+(one action per step from a weighted mean over overlapping chunk
+predictions). The 0.016 we measure on
+\texttt{aloha\_transfer\_cube} is plausibly an inference-config
+artefact rather than the architecture failing on the task; a
+1-seed $\times$ 50-episode probe with paper settings is queued for
+v1.0.2 and not yet complete (PR~\#86,
+\texttt{docs/INFERENCE\_AUDIT.md}). (3)~\emph{Episode termination
+caps on LIBERO.} The canonical LIBERO benchmark~\cite{liu2023libero}
+uses \texttt{max\_steps=600} for all four suites; v1 inherited
+lerobot's tighter caps \{280, 280, 300, 520\} (spatial, object,
+goal, 10). Per-cell cap-hit rates on failed episodes are 22.4\%,
+47.2\%, 7.2\%, and 74.8\% respectively, so all four LIBERO numbers
+are lower bounds at our caps; the \texttt{libero\_10} headline cell
+is the most sensitive to this. PR~\#90 implements a selectable
+\texttt{--canonical} criterion (\texttt{docs/CANONICAL\_CRITERIA.md})
+that bumps the cap to 600 and swaps PushT and Aloha success rules
+to the paper-canonical sticky-true forms; v1.1 will rerun the
+audit-affected cells under it. Neither the audit nor the patches
+re-write any v1 parquet row: v1.0.0 numbers remain valid for the
+single-task-at-truncated-cap scope they were measured under, and
+the audit constrains the comparative claim, not the measurement.
 
 \paragraph{XVLA deferral.}
 The \texttt{xvla\_libero} policy was executed across all four LIBERO
@@ -480,13 +533,27 @@ Stacked bars sum to total labeled failures per cell. \todo{Insert
 \section{Discussion}
 
 \paragraph{What the leaderboard says.}
-\todo{One paragraph interpreting the headline finding. If the
-finding is the leaderboard itself (no delta clears the MDE), the
-paragraph should be honest about that and frame the contribution as
-``a protocol that exposed how thin single-seed claims are'' rather
-than as a ranking result. If a delta clears the MDE, the paragraph
-should name the specific (policy, env) pair, the magnitude, and the
-Cohen's $h$ effect size band.}
+Three things, in order of confidence. First, the protocol works: every
+parquet row is bit-replayable, Wilson and pivotal-bootstrap CIs agree
+to within one half-width on every cell, and 107~cells dispatched with
+zero failures over 25~hours unattended on commodity hardware. Second,
+diffusion\_policy${\times}$pusht reproduces its Hub-card number to
+within 1.4~pp (0.816 measured vs. 0.83 reported) at $N{=}125$ after
+auto-downscope, suggesting the reproducibility floor on the matrix is
+serviceable when policy and env both match their training protocol.
+Third, the SmolVLA${\times}$\texttt{libero\_10} cell measures 0.252
+under our default protocol and 0.71 in the paper --- but the v1.0.1
+audit (Section~\ref{sec:results-audit}) has since bounded this gap by
+two scope mismatches, so the right reading is ``this checkpoint at
+task~0 and a 520-step cap is materially below the published 10-task
+average,'' not ``the paper number does not replicate.'' The
+distinction is load-bearing for what a reader takes away. The
+contribution we stand behind without qualification is the protocol
+itself: a single-PR contribution path for new policies, a shared seed
+contract, and a CI-vs-MDE bookkeeping discipline that flags any
+delta below the resolvability threshold as inconclusive rather than
+as a finding. v1.1 closes the audit caveats and re-runs the affected
+cells; v1 ships the protocol, the data, and the audit trail.
 
 \subsection{Limitations}
 
@@ -532,24 +599,44 @@ Cohen's $h$ effect size band.}
     cite only deltas above the per-cell MDE.
     \item \textbf{Multi-comparison concerns.} Any
     $(\text{policy}, \text{env})$ pair we did not pre-register as a
-    planned comparison is exploratory; the headline finding
+    planned comparison is exploratory; the headline measurement
     (SmolVLA${\times}$\texttt{libero\_10}) is a single planned
     paper-vs-measured comparison and clears the corresponding MDE
     band by an order of magnitude, but cross-policy paired tests on
     shared envs are deferred to v1.1 when XVLA returns to the matrix.
+    \item \textbf{Protocol-vs-paper apples-to-apples.} Three
+    audit-confirmed mismatches (Section~\ref{sec:results-audit},
+    PRs~\#84/\#86/\#89) constrain what the SmolVLA and ACT
+    paper-vs-measured cells mean: \texttt{task\_id=0} vs.\ 10-task
+    suite averages, \texttt{temporal\_ensemble\_coeff=None} vs.\
+    paper's 0.01, and LIBERO step caps tighter than canonical 600.
+    The audit does not invalidate any v1 parquet row --- the
+    measurements are valid for the scope they were taken under ---
+    but it does mean per-cell deltas should be read as protocol-vs-paper
+    rather than as direct replication failures. v1.1 ships
+    (i)~all-10-task LIBERO coverage, (ii)~the ACT temporal-ensembling
+    probe (probe pending in v1.0.2), and (iii)~the canonical 600-step
+    cap via PR~\#90's selectable criterion.
 \end{itemize}
 
 \subsection{Future work}
 
-Four paths. (1)~Onboard the $\pi_0$ family ($\pi_0$, $\pi_0$-FAST,
-$\pi_{0.5}$) using quantized weights or \texttt{accelerate} streaming
-load (see Limitations) --- this extends the learned-policy axis from
-four to seven in v1.1. (2)~Add the remaining LIBERO task variants
-(each suite has 10 tasks; v1 locks \texttt{task\_id=0}). (3)~Onboard
-new policies as they appear on the Hub --- the contribution path is a
-single PR adding a row to \texttt{configs/policies.yaml}. (4)~Re-run
-the matrix on hardware with the sim-to-real bridge of choice and
-report the gap as its own table. The eval pipeline is structured for
+Five paths. (1)~Close the v1.0.1 audit caveats
+(Section~\ref{sec:results-audit}) by re-running the SmolVLA
+${\times}$LIBERO and ACT${\times}$Aloha cells under PR~\#90's
+\texttt{--canonical} criterion (600-step LIBERO cap, paper-canonical
+PushT/Aloha success rules) and with the ACT temporal-ensembling
+inference settings; this is the v1.0.2 / v1.1 unblocker for the
+apples-to-apples paper-replication claim. (2)~Onboard the $\pi_0$
+family ($\pi_0$, $\pi_0$-FAST, $\pi_{0.5}$) using quantized weights or
+\texttt{accelerate} streaming load (see Limitations) --- this extends
+the learned-policy axis from four to seven in v1.1. (3)~Add the
+remaining LIBERO task variants (each suite has 10 tasks; v1 locks
+\texttt{task\_id=0}). (4)~Onboard new policies as they appear on the
+Hub --- the contribution path is a single PR adding a row to
+\texttt{configs/policies.yaml}. (5)~Re-run the matrix on hardware
+with the sim-to-real bridge of choice and report the gap as its own
+table. The eval pipeline is structured for
 upstream adoption as \texttt{lerobot.eval.multi\_seed}; a draft PR is
 in flight at \todo{\texttt{huggingface/lerobot}\#TBD}.
 

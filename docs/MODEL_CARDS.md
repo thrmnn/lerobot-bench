@@ -64,6 +64,24 @@ the locked SHAs that carry forward.
   same nominal task — a head-to-head against any other number requires
   matching the success heuristic and episode budget, which is exactly
   the comparability gap lerobot-bench exists to close.
+- **Paper vs. measured (v1.0.1 audit, PR #86)**: lerobot-bench v1
+  measures `act × aloha_transfer_cube` = **0.016** [0.005, 0.038] at
+  N=250 under the **Hub-default inference settings**: the pinned
+  `lerobot/act_aloha_sim_transfer_cube_human` `config.json` ships
+  `temporal_ensemble_coeff=None` and `n_action_steps=100`, so the
+  policy executes plain 100-step action chunks with no inter-chunk
+  smoothing. Zhao et al. 2023's Table I numbers (0.50 paper, 0.83 on
+  the Hub card's larger LeRobot-side re-eval) were produced with
+  **temporal ensembling enabled** (`coeff=0.01`, `n_action_steps=1` —
+  one action per step from an exponentially-smoothed mean over
+  overlapping chunk predictions). The 0.016 we measure is plausibly
+  an inference-config artefact rather than the architecture failing
+  on the task. A 1-seed × 50-episode probe at the paper settings is
+  queued for **v1.0.2** and was not complete at v1.0 ship; the
+  number stays in the leaderboard as "at Hub defaults" until the
+  probe lands. Full audit: [`docs/INFERENCE_AUDIT.md`](INFERENCE_AUDIT.md);
+  Aloha success-rule audit (the bench accepts reward ∈ {1..4} while the
+  paper's Transfer subtask requires `reward == 4`): PR #89 / [`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md).
 - **Wiring caveat (PR #51)**: The legacy-checkpoint stats recovery in
   `_recover_dataset_stats_from_safetensors` reversed only the first
   underscore when mapping `buffer_*` keys back to feature keys, so
@@ -118,6 +136,19 @@ the locked SHAs that carry forward.
 - **Caveats**: The paper's coverage metric and the benchmark's binary
   success metric measure different things; do not compare the 0.91
   coverage figure against any binary success rate.
+- **Paper vs. measured (v1.0.1 audit, PR #89)**: lerobot-bench v1
+  measures `diffusion_policy × pusht` = **0.816** [0.739, 0.874]
+  (N=125 after auto-downscope), within 1.4 pp of the Hub-card 0.83
+  reference. The audit flags this match as **soft**: our success rule
+  is `final_reward >= 0.95` (≡ coverage ≥ 0.9025), while the
+  PushT Hub card uses `any(coverage > 0.95)` over the rollout
+  (sticky-true). 34.4% of our `diffusion_policy × pusht` episodes hit
+  the step cap, opening a window for the lax threshold to fire on
+  near-converged but non-terminated trajectories — i.e. the bench may
+  be **over-counting** relative to the canonical rule. PR #90 ships
+  the canonical `sticky_is_success` rule as a selectable option; the
+  re-run probe under it is queued for v1.0.2. Full audit:
+  [`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md).
 
 ## SmolVLA (LIBERO finetune)
 
@@ -165,6 +196,40 @@ the locked SHAs that carry forward.
   task difficulty. The `libero_10` (long-horizon) score is the lowest
   cell in the paper — long-horizon compositional tasks are the known
   weak point of this policy class.
+- **Paper vs. measured (v1.0.1 audit, PRs #84 + #89)**: lerobot-bench
+  v1 measures, at `task_id=0` × 5 seeds × 50 episodes per suite
+  (N=250 binary outcomes per cell):
+  - `libero_spatial` = **0.776** [0.720, 0.823] (paper 0.90)
+  - `libero_object`  = **0.528** [0.466, 0.589] (paper 0.96)
+  - `libero_goal`    = **0.928** [0.889, 0.954] (paper 0.92)
+  - `libero_10`      = **0.252** [0.202, 0.309] (paper 0.71)
+
+  **The paper-vs-measured deltas are not apples-to-apples** and should
+  not be read as replication failures. Two audit-confirmed scope
+  mismatches:
+  - **Task coverage (PR #84)**: the SmolVLA paper Table 2 reports
+    **per-suite averages over 10 tasks × 10 trials per task = 100-ep
+    suite averages**. We ran **one task (`task_id=0`) × 5 seeds × 50
+    episodes = 250 single-task episodes** per suite. The two scalars
+    measure different quantities: ours is a single-task envelope claim
+    ("at least one of the 10 tasks scores well below the published
+    suite average"), the paper's is a suite-averaged claim. v1.1 will
+    expand to all 10 tasks per suite and close the apples-to-apples
+    question. Full audit: [`docs/CLAIM_AUDIT_SMOLVLA.md`](CLAIM_AUDIT_SMOLVLA.md).
+  - **Step caps (PR #89)**: canonical LIBERO uses `max_steps=600` for
+    every suite; v1 inherited lerobot's tighter caps
+    `{spatial=280, object=280, goal=300, libero_10=520}`. Cap-hit
+    rates on **failed** episodes are 22.4%, 47.2%, 7.2%, and **74.8%**
+    respectively, so all four numbers are **lower bounds at our caps**
+    and `libero_10` is the most sensitive. v1.1 reruns under PR #90's
+    selectable canonical criterion. Full audit:
+    [`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md).
+
+  Both caveats compound on the `libero_10` headline cell.
+  The within-protocol measurements are bit-reproducible and tight
+  (Wilson half-width 0.054 at N=250 on `libero_10`); what's contested
+  is the scope of what they imply about the paper's number, not the
+  number we measured.
 
 ## XVLA (LIBERO)
 
