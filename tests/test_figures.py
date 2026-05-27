@@ -12,12 +12,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-import matplotlib
+import pytest
 
+# Skip the whole module if matplotlib isn't installed: the figure-pipeline
+# requires it but the bench's minimal CI install path ("fast" pytest job)
+# does not pull matplotlib. Mirrors pytest.importorskip("lerobot") etc.
+# elsewhere in this test tree.
+matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
 
 import pandas as pd
-import pytest
 
 from lerobot_bench import figures as fig_mod
 from lerobot_bench.figures import (
