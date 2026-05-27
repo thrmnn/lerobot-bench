@@ -1172,12 +1172,12 @@ pre.code .v{color:var(--ink);}
         <p>The two scalars measure <em>different quantities</em>. The "0.71 → 0.252" headline is a <em>single-task probe</em>, not a paper-replication number — until v1.1 runs all 10 tasks. Full verdict: <span class="mono">docs/CLAIM_AUDIT_SMOLVLA.md</span>.</p>
       </div>
     </div>
-    <div class="audit warn">
-      <div class="glyph">!</div>
+    <div class="audit ok">
+      <div class="glyph">✓</div>
       <div class="body-block">
-        <span class="lab">PR #86 · inference settings — ACT temporal ensembling</span>
+        <span class="lab">PR #86 · inference settings — ACT temporal ensembling · <span style="color:var(--accent);">v1.0.2 PROBE RESOLVED</span></span>
         <h5>Hub ships <span class="mono">temporal_ensemble_coeff=None, n_action_steps=100</span>; Zhao 2023 Table I used <span class="mono">coeff=0.01, n=1</span>.</h5>
-        <p>Overlapping-chunk weighted averaging is OFF in our v1 → plausibly explains ACT's 0.016 on Aloha (slide 11). Probe queued. SmolVLA's <span class="mono">Action Steps</span> inheritance is also unpinned (paper Table 13).</p>
+        <p>Probe at paper settings: <span class="ink" style="font-weight:600;">0.764 [0.708, 0.812]</span> vs v1.0.0 default <span class="mono">0.016</span> — Wilson CIs disjoint by an order of magnitude. The 0.016 was Hub-default inference; the architecture clears paper on this env at correct settings. (See PROBE_RESULTS_V1.0.1.md.)</p>
       </div>
     </div>
     <div class="audit warn">
@@ -1190,7 +1190,7 @@ pre.code .v{color:var(--ink);}
     </div>
   </div>
   <div class="body" style="margin-top:14px;font-size:14px;color:var(--mute);">
-    <span class="warm">Net for the headline:</span> smolvla × libero_10 sits under <em>two compounding caveats</em> (scope + truncation); ACT × aloha sits under <em>one</em> (temporal ensembling) pending a probe. External replication + cross-hardware variance: see slide 18 limitations.
+    <span class="warm">Net for the headline:</span> smolvla × libero_10 sits under <em>two compounding caveats</em> (scope + truncation); <span style="color:var(--accent);">ACT × aloha caveat RESOLVED — 0.016 → 0.764 at paper settings (v1.0.2 probe).</span> External replication + cross-hardware variance: see slide 18 limitations.
   </div>
   <div class="foot"><span>3 of 6 §1 audits closed · §§1.4–1.6 holding for probes</span><span class="src">docs/PIPELINE_ROADMAP.md</span></div>
 </section>
@@ -1269,7 +1269,7 @@ pre.code .v{color:var(--ink);}
         The success threshold rewards <em>any</em> contact event.<br>
         A policy needs to <em>beat this number</em> to claim it learned the task.<br><br>
         <span class="ink">ACT scores 1.6% on the same cell</span> — <em>at our default inference settings.</em><br>
-        <span class="warm" style="font-weight:600;">⚠ paper used temporal ensembling (slide 08, PR #86); a probe with <span class="mono">coeff=0.01, n=1</span> is pending before this becomes a finding.</span>
+        <span style="color:var(--accent);font-weight:600;">✓ v1.0.2 probe at paper inference settings (coeff=0.01, n=1): 76.4% [70.8%, 81.2%].</span> The Hub-default reading was missing temporal ensembling; the architecture clears random-baseline by ~67 pp at correct settings.
       </div>
     </div>
   </div>
