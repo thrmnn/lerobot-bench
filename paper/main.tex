@@ -440,30 +440,43 @@ suite. Every paper-vs-measured delta in Section~\ref{sec:results}
 that cites a SmolVLA number is therefore a single-task envelope claim,
 not a paper-replication claim
 (PR~\#84, \texttt{docs/CLAIM\_AUDIT\_SMOLVLA.md}).
-(2)~\emph{Inference settings: ACT temporal ensembling.} The pinned
+(2)~\emph{Inference settings: ACT temporal ensembling --- v1.0.2
+probe RESOLVED.} The pinned
 \texttt{lerobot/act\_aloha\_sim\_transfer\_cube\_human} Hub config
 defaults \texttt{temporal\_ensemble\_coeff=None},
 \texttt{n\_action\_steps=100}; Zhao et al.~\cite{zhao2023learning}
-Table~I used \texttt{coeff=0.01}, \texttt{n\_action\_steps=1}
-(one action per step from a weighted mean over overlapping chunk
-predictions). The 0.016 we measure on
-\texttt{aloha\_transfer\_cube} is plausibly an inference-config
-artefact rather than the architecture failing on the task; a
-1-seed $\times$ 50-episode probe with paper settings is queued for
-v1.0.2 and not yet complete (PR~\#86,
-\texttt{docs/INFERENCE\_AUDIT.md}). (3)~\emph{Episode termination
-caps on LIBERO.} The canonical LIBERO benchmark~\cite{liu2023libero}
-uses \texttt{max\_steps=600} for all four suites; v1 inherited
-lerobot's tighter caps \{280, 280, 300, 520\} (spatial, object,
-goal, 10). Per-cell cap-hit rates on failed episodes are 22.4\%,
-47.2\%, 7.2\%, and 74.8\% respectively, so all four LIBERO numbers
-are lower bounds at our caps; the \texttt{libero\_10} headline cell
-is the most sensitive to this. PR~\#90 implements a selectable
-\texttt{--canonical} criterion (\texttt{docs/CANONICAL\_CRITERIA.md})
-that bumps the cap to 600 and swaps PushT and Aloha success rules
-to the paper-canonical sticky-true forms; v1.1 will rerun the
-audit-affected cells under it. Neither the audit nor the patches
-re-write any v1 parquet row: v1.0.0 numbers remain valid for the
+Table~I used \texttt{coeff=0.01}, \texttt{n\_action\_steps=1}.
+The v1.0.2 probe (5~seeds $\times$ 50~episodes at paper settings,
+\texttt{scripts/probes/probe\_act\_temporal\_ensemble.py})
+measures \textbf{0.764 [0.708, 0.812]} versus the v1.0.0 Hub-default
+reading of \textbf{0.016 [0.006, 0.040]} --- the two Wilson 95\%
+CIs are disjoint by an order of magnitude. The Hub default was
+hiding ${\sim}75$~pp of ACT's competence on this env, and the
+architecture beats the paper number (0.50, human-teleop column) by
+\textbf{+26~pp} at correct settings. The v1.0.0 ``act fails on
+aloha'' reading is therefore an inference-config artefact, not an
+architecture failure
+(PR~\#86, PR~\#97; \texttt{docs/INFERENCE\_AUDIT.md},
+\texttt{docs/PROBE\_RESULTS\_V1.0.1.md}).
+(3)~\emph{Episode termination caps on LIBERO --- v1.0.2 probe
+RESOLVED for \texttt{libero\_10}.} The canonical LIBERO
+benchmark~\cite{liu2023libero} uses \texttt{max\_steps=600} for all
+four suites; v1 inherited lerobot's tighter caps \{280, 280, 300,
+520\} (spatial, object, goal, 10). Per-cell cap-hit rates on failed
+episodes are 22.4\%, 47.2\%, 7.2\%, and 74.8\% respectively. The
+v1.0.2 probe re-ran \texttt{libero\_10} at canonical cap=600 and
+measured \textbf{0.256 [0.206, 0.314]} vs.\ v1's 0.252 ---
+$\Delta{=}+0.4$~pp, within the Wilson half-width of either CI.
+Cap-hits stayed at 74.4\% even at 600, so the cap is binding at
+both budgets but extending it does not recover successes; the
+\texttt{libero\_10} reading is \emph{policy-bottlenecked}, not
+\emph{cap-bottlenecked}. The other three LIBERO suites have far
+lower cap-hit rates and remain provisional lower bounds pending
+re-runs at cap=600 in v1.1
+(PR~\#90 ships a selectable \texttt{--canonical} criterion;
+\texttt{docs/CANONICAL\_CRITERIA.md}; PR~\#108).
+Neither the audit nor the patches re-write any v1 parquet row:
+v1.0.0 numbers remain valid for the
 single-task-at-truncated-cap scope they were measured under, and
 the audit constrains the comparative claim, not the measurement.
 

@@ -2232,3 +2232,72 @@ def test_status_auto_loads_newest_run_no_selector(tmp_path: Path) -> None:
 def test_status_auto_load_empty_results_dir_returns_no_runs(tmp_path: Path) -> None:
     """An empty results dir -> no runs -> Status renders its empty state."""
     assert discover_sweep_runs(tmp_path) == []
+
+
+# --------------------------------------------------------------------- #
+# v1 policy filter (xvla_libero deferral, PR #76)                       #
+# --------------------------------------------------------------------- #
+
+V1_POLICIES = _dashboard_helpers.V1_POLICIES
+filter_to_v1_policies = _dashboard_helpers.filter_to_v1_policies
+
+
+def test_v1_policies_excludes_xvla() -> None:
+    """xvla_libero is deferred to v1.1; the leaderboard tuple must not list it."""
+    assert "xvla_libero" not in V1_POLICIES
+    assert set(V1_POLICIES) == {
+        "act",
+        "diffusion_policy",
+        "smolvla_libero",
+        "no_op",
+        "random",
+    }
+
+
+def test_filter_to_v1_policies_drops_xvla_rows() -> None:
+    """The standalone helper drops non-v1 rows without touching the rest."""
+    df = pd.DataFrame(
+        {
+            "policy": ["act", "xvla_libero", "diffusion_policy", "pi0", "random"],
+            "env": ["pusht"] * 5,
+            "success": [True, False, True, False, True],
+        }
+    )
+    out = filter_to_v1_policies(df)
+    assert set(out["policy"]) == {"act", "diffusion_policy", "random"}
+    assert "xvla_libero" not in set(out["policy"])
+
+
+def test_load_results_parquet_filters_xvla_but_parquet_preserves_it(
+    tmp_path: Path,
+) -> None:
+    """Parquet on disk keeps xvla rows for reproducibility; the dashboard's
+    loader drops them so build_live_leaderboard / run_anomaly_review /
+    policy cards never see them.
+    """
+    rows = _cell_rows(
+        policy="act", env="pusht", per_seed_successes=[3], n_episodes_per_seed=10
+    ) + _cell_rows(
+        policy="xvla_libero",
+        env="libero_10",
+        per_seed_successes=[5],
+        n_episodes_per_seed=10,
+    )
+    df_in = _results_frame(rows)
+    parquet = tmp_path / "results.parquet"
+    df_in.to_parquet(parquet, index=False)
+    clear_results_cache()
+
+    # Raw file on disk still has xvla.
+    raw = pd.read_parquet(parquet)
+    assert "xvla_libero" in set(raw["policy"])
+
+    # Dashboard loader filters.
+    loaded = load_results_parquet(parquet)
+    assert loaded is not None
+    assert "xvla_libero" not in set(loaded["policy"])
+    assert set(loaded["policy"]) == {"act"}
+
+    # Live leaderboard built on the loaded df does not surface xvla.
+    board = build_live_leaderboard(loaded)
+    assert [r.policy for r in board] == ["act"]

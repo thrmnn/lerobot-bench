@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lerobot-bench — a reproducible benchmark for pretrained robot policies</title>
+<meta name="description" content="Six pretrained policies × six simulated environments. 5 seeds × 50 episodes each, Wilson 95% CIs, every per-episode result open.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ============================ HERO ============================ -->
+  <header class="hero">
+    <span class="eyebrow"><span class="dot"></span>lerobot-bench · v1</span>
+    <h1 class="h-1">A reproducible benchmark for <span class="em">pretrained robot policies</span>.</h1>
+    <p class="tagline">Six policies × six sim environments, every per-episode result open. Built on <span class="mono ink">lerobot 0.5.1</span>.</p>
+
+    <blockquote class="headline-quote">
+      <strong class="ink">Headline:</strong>
+      <span class="mono ink">ACT × aloha</span> at paper inference settings:
+      <span class="stat">0.764 [0.708, 0.812]</span> vs.
+      <span class="stat">0.016</span> at Hub default.
+      Inference settings, not architecture, are the load-bearing variable.
+    </blockquote>
+
+    <div class="artifacts">
+      <a class="btn primary" href="https://huggingface.co/spaces/thrmnn/lerobot-bench" rel="noopener">Live Space <span class="arrow">→</span></a>
+      <a class="btn" href="../paper/main.tex" rel="noopener">Paper <span class="arrow">→</span></a>
+      <a class="btn" href="https://huggingface.co/datasets/thrmnn/lerobot-bench-v1" rel="noopener">Dataset <span class="arrow">→</span></a>
+      <a class="btn" href="https://github.com/thrmnn/lerobot-bench" rel="noopener">Code <span class="arrow">→</span></a>
+    </div>
+
+    <div class="badges">
+      <div class="cell"><span class="k">Matrix</span><span class="v">6 × 6</span></div>
+      <div class="cell"><span class="k">Per cell</span><span class="v">5 × 50</span></div>
+      <div class="cell"><span class="k">Interval</span><span class="v">Wilson 95%</span></div>
+      <div class="cell"><span class="k">Multiplicity</span><span class="v">Holm-Bonf.</span></div>
+    </div>
+  </header>
+
+  <!-- ============================ WHY ============================ -->
+  <section class="block">
+    <span class="eyebrow"><span class="dot"></span>why this exists</span>
+    <h2 class="h-2">Pretrained robot policies ship with paper numbers — but no apples-to-apples way to run them all.</h2>
+    <p class="body-lg">Each release picks its own envs, seeds, success rule. <em>lerobot-bench</em> fixes the protocol — identical seeds, episode counts, CIs across the matrix — and publishes the disagreements as loudly as the agreements.</p>
+  </section>
+
+  <!-- ============================ HEADLINE CARD ============================ -->
+  <section class="block">
+    <span class="eyebrow accent"><span class="dot"></span>probe · v1.0.2</span>
+    <article class="finding-card">
+      <div>
+        <div class="label">ACT × aloha · success rate</div>
+        <h3>The architecture clears paper — once you load paper inference settings.</h3>
+        <p>Hub default: <span class="mono ink">coeff=None, n_action_steps=100</span>. Zhao 2023 Table&nbsp;I: <span class="mono ink">coeff=0.01, n=1</span>. Wilson 95% CIs disjoint by an order of magnitude.</p>
+      </div>
+      <div class="ci-chart" aria-label="Confidence interval comparison: Hub default vs paper inference settings">
+        <div class="ci-row fail">
+          <div class="lab"><span>Hub default</span><span class="val">0.016</span></div>
+          <div class="ci-track">
+            <div class="ci-bar fail" style="left: 0%; right: 95.6%;"></div>
+            <div class="ci-point" style="left: 1.6%;"></div>
+          </div>
+        </div>
+        <div class="ci-row ok">
+          <div class="lab"><span>Paper settings</span><span class="val">0.764</span></div>
+          <div class="ci-track">
+            <div class="ci-bar ok" style="left: 70.8%; right: 18.8%;"></div>
+            <div class="ci-point" style="left: 76.4%;"></div>
+          </div>
+        </div>
+        <div class="ci-scale"><span>0.0</span><span>0.5</span><span>1.0</span></div>
+      </div>
+    </article>
+  </section>
+
+  <!-- ============================ METHOD SNAPSHOT ============================ -->
+  <section class="block">
+    <span class="eyebrow"><span class="dot"></span>methodology snapshot</span>
+    <h2 class="h-2">Three commitments that make the numbers comparable.</h2>
+    <div class="method-grid">
+      <div class="method-item">
+        <span class="n">01 · SEEDING</span>
+        <h4>Per-cell determinism contract.</h4>
+        <p>Keyed by <span class="mono">(policy, env, seed, ep_id)</span>; reruns reproduce the success vector bit-for-bit.</p>
+      </div>
+      <div class="method-item">
+        <span class="n">02 · INTERVALS</span>
+        <h4>Wilson 95% CIs, Holm-Bonferroni.</h4>
+        <p>Per-cell from <span class="mono">N = 250</span>; family-wise correction across <span class="mono">36 cells</span>.</p>
+      </div>
+      <div class="method-item">
+        <span class="n">03 · MDE BAND</span>
+        <h4>What 250 episodes can resolve.</h4>
+        <p>Minimum detectable effect <span class="mono ink">~9pp</span> at p ≈ 0.5.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ AUDIT-AWARE CAVEATS ============================ -->
+  <section class="block">
+    <span class="eyebrow warm"><span class="dot"></span>v1.0.1 audit · caveats incorporated</span>
+    <h2 class="h-2">Three confirmed mismatches — and what they do to the headline.</h2>
+    <div class="caveats">
+      <div class="caveat warn">
+        <div class="glyph">!</div>
+        <div class="body-block">
+          <span class="lab">PR #84 · SmolVLA scope</span>
+          <h5>Single-task probe, not the paper's 10-task suite — v1.1 closes this.</h5>
+        </div>
+      </div>
+      <div class="caveat ok">
+        <div class="glyph">✓</div>
+        <div class="body-block">
+          <span class="lab">PR #86 · ACT inference — <span class="accent">RESOLVED</span></span>
+          <h5>Paper settings: <span class="mono ink">0.764</span> vs Hub default <span class="mono">0.016</span>. v1.0.2 lands the correct number.</h5>
+        </div>
+      </div>
+      <div class="caveat warn">
+        <div class="glyph">!</div>
+        <div class="body-block">
+          <span class="lab">PR #89 · LIBERO step cap</span>
+          <h5>Cap <span class="mono">520</span> vs canonical <span class="mono">600</span>; 74.8% of episodes hit it — the <span class="mono">0.252</span> is a lower bound. v1.1 adopts canonical (PR #90).</h5>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ FOOTER ============================ -->
+  <footer>
+    <span><a href="https://github.com/thrmnn/lerobot-bench">github.com/thrmnn/lerobot-bench</a></span>
+    <span>Théo Hermann · MIT License · 2026</span>
+  </footer>
+
+</body>
+</html>

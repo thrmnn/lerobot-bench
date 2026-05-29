@@ -49,7 +49,7 @@ all: lint typecheck test  ## Lint + typecheck + test
 
 # --- bench-specific ---
 
-.PHONY: calibrate sweep-mini sweep-full publish space-deploy dashboard
+.PHONY: calibrate sweep-mini sweep-full publish space-deploy dashboard probe-act probe-smolvla probes
 
 calibrate:  ## Day 0b: per-policy step latency probe
 	$(PYTHON) scripts/calibrate.py
@@ -84,3 +84,11 @@ space-deploy:  ## Push the Spaces app to HF Spaces git remote
 
 dashboard:  ## Launch the local-first operator sweep dashboard (Gradio)
 	$(PYTHON) dashboard/app.py
+
+probe-act:  ## v1.0.1 probe: ACT x aloha at paper inference settings (~50 min, GPU)
+	$(PYTHON) scripts/probes/probe_act_temporal_ensemble.py
+
+probe-smolvla:  ## v1.0.1 probe: smolvla x libero_10 at canonical max_steps=600 (~60 min, GPU)
+	$(PYTHON) scripts/probes/probe_smolvla_libero_canonical_cap.py
+
+probes: probe-act probe-smolvla  ## Run both v1.0.1 audit probes sequentially (~110 min, GPU). See examples/write_a_probe.md.
