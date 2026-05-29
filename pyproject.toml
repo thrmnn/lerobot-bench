@@ -140,7 +140,9 @@ markers = [
 
 [tool.coverage.run]
 source = ["src/lerobot_bench"]
-omit = ["*/tests/*", "*/__main__.py"]
+# figures.py is matplotlib-only figure tooling; its tests importorskip("matplotlib")
+# and the minimal "fast" CI job has no matplotlib, so it can't be exercised there.
+omit = ["*/tests/*", "*/__main__.py", "*/figures.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -172,5 +174,6 @@ module = [
     "torch.*",
     "huggingface_hub.*",
     "safetensors.*",
+    "matplotlib.*",
 ]
 ignore_missing_imports = true
