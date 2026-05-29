@@ -1032,7 +1032,7 @@ pre.code .v{color:var(--ink);}
         ⚠ Coverage is <em>skewed toward SmolVLA</em> (4 of the 6 non-baseline cells) because LIBERO publishes 4 per-suite fine-tunes. ACT and Diffusion Policy each have only one home env.
       </div>
       <div class="body" style="font-size:20px;color:var(--dim);">
-        <em>22 runnable cells.</em> 107 dispatched (each baseline splits per env). 0 failures over 25 hours.
+        <em>22 runnable cells.</em> 110 dispatched (each baseline splits per env; 107 planned + 3 xvla re-sanity). 0 failures over 25 hours.
       </div>
       <div class="matrix-key" style="margin-top:4px;">
         <span><span class="sw" style="background:var(--ok);"></span>rate &gt; .70</span>
@@ -1241,7 +1241,7 @@ pre.code .v{color:var(--ink);}
     </div>
   </div>
   <div class="body" style="margin-top:14px;max-width:none;text-align:center;font-size:22px;">
-    Diffusion Policy on PushT reproduces. <span class="warm">⚠ ACT's 0.016 likely reflects missing temporal ensembling</span> (PR #86 audit) — pending a 1-seed probe with paper settings before we restate it.
+    Diffusion Policy on PushT reproduces. <span class="warm">ACT's 0.016 was a Hub-default inference artifact</span> (PR #86 audit) — resolved by the probe (PR #97): <strong>0.764 [0.708, 0.812]</strong> at paper settings, +26 pp over the paper's 0.50.
   </div>
   <div class="foot"><span>lerobot/diffusion_pusht · lerobot/act_aloha_sim_transfer_cube_human</span><span class="src">paper §4</span></div>
 </section>
@@ -1383,7 +1383,7 @@ pre.code .v{color:var(--ink);}
         <g transform="translate(1140,180)" stroke="#34d399" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="-12,2 -4,10 14,-10"/><circle cx="0" cy="0" r="20" stroke-width="1.6"/></g>
         <text x="1340" y="178" text-anchor="middle" font-family="Instrument Sans" font-size="26" font-weight="600" fill="#34d399">sweep complete</text>
-        <text x="1340" y="214" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#c5ccd6">107 cells · 0 failures · 5,250 episodes</text>
+        <text x="1340" y="214" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#c5ccd6">110 cells · 0 failures · 5,250 episodes</text>
         <text x="1340" y="240" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#c5ccd6">25 h wall · cell-boundary resume</text></g>
       <text x="800" y="335" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#7d8593" letter-spacing="2">RUN AGAIN — THE PARQUET ROWS MATCH</text>
     </svg>

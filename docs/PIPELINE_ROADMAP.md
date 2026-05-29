@@ -117,7 +117,7 @@ Goal: address the "smolvla coverage skew" critique. Currently 4 of 6 non-baselin
 ### 2.4 Replication scatter as a first-class figure
 
 - Promote the supplementary deck slide S1 (paper-vs-measured scatter) to a top-level figure in the paper and a dashboard panel.
-- Script: `scripts/replication_scatter.py` reads `results.parquet` + `MODEL_CARDS.md` paper_rates, emits SVG + PNG.
+- **Shipped:** `src/lerobot_bench/figures.py` `replication_scatter()` + `scripts/render_figures.py` read `results.parquet` + `MODEL_CARDS.md` paper_rates, emit SVG/PNG/PDF (paper/deck/web variants). Embedded in paper §S1 + the site Results section.
 
 ### 2.5 Continuous CI sweep
 
