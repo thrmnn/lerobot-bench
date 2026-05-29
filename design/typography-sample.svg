@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900" viewBox="0 0 1280 900" role="img" aria-label="lerobot-bench typography sample">
+  <title>lerobot-bench typography</title>
+  <defs>
+    <style type="text/css"><![CDATA[
+      @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap');
+      .bg{fill:#0a0d12}
+      .ink{fill:#f5f7fa}
+      .dim{fill:#c5ccd6}
+      .mute{fill:#7d8593}
+      .accent{fill:#7aa3ff}
+      .warm{fill:#fbbf24}
+      .sans{font-family:'Instrument Sans','Helvetica Neue',Arial,sans-serif}
+      .serif{font-family:'Instrument Serif','Cambria',Georgia,serif}
+      .mono{font-family:'JetBrains Mono','SFMono-Regular',Menlo,Consolas,monospace}
+      .eyebrow{font-size:12px;letter-spacing:3px;text-transform:uppercase}
+      .stack-label{font-size:11px;letter-spacing:2px;text-transform:uppercase}
+      .hr{stroke:#1e242e;stroke-width:1}
+    ]]></style>
+  </defs>
+
+  <rect class="bg" width="1280" height="900"/>
+
+  <!-- header -->
+  <g transform="translate(64,72)">
+    <text class="mono eyebrow mute">typography stack · v1</text>
+    <text y="44" class="serif ink" font-style="italic" font-size="38">three families, one voice.</text>
+  </g>
+
+  <!-- mega serif -->
+  <g transform="translate(64,180)">
+    <text class="mono stack-label mute">h-mega · instrument serif italic · 96px</text>
+    <text y="92" class="serif ink" font-style="italic" font-size="96" letter-spacing="-2">does it <tspan class="accent" font-style="normal">replicate?</tspan></text>
+  </g>
+
+  <line class="hr" x1="64" y1="320" x2="1216" y2="320"/>
+
+  <!-- h-1 sans bold -->
+  <g transform="translate(64,360)">
+    <text class="mono stack-label mute">h-1 · instrument sans 600 · 64px</text>
+    <text y="74" class="sans ink" font-weight="600" font-size="64" letter-spacing="-1.5">Pretrained robot software, under default Hub configs.</text>
+  </g>
+
+  <line class="hr" x1="64" y1="476" x2="1216" y2="476"/>
+
+  <!-- body -->
+  <g transform="translate(64,514)">
+    <text class="mono stack-label mute">body · instrument sans 400 · 22px</text>
+    <text y="48" class="sans dim" font-size="22" font-weight="400">Five pretrained checkpoints, each shipped with a paper number. We re-ran each one</text>
+    <text y="78" class="sans dim" font-size="22" font-weight="400">250 times on the lerobot eval defaults. Some replicate. Some don't. <tspan class="warm">All four smolvla</tspan></text>
+    <text y="108" class="sans dim" font-size="22" font-weight="400"><tspan class="warm">rows compare a single task vs the paper's 10-task suite average.</tspan></text>
+  </g>
+
+  <line class="hr" x1="64" y1="676" x2="1216" y2="676"/>
+
+  <!-- mono code -->
+  <g transform="translate(64,714)">
+    <text class="mono stack-label mute">mono · jetbrains mono 500 · 20px · tnum</text>
+    <text y="48" class="mono ink" font-size="20" font-weight="500">smolvla · libero_10  <tspan class="mute">paper</tspan> 0.71  <tspan fill="#f87171" font-weight="700">measured</tspan> 0.252  <tspan class="mute">Δ</tspan> <tspan fill="#f87171">−45.8 pp</tspan></text>
+    <text y="78" class="mono ink" font-size="20" font-weight="500">diffusion · pusht     <tspan class="mute">paper</tspan> 0.83  <tspan fill="#34d399" font-weight="700">measured</tspan> 0.816  <tspan class="mute">Δ</tspan> <tspan class="mute">−1.4 pp</tspan></text>
+  </g>
+
+  <!-- footer -->
+  <g transform="translate(64,852)">
+    <text class="mono eyebrow mute">load · fonts.googleapis.com/css2?family=Instrument+Sans&amp;family=Instrument+Serif&amp;family=JetBrains+Mono</text>
+  </g>
+</svg>

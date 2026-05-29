@@ -1,0 +1,16 @@
+[
+  { "name": "bg",        "hex": "#0a0d12", "role": "page background (dark)" },
+  { "name": "ink",       "hex": "#f5f7fa", "role": "primary text on bg" },
+  { "name": "dim",       "hex": "#c5ccd6", "role": "secondary text / body" },
+  { "name": "mute",      "hex": "#7d8593", "role": "tertiary text / labels / captions" },
+  { "name": "line",      "hex": "#1e242e", "role": "hairline dividers" },
+  { "name": "line-2",    "hex": "#2a323e", "role": "stronger dividers / borders" },
+  { "name": "panel",     "hex": "#11161e", "role": "card / panel surface" },
+  { "name": "panel-2",   "hex": "#161c26", "role": "hover / elevated panel" },
+  { "name": "accent",    "hex": "#7aa3ff", "role": "primary accent / links / highlight" },
+  { "name": "accent-soft","hex": "#5b8def","role": "accent pressed / secondary blue" },
+  { "name": "ok",        "hex": "#34d399", "role": "success / replicated cell" },
+  { "name": "warm",      "hex": "#fbbf24", "role": "warning / caveat / scope flag" },
+  { "name": "fail",      "hex": "#f87171", "role": "failure / measured below paper" },
+  { "name": "defer",     "hex": "#a78bfa", "role": "deferred / experimental (xvla, pi0)" }
+]

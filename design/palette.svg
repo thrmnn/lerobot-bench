@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="lerobot-bench color palette">
+  <title>lerobot-bench color palette</title>
+  <style>
+    .bg{fill:#0a0d12}
+    .ink{fill:#f5f7fa}
+    .dim{fill:#c5ccd6}
+    .mute{fill:#7d8593}
+    .line{stroke:#1e242e}
+    .sans{font-family:'Instrument Sans','Helvetica Neue',Arial,sans-serif}
+    .mono{font-family:'JetBrains Mono','SFMono-Regular',Menlo,Consolas,monospace}
+    .serif{font-family:'Instrument Serif','Cambria',Georgia,serif;font-style:italic}
+    .eyebrow{font-size:12px;letter-spacing:3px;text-transform:uppercase}
+    .title{font-size:38px;font-weight:400}
+    .label{font-size:14px;font-weight:600;letter-spacing:.2px}
+    .hex{font-size:12px;letter-spacing:1px}
+    .role{font-size:11px;letter-spacing:.4px}
+  </style>
+
+  <rect class="bg" width="1280" height="720"/>
+
+  <!-- header -->
+  <g transform="translate(64,72)">
+    <text class="mono eyebrow mute">color palette · v1 · matches paper/deck/index.html :root</text>
+    <text y="44" class="serif title ink">the <tspan fill="#7aa3ff" font-style="normal">lerobot-bench</tspan> palette</text>
+  </g>
+
+  <!-- swatches: 5 cols x 3 rows (14 swatches + 1 spacer) -->
+  <g transform="translate(64,184)">
+    <!-- row 1: surfaces -->
+    <g transform="translate(0,0)">
+      <rect width="220" height="120" rx="10" fill="#0a0d12" stroke="#2a323e"/>
+      <text class="sans label ink" x="14" y="86">bg</text>
+      <text class="mono hex dim" x="14" y="104">#0a0d12</text>
+    </g>
+    <g transform="translate(232,0)">
+      <rect width="220" height="120" rx="10" fill="#11161e"/>
+      <text class="sans label ink" x="14" y="86">panel</text>
+      <text class="mono hex dim" x="14" y="104">#11161e</text>
+    </g>
+    <g transform="translate(464,0)">
+      <rect width="220" height="120" rx="10" fill="#161c26"/>
+      <text class="sans label ink" x="14" y="86">panel-2</text>
+      <text class="mono hex dim" x="14" y="104">#161c26</text>
+    </g>
+    <g transform="translate(696,0)">
+      <rect width="220" height="120" rx="10" fill="#1e242e"/>
+      <text class="sans label ink" x="14" y="86">line</text>
+      <text class="mono hex dim" x="14" y="104">#1e242e</text>
+    </g>
+    <g transform="translate(928,0)">
+      <rect width="220" height="120" rx="10" fill="#2a323e"/>
+      <text class="sans label ink" x="14" y="86">line-2</text>
+      <text class="mono hex dim" x="14" y="104">#2a323e</text>
+    </g>
+
+    <!-- row 1 roles -->
+    <g transform="translate(0,128)">
+      <text class="mono role mute" x="0" y="12">page background</text>
+      <text class="mono role mute" x="232" y="12">card surface</text>
+      <text class="mono role mute" x="464" y="12">hover surface</text>
+      <text class="mono role mute" x="696" y="12">hairline divider</text>
+      <text class="mono role mute" x="928" y="12">stronger divider</text>
+    </g>
+
+    <!-- row 2: text scale -->
+    <g transform="translate(0,176)">
+      <rect width="220" height="120" rx="10" fill="#f5f7fa"/>
+      <text class="sans label" fill="#0a0d12" x="14" y="86">ink</text>
+      <text class="mono hex" fill="#0a0d12" x="14" y="104">#f5f7fa · 16.5:1</text>
+    </g>
+    <g transform="translate(232,176)">
+      <rect width="220" height="120" rx="10" fill="#c5ccd6"/>
+      <text class="sans label" fill="#0a0d12" x="14" y="86">dim</text>
+      <text class="mono hex" fill="#0a0d12" x="14" y="104">#c5ccd6 · 11.0:1</text>
+    </g>
+    <g transform="translate(464,176)">
+      <rect width="220" height="120" rx="10" fill="#7d8593"/>
+      <text class="sans label" fill="#0a0d12" x="14" y="86">mute</text>
+      <text class="mono hex" fill="#0a0d12" x="14" y="104">#7d8593 · 4.4:1</text>
+    </g>
+    <g transform="translate(696,176)">
+      <rect width="220" height="120" rx="10" fill="#7aa3ff"/>
+      <text class="sans label" fill="#0a0d12" x="14" y="86">accent</text>
+      <text class="mono hex" fill="#0a0d12" x="14" y="104">#7aa3ff · 7.4:1</text>
+    </g>
+    <g transform="translate(928,176)">
+      <rect width="220" height="120" rx="10" fill="#5b8def"/>
+      <text class="sans label ink" x="14" y="86">accent-soft</text>
+      <text class="mono hex ink" x="14" y="104">#5b8def</text>
+    </g>
+
+    <!-- row 2 roles -->
+    <g transform="translate(0,304)">
+      <text class="mono role mute" x="0" y="12">primary text</text>
+      <text class="mono role mute" x="232" y="12">secondary / body</text>
+      <text class="mono role mute" x="464" y="12">tertiary / labels</text>
+      <text class="mono role mute" x="696" y="12">primary accent / links</text>
+      <text class="mono role mute" x="928" y="12">accent pressed</text>
+    </g>
+
+    <!-- row 3: semantic -->
+    <g transform="translate(0,352)">
+      <rect width="220" height="120" rx="10" fill="#34d399"/>
+      <text class="sans label" fill="#0a0d12" x="14" y="86">ok</text>
+      <text class="mono hex" fill="#0a0d12" x="14" y="104">#34d399 · 9.8:1</text>
+    </g>
+    <g transform="translate(232,352)">
+      <rect width="220" height="120" rx="10" fill="#fbbf24"/>
+      <text class="sans label" fill="#0a0d12" x="14" y="86">warm</text>
+      <text class="mono hex" fill="#0a0d12" x="14" y="104">#fbbf24 · 11.3:1</text>
+    </g>
+    <g transform="translate(464,352)">
+      <rect width="220" height="120" rx="10" fill="#f87171"/>
+      <text class="sans label" fill="#0a0d12" x="14" y="86">fail</text>
+      <text class="mono hex" fill="#0a0d12" x="14" y="104">#f87171 · 6.6:1</text>
+    </g>
+    <g transform="translate(696,352)">
+      <rect width="220" height="120" rx="10" fill="#a78bfa"/>
+      <text class="sans label" fill="#0a0d12" x="14" y="86">defer</text>
+      <text class="mono hex" fill="#0a0d12" x="14" y="104">#a78bfa · 6.7:1</text>
+    </g>
+    <g transform="translate(928,352)">
+      <rect width="220" height="120" rx="10" fill="none" stroke="#2a323e" stroke-dasharray="4 4"/>
+      <text class="mono role mute" x="14" y="62">contrast ratios</text>
+      <text class="mono role mute" x="14" y="80">computed vs bg</text>
+      <text class="mono role mute" x="14" y="98">#0a0d12 (WCAG)</text>
+    </g>
+
+    <!-- row 3 roles -->
+    <g transform="translate(0,480)">
+      <text class="mono role mute" x="0" y="12">success / replicated</text>
+      <text class="mono role mute" x="232" y="12">warning / caveat</text>
+      <text class="mono role mute" x="464" y="12">failure / below paper</text>
+      <text class="mono role mute" x="696" y="12">deferred / experimental</text>
+    </g>
+  </g>
+
+  <!-- footer -->
+  <g transform="translate(64,684)">
+    <text class="mono eyebrow mute">source · paper/deck/index.html :root  ·  machine-readable · design/palette.json</text>
+  </g>
+</svg>
