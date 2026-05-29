@@ -56,8 +56,17 @@ if _SRC_DIR.is_dir() and str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 from lerobot_bench.envs import EnvRegistry, EnvSpec  # noqa: E402
+from lerobot_bench.leaderboard_filter import (  # noqa: E402
+    V1_POLICIES,
+    filter_to_v1_policies,
+)
 from lerobot_bench.policies import PolicyRegistry, PolicySpec  # noqa: E402
 from lerobot_bench.stats import wilson_ci, wilson_halfwidth_at_p  # noqa: E402
+
+# ``V1_POLICIES`` + ``filter_to_v1_policies`` are imported (not redefined)
+# so this dashboard and the Gradio Space share one v1 policy gate. Both are
+# re-exported for back-compat with ``from _helpers import ...`` call sites.
+__all__ = ["V1_POLICIES", "filter_to_v1_policies"]
 
 # --------------------------------------------------------------------- #
 # Constants                                                             #
@@ -340,22 +349,6 @@ def load_results_parquet(results_path: Path | None) -> pd.DataFrame | None:
     df = filter_to_v1_policies(df)
     _RESULTS_CACHE.by_path[key] = df
     return df
-
-
-def filter_to_v1_policies(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop rows whose ``policy`` is not in :data:`V1_POLICIES`.
-
-    Applied to every parquet read in :func:`load_results_parquet` so
-    the dashboard's leaderboard surfaces (``build_live_leaderboard``,
-    ``run_anomaly_review``, the policy/env cards) never see xvla rows
-    even when the published parquet carries them. The progress table
-    is manifest-driven, so a v1.1 sweep that adds xvla cells would
-    still surface them there — this filter is the per-episode
-    leaderboard gate, not a manifest gate.
-    """
-    if df.empty or "policy" not in df.columns:
-        return df
-    return df[df["policy"].isin(V1_POLICIES)].reset_index(drop=True)
 
 
 def clear_results_cache() -> None:
@@ -1459,13 +1452,9 @@ def env_dashboard_logs_dir() -> Path:
 # x 6 envs minus the env_compat-pruned cells == 22 runnable, with 5
 # seeds each == 110 seed-entries). Kept as constants so the header
 # badge has a stable denominator even before the manifest is on disk.
-V1_POLICIES: tuple[str, ...] = (
-    "act",
-    "diffusion_policy",
-    "smolvla_libero",
-    "no_op",
-    "random",
-)
+#
+# ``V1_POLICIES`` is imported at module top from
+# ``lerobot_bench.leaderboard_filter`` (shared with the Gradio Space).
 # xvla_libero is intentionally absent: deferred to v1.1 (PR #76 — two
 # patched + one unresolved Hub-JSON processor bugs). The published
 # parquet still carries xvla rows for reproducibility, but

@@ -19,29 +19,26 @@ and add an entry to configs/policies.yaml in a follow-up PR.
 
 from __future__ import annotations
 
-import json
 import logging
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from lerobot_bench.checkpointing import append_cell_rows  # noqa: E402
-from lerobot_bench.envs import EnvRegistry  # noqa: E402
-from lerobot_bench.policies import PolicyRegistry  # noqa: E402
+from _common import (
+    N_EPISODES_PER_SEED,
+    SEEDS,
+    run_seeds,
+    setup_probe,
+    write_summary,
+)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("probe-act-temporal-ensemble")
 
+PROBE_NAME = "act-aloha-temporal-ensemble"
 POLICY_NAME = "act"
 ENV_NAME = "aloha_transfer_cube"
-SEEDS = (0, 1, 2, 3, 4)
-N_EPISODES_PER_SEED = 50
-OUT_DIR = REPO_ROOT / "results" / "probes" / "act-aloha-temporal-ensemble"
-OUT_PARQUET = OUT_DIR / "results.parquet"
-VIDEOS_DIR = OUT_DIR / "videos"
-SUMMARY_JSON = OUT_DIR / "summary.json"
+V1_BASELINE_RATE = 0.016
 
 
 def _patch_act_inference_settings() -> None:
@@ -74,52 +71,26 @@ def _patch_act_inference_settings() -> None:
 
 
 def main() -> int:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if OUT_PARQUET.exists():
-        OUT_PARQUET.unlink()
-        logger.info("removed stale parquet %s", OUT_PARQUET)
-
-    policy_reg = PolicyRegistry.from_yaml(REPO_ROOT / "configs" / "policies.yaml")
-    env_reg = EnvRegistry.from_yaml(REPO_ROOT / "configs" / "envs.yaml")
-    policy_spec = policy_reg.get(POLICY_NAME)
-    env_spec = env_reg.get(ENV_NAME)
+    ctx = setup_probe(PROBE_NAME, policy_name=POLICY_NAME, env_name=ENV_NAME)
 
     _patch_act_inference_settings()
 
-    from lerobot_bench.eval import run_cell_from_specs
-
-    cell_rates: dict[int, float] = {}
-    for seed in SEEDS:
-        logger.info("probe seed=%d starting", seed)
-        cell = run_cell_from_specs(
-            policy_spec,
-            env_spec,
-            seed_idx=seed,
-            n_episodes=N_EPISODES_PER_SEED,
-            device="cuda",
-            record_video=True,
-            videos_dir=VIDEOS_DIR,
-        )
-        cell_rates[seed] = cell.success_rate
-        append_cell_rows(OUT_PARQUET, cell.to_rows())
-        logger.info("probe seed=%d success_rate=%.4f", seed, cell.success_rate)
-
+    cell_rates = run_seeds(ctx)
     overall = sum(cell_rates.values()) / len(cell_rates)
-    summary = {
-        "policy": POLICY_NAME,
-        "env": ENV_NAME,
-        "probe": "temporal_ensemble_coeff=0.01,n_action_steps=1",
-        "v1_default_rate": 0.016,
-        "seeds": SEEDS,
-        "n_episodes_per_seed": N_EPISODES_PER_SEED,
-        "per_seed_success_rate": cell_rates,
-        "pooled_success_rate": overall,
-    }
-    SUMMARY_JSON.write_text(json.dumps(summary, indent=2))
-    logger.info("PROBE COMPLETE pooled=%.4f (v1 baseline=%.4f)", overall, 0.016)
-    logger.info("summary -> %s", SUMMARY_JSON)
+    write_summary(
+        ctx,
+        {
+            "policy": POLICY_NAME,
+            "env": ENV_NAME,
+            "probe": "temporal_ensemble_coeff=0.01,n_action_steps=1",
+            "v1_default_rate": V1_BASELINE_RATE,
+            "seeds": SEEDS,
+            "n_episodes_per_seed": N_EPISODES_PER_SEED,
+            "per_seed_success_rate": cell_rates,
+            "pooled_success_rate": overall,
+        },
+    )
+    logger.info("PROBE COMPLETE pooled=%.4f (v1 baseline=%.4f)", overall, V1_BASELINE_RATE)
     return 0
 
 

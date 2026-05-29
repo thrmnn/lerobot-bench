@@ -13,6 +13,12 @@
 *.fdb_latexmk
 *.synctex.gz
 
+# Figure pipeline outputs (scripts/render_figures.py) — these ARE
+# tracked: SVG/PDF are diffable text, PNG is the deck embed.
+!figures/**/*.pdf
+!figures/**/*.png
+!figures/**/*.svg
+
 # Editor / OS noise.
 .DS_Store
 *.swp

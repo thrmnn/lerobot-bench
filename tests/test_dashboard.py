@@ -2268,6 +2268,32 @@ def test_filter_to_v1_policies_drops_xvla_rows() -> None:
     assert "xvla_libero" not in set(out["policy"])
 
 
+def test_space_and_dashboard_share_one_v1_policy_gate() -> None:
+    """Regression guard against future drift (task #142).
+
+    The Gradio Space and this dashboard must apply the identical v1
+    policy gate. Both now re-export from
+    ``lerobot_bench.leaderboard_filter`` instead of redefining the tuple
+    + filter, so the two surfaces and the canonical module are the *same
+    object* -- a future edit to one cannot silently diverge from the
+    other. Loaded via importlib because both helper files are named
+    ``_helpers`` and would otherwise collide in ``sys.modules``.
+    """
+    from lerobot_bench import leaderboard_filter
+
+    space_helpers_path = _DASHBOARD_DIR.parent / "space" / "_helpers.py"
+    space_spec = importlib.util.spec_from_file_location("space_helpers", space_helpers_path)
+    assert space_spec is not None and space_spec.loader is not None
+    space_helpers = importlib.util.module_from_spec(space_spec)
+    sys.modules["space_helpers"] = space_helpers
+    space_spec.loader.exec_module(space_helpers)
+
+    assert _dashboard_helpers.V1_POLICIES is leaderboard_filter.V1_POLICIES
+    assert space_helpers.V1_POLICIES is leaderboard_filter.V1_POLICIES
+    assert _dashboard_helpers.filter_to_v1_policies is leaderboard_filter.filter_to_v1_policies
+    assert space_helpers.filter_to_v1_policies is leaderboard_filter.filter_to_v1_policies
+
+
 def test_load_results_parquet_filters_xvla_but_parquet_preserves_it(
     tmp_path: Path,
 ) -> None:

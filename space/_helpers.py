@@ -58,7 +58,15 @@ import numpy as np
 import pandas as pd
 
 from lerobot_bench.checkpointing import RESULT_SCHEMA
+
+# Re-exported so existing ``from _helpers import V1_POLICIES, filter_to_v1_policies``
+# call sites (app.py, tests/test_space.py) keep working. The canonical
+# definition lives in ``lerobot_bench.leaderboard_filter`` so the Space and
+# the dashboard share one v1 policy gate and cannot drift apart.
+from lerobot_bench.leaderboard_filter import V1_POLICIES, filter_to_v1_policies
 from lerobot_bench.stats import paired_diff_ci, wilson_ci, wilson_halfwidth_at_p
+
+__all__ = ["V1_POLICIES", "filter_to_v1_policies"]
 
 logger = logging.getLogger(__name__)
 
@@ -71,21 +79,10 @@ logger = logging.getLogger(__name__)
 # docs/RUNBOOK.md. Bumped in lock-step on a breaking schema change.
 HUB_DATASET_REPO = "thrmnn/lerobot-bench-v1"
 
-# Single source of truth for the v1 leaderboard policy set. The
-# published parquet still carries xvla_libero rows for reproducibility
-# (PR #76 deferred xvla to v1.1 after two patched + one unresolved
-# Hub-JSON processor bugs), but the public surfaces must not include
-# them — xvla biases the headline numbers downward and confuses
-# reviewers. ``load_results_df`` drops non-v1 policies right after
-# parquet load, so every downstream aggregate (Wilson CIs, paired
-# bootstrap, MDE) is computed on the v1-only frame.
-V1_POLICIES: tuple[str, ...] = (
-    "act",
-    "diffusion_policy",
-    "smolvla_libero",
-    "no_op",
-    "random",
-)
+# NOTE: ``V1_POLICIES`` is imported above from
+# ``lerobot_bench.leaderboard_filter`` (re-exported for back-compat). The
+# canonical definition + the xvla-exclusion rationale live there so this
+# surface and the dashboard cannot drift apart.
 
 # Direct raw-content URL prefix on the Hub. ``resolve/main`` is what
 # Hub returns the actual file bytes for; the alternative ``blob/main``
@@ -191,20 +188,6 @@ def load_results_df(parquet_url: str | Path | None = None) -> pd.DataFrame:
         )
     df = df[list(RESULT_SCHEMA)]
     return filter_to_v1_policies(df)
-
-
-def filter_to_v1_policies(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop rows whose ``policy`` is not in :data:`V1_POLICIES`.
-
-    Applied right after the schema check in :func:`load_results_df` so
-    every downstream aggregate (Wilson CIs, paired bootstrap, MDE,
-    rollout dropdowns, failure counts) sees the v1 leaderboard set
-    only. The published parquet still carries xvla_libero rows for
-    reproducibility; this filter is the public-surface gate.
-    """
-    if df.empty or "policy" not in df.columns:
-        return df
-    return df[df["policy"].isin(V1_POLICIES)].reset_index(drop=True)
 
 
 def _empty_results_df() -> pd.DataFrame:
