@@ -309,7 +309,10 @@ A single row is replayable end-to-end with
 \texttt{python scripts/run\_one.py --policy P --env E --seed S}. The
 Hub dataset (\texttt{thrmnn/lerobot-bench-v1}) is the data
 source for the public Space and for every figure below. The full
-sweep took \todo{N hours} of GPU time on the reference hardware.
+sweep took $\approx 25$~hours of GPU time on the reference hardware
+(1$\times$ RTX 4060 Laptop, WSL2 Ubuntu, lerobot 0.5.1; full wall-clock
+2026-05-22T00:35Z $\to$ 2026-05-23T01:39Z per
+\texttt{sweep\_manifest.json}).
 
 % ---------------------------------------------------------------- %
 % Results                                                          %
@@ -650,8 +653,11 @@ Hub --- the contribution path is a single PR adding a row to
 \texttt{configs/policies.yaml}. (5)~Re-run the matrix on hardware
 with the sim-to-real bridge of choice and report the gap as its own
 table. The eval pipeline is structured for
-upstream adoption as \texttt{lerobot.eval.multi\_seed}; a draft PR is
-in flight at \todo{\texttt{huggingface/lerobot}\#TBD}.
+upstream adoption as \texttt{lerobot.eval.multi\_seed}; xvla Hub
+processor fixes are filed upstream at
+\href{https://github.com/huggingface/lerobot/issues/3401}{\texttt{huggingface/lerobot\#3401}},
+and an inference-defaults audit for ACT is in draft (PR \#98 of this
+repo, pending post upstream).
 
 % ---------------------------------------------------------------- %
 % References                                                       %
