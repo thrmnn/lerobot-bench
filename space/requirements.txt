@@ -20,7 +20,8 @@ scipy>=1.13,<2.0
 numpy>=2.0,<3.0
 
 # Pull lerobot-bench (this project's library code — RESULT_SCHEMA,
-# stats.wilson_ci, etc.) from GitHub. Pinned to a branch ref while
-# the PR is open; flip to the merged-main SHA when this PR lands so
-# the Space is reproducible from the deployed commit.
-git+https://github.com/thrmnn/lerobot-bench.git@0fd600c4a8bfe60612b311fc1a6c26c1748fab58
+# stats.wilson_ci, leaderboard_filter, etc.) from GitHub. Must point at a
+# commit reachable from main (an ancestor of HEAD) so it survives branch
+# deletion — never pin a feature-branch SHA, which 404s once the branch is
+# squash-merged and deleted.
+git+https://github.com/thrmnn/lerobot-bench.git@41cc5a862fa5ffd2ddf13ab39ddb564ee3e971db
