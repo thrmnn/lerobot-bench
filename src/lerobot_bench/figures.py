@@ -575,11 +575,17 @@ def replication_scatter(
             markersize=5,
             elinewidth=s["line_width"],
         )
+        # Right-align labels on points past mid-x so long cell names
+        # (e.g. "smolvla_libero/libero_spatial (single-task)") grow
+        # leftward into the plot instead of overrunning the right edge
+        # and getting cropped by bbox_inches="tight".
+        right_half = paper > 0.5
         ax.annotate(
             label,
             xy=(paper, measured),
-            xytext=(4, 4),
+            xytext=(-4 if right_half else 4, 4),
             textcoords="offset points",
+            ha="right" if right_half else "left",
             fontsize=label_fontsize,
             color=s["fg"],
             alpha=0.75,
@@ -624,9 +630,10 @@ def replication_scatter(
         ax.spines[spine].set_visible(False)
 
     _apply_bg(fig, s)
-    # rect reserves the top 6% for the two-line title so bbox_inches=tight
-    # in _save_all does not crop it (the prior one-line title clipped).
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.94))
+    # rect reserves the top 6% for the two-line title and a left strip for
+    # the y-axis label so bbox_inches=tight in _save_all does not crop
+    # either (the one-line title and the long y-label both clipped before).
+    fig.tight_layout(rect=(0.04, 0.0, 1.0, 0.94))
     return _save_all(fig, "replication_scatter", style, out_dir)
 
 
