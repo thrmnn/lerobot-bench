@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> v1.0.1 + v1.0.2 work in flight on `main`. The two reads on the v1 dataset that the audit changed:
+> v1.0.1 + v1.0.2 audit + consolidation work has landed on `main` (pending a tagged release). The two reads on the v1 dataset that the audit changed:
 > - **act × aloha** : **0.016 → 0.764** at paper inference settings (PR #97 probe, task #121). The Hub-default `temporal_ensemble_coeff=None, n_action_steps=100` were hiding ~75 pp of ACT's competence on this env. The v1.0.0 cell rows stay published as-is (audit-trail integrity); the reframing changes what those rows *mean*, not what they record.
-> - **smolvla × LIBERO** : single-task (`task_id=0`) probe, not 10-task average like the paper. Step caps `{280, 280, 300, 520}` are below canonical 600 (74.8 % of failed `libero_10` episodes hit our cap → the 0.252 is a lower bound; cap=600 probe in flight as of this commit, task #122).
+> - **smolvla × LIBERO** : single-task (`task_id=0`) probe, not 10-task average like the paper. Step caps `{280, 280, 300, 520}` are below canonical 600. The cap=600 probe resolved (task #122, PR #108): **0.256 [0.206, 0.314]**, with 74.4 % cap-hits at 600 vs 74.8 % at 520 — the policy is the bottleneck, not the step cap; the 0.252 lower bound essentially holds.
 
 ### Added
 - **v1.0.1 audit cascade** — comprehensive methodology audit against each policy's source paper and each env's canonical protocol:
@@ -20,14 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `docs/PROBE_RESULTS_V1.0.1.md` (PRs #94 scaffold + #97 ACT fill) — empirical resolution of the inference-settings + step-cap audits. Per-seed tables + Wilson CIs + reading-outcome interpretation.
 - **v1.0.1 audit probes** (`scripts/probes/`, PR #92):
   - `probe_act_temporal_ensemble.py` — monkey-patches `PreTrainedConfig.from_pretrained` to set `cfg.temporal_ensemble_coeff=0.01, n_action_steps=1` on ACT configs only, before instantiation. 5 seeds × 50 ep on `aloha_transfer_cube`. Result (task #121, PR #97): **0.764 [0.708, 0.812]** vs Hub default **0.016 [0.006, 0.040]**; Wilson CIs disjoint by an order of magnitude. The architecture clears the paper number (0.50) by 26 pp at correct settings; the v1.0.0 cell rate is an inference-config artifact, not architecture failure.
-  - `probe_smolvla_libero_canonical_cap.py` — `dataclasses.replace` on env spec to set `max_steps=600` (canonical LIBERO), then `run_cell_from_specs`. 5 seeds × 50 ep on `libero_10`. Captures per-seed cap-hit count so we can quantify the lower-bound gap. (task #122, running at time of this commit.)
+  - `probe_smolvla_libero_canonical_cap.py` — `dataclasses.replace` on env spec to set `max_steps=600` (canonical LIBERO), then `run_cell_from_specs`. 5 seeds × 50 ep on `libero_10`. Captures per-seed cap-hit count. Result (task #122, PR #108): **0.256 [0.206, 0.314]** vs v1's 0.252 at cap=520; 74.4 % cap-hits at 600 vs 74.8 % at 520 — raising the cap barely moves the needle, so the policy (not the cap) is the bottleneck.
 - **stats**: `stats.holm_bonferroni` + `stats.family_correction` (PR #85, `scripts/family_correction.py`) — family-wise correction across the cell matrix's paired comparisons. Returns per-comparison adjusted *p*-values + reject/fail-to-reject under Holm's step-down procedure at α=0.05. Honours the existing MDE-gate ordering: comparisons inside the MDE band are dropped from the family before correction (gating before testing, not the other way around).
-- **figures**: `feat/replication-scatter-fig` (PR #87 in-flight) — replication scatter plot rendered from the parquet via the notebook + saved to `docs/assets/fig-replication-scatter.{svg,png}`. Carries the paper-vs-measured pairs as scatter points + the y=x line; cells inside the MDE band rendered greyscale. (Awaiting user review.)
+- **figures**: parameterized figure pipeline (PR #107, `src/lerobot_bench/figures.py` + `scripts/render_figures.py`) renders paper/deck/web variants of the leaderboard forest, replication scatter, ACT probe bar, and smolvla LIBERO chart. The replication scatter was polished (PR #115: ACT paper-settings point at 0.764, smolvla single-task annotations, title-clip fix) and embedded into paper §S1-adjacent slide of the deck (PR #118) and the site Results section (PR #117). Cells inside the MDE band render greyscale; the y=x diagonal marks perfect replication.
 
 ### Changed
 - **`src/lerobot_bench/leaderboard_filter.py`** (task #142) — new single source of truth for `V1_POLICIES` + `filter_to_v1_policies()` (the xvla_libero exclusion gate). `space/_helpers.py` and `dashboard/_helpers.py` now re-export from it instead of redefining the tuple + filter in parallel, so the two public surfaces cannot silently drift apart. Dependency-light (pandas only) so both surfaces' import paths and the slim pytest job pull it in cleanly. Surface-specific `clear_results_cache()` left untouched (the Space's `lru_cache` and the dashboard's last-good `_RESULTS_CACHE` are genuinely different handles). Regression test asserts both surfaces and the canonical module are the same object.
 - **`scripts/probes/`** (task #140) — extracted shared boilerplate (repo-root/`sys.path` setup, registry loads, output-dir + parquet-clear-on-restart, the per-seed `run_cell_from_specs` loop, `summary.json` write) into `scripts/probes/_common.py` (`setup_probe` / `run_seeds` / `write_summary`). Both audit probes now own only their override logic (ACT monkeypatch; smolvla `dataclasses.replace` cap=600 + cap-hit count) and their summary schema. `summary.json` output format unchanged — `docs/PROBE_RESULTS_V1.0.1.md` reads it verbatim.
-- **`docs/MODEL_CARDS.md`** (PR #91) — per-policy "paper vs. measured" paragraphs added for `act` (Hub-default vs. paper temporal-ensembling) and `smolvla_libero` (scope + step cap). v1.0.2 probe pending flagged inline; will be replaced by empirical numbers in a follow-up.
+- **consolidation / DX** — deck chrome-mark icon hoisted to a single `<symbol>` reused via `<use>` (PR #111); probe boilerplate extracted to `scripts/probes/_common.py` (PR #112, task #140); `space/requirements.txt` repointed to a main-reachable SHA so the Space install survives branch deletion (PR #114).
+- **`paper/main.tex`** — compressed 7 → 4 body pages for the v1 arxiv release (PR #116); empty taxonomy placeholder replaced with the real ACT probe bar figure; numbers unchanged (Limitations was the main cut).
+- **`docs/MODEL_CARDS.md`** (PR #91) — per-policy "paper vs. measured" paragraphs added for `act` (Hub-default vs. paper temporal-ensembling) and `smolvla_libero` (scope + step cap). Probe-pending placeholders replaced with the empirical 0.764 / 0.256 numbers (PR #101); smolvla reframed cap- → policy-bottlenecked.
 - **`README.md`** (PR #91) — Status line flagged "v1.0.1 audit incorporated"; new "Methodology caveats (v1.0.1 audit)" table block (one row per confirmed audit) + link to PR #90's selectable `--canonical` criterion.
 - **`paper/main.tex`** (PR #91) — Abstract + Results headline restated to reflect the audit; Methods step-cap caveat added with forward-pointer to a new §sec:results-audit subsection. Numbers unchanged; framing softened from "clean replication failure" to "single-task-at-truncated-cap probe with explicit scope labels".
 - **`paper/deck/index.html`** (PR #88, awaiting your review):
@@ -46,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-05-26
 
 ### Added
-- **v1 sweep completed.** 6 policies × 6 envs, 107 dispatched cells, **0 failures**.
+- **v1 sweep completed.** 6 policies × 6 envs, 110 dispatched cells (107 planned + 3 xvla re-sanity), **0 failures**.
   Roster: `act`, `diffusion_policy`, `smolvla_libero`, `xvla_libero`, `no_op`,
   `random` across `pusht`, `aloha_transfer_cube`, `libero_spatial`,
   `libero_object`, `libero_goal`, `libero_10`. Per-cell budget: 5 seeds × 50
