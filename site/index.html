@@ -48,6 +48,32 @@
     <p class="body-lg">Each release picks its own envs, seeds, success rule. <em>lerobot-bench</em> fixes the protocol — identical seeds, episode counts, CIs across the matrix — and publishes the disagreements as loudly as the agreements.</p>
   </section>
 
+  <!-- ============================ RESULTS FIGURES ============================ -->
+  <section class="block">
+    <span class="eyebrow accent"><span class="dot"></span>results · v1</span>
+    <h2 class="h-2">The matrix, two ways: how far each cell lands from its paper number, and where the intervals fall.</h2>
+
+    <figure class="figure-card">
+      <div class="figure-frame">
+        <img src="assets/replication_scatter.svg" alt="Replication scatter: measured success rate vs. each policy's reported paper number across the 6 × 6 matrix. The ACT × aloha point at paper inference settings sits at 0.764, on the replication diagonal; the Hub-default point sits near zero." loading="lazy">
+      </div>
+      <figcaption>
+        <span class="cap-lab">Fig. 1 · Replication scatter</span>
+        Measured success rate against each policy's reported paper number. Points on the diagonal replicate; points below fall short under our protocol. The headline <span class="mono ink">ACT × aloha</span> cell lands at <span class="mono ink">0.764</span> once paper inference settings are loaded.
+      </figcaption>
+    </figure>
+
+    <figure class="figure-card">
+      <div class="figure-frame">
+        <img src="assets/forest_plot.svg" alt="Forest plot: per-cell success rate with Wilson 95% confidence intervals for every policy × environment combination in the v1 leaderboard." loading="lazy">
+      </div>
+      <figcaption>
+        <span class="cap-lab">Fig. 2 · Leaderboard forest plot</span>
+        Per-cell success rate with Wilson 95% intervals across the matrix (<span class="mono ink">N = 250</span> per cell). The spread of intervals is the story — agreements and disagreements published at the same volume.
+      </figcaption>
+    </figure>
+  </section>
+
   <!-- ============================ HEADLINE CARD ============================ -->
   <section class="block">
     <span class="eyebrow accent"><span class="dot"></span>probe · v1.0.2</span>

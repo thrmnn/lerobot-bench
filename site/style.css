@@ -242,6 +242,46 @@ section.block {
   gap: 20px;
 }
 
+/* ============================ RESULTS FIGURES ============================ */
+.figure-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.figure-frame {
+  /* The matplotlib web SVGs render a near-black (#1a1a1a) plot area on a
+     transparent outer patch; this inset surface keeps them legible and
+     consistent with the panel background. */
+  background: #1a1a1a;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+.figure-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.figure-card figcaption {
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--dim);
+}
+.figure-card .cap-lab {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
 /* ============================ HEADLINE CARD ============================ */
 .finding-card {
   background: var(--panel);

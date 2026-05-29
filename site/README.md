@@ -8,9 +8,9 @@ This is the *narrative* surface (recruiter/researcher reads the headline, clicks
 
 | Path | Purpose |
 | --- | --- |
-| `index.html` | Single landing page: hero, artifact buttons, methodology badges, headline-finding card, methodology snapshot, v1.0.1 audit caveats, footer. |
+| `index.html` | Single landing page: hero, artifact buttons, methodology badges, results figures, headline-finding card, methodology snapshot, v1.0.1 audit caveats, footer. |
 | `style.css` | Palette + typography mirror `paper/deck/index.html`. Responsive at <800px. |
-| `assets/` | Reserved for logos / OG image (populated separately by the visual-ID kit). |
+| `assets/*.svg` | Self-contained copies of the web-style figures (`replication_scatter`, `forest_plot`) from `paper/figures/web/`, so the page works when Pages serves `/site` as root. Re-copy after `scripts/render_figures.py --style web` if the source figures change. (The ACT probe comparison is rendered as a CSS chart in the headline card, so `act_probe_bar.svg` is not embedded.) |
 
 ## Preview locally
 
