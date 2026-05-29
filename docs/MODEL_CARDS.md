@@ -64,22 +64,27 @@ the locked SHAs that carry forward.
   same nominal task — a head-to-head against any other number requires
   matching the success heuristic and episode budget, which is exactly
   the comparability gap lerobot-bench exists to close.
-- **Paper vs. measured (v1.0.1 audit, PR #86)**: lerobot-bench v1
-  measures `act × aloha_transfer_cube` = **0.016** [0.005, 0.038] at
-  N=250 under the **Hub-default inference settings**: the pinned
+- **Paper vs. measured (v1.0.1 audit, PR #86; v1.0.2 probe PR #97 RESOLVED)**:
+  lerobot-bench v1 measures `act × aloha_transfer_cube` = **0.016**
+  [0.006, 0.040] (Wilson 95% CI, N=250) under the **Hub-default
+  inference settings**: the pinned
   `lerobot/act_aloha_sim_transfer_cube_human` `config.json` ships
   `temporal_ensemble_coeff=None` and `n_action_steps=100`, so the
   policy executes plain 100-step action chunks with no inter-chunk
-  smoothing. Zhao et al. 2023's Table I numbers (0.50 paper, 0.83 on
-  the Hub card's larger LeRobot-side re-eval) were produced with
-  **temporal ensembling enabled** (`coeff=0.01`, `n_action_steps=1` —
-  one action per step from an exponentially-smoothed mean over
-  overlapping chunk predictions). The 0.016 we measure is plausibly
-  an inference-config artefact rather than the architecture failing
-  on the task. A 1-seed × 50-episode probe at the paper settings is
-  queued for **v1.0.2** and was not complete at v1.0 ship; the
-  number stays in the leaderboard as "at Hub defaults" until the
-  probe lands. Full audit: [`docs/INFERENCE_AUDIT.md`](INFERENCE_AUDIT.md);
+  smoothing. Zhao et al. 2023's Table I uses `coeff=0.01,
+  n_action_steps=1` (one action per step from an exponentially-smoothed
+  mean over overlapping chunk predictions). The **v1.0.2 probe**
+  (`scripts/probes/probe_act_temporal_ensemble.py`, 5 seeds × 50 ep at
+  paper settings) measures **0.764** [0.708, 0.812] — Wilson 95% CIs
+  disjoint from the Hub-default reading by an order of magnitude.
+  Per-seed: 0.92 / 0.80 / 0.76 / 0.66 / 0.68. **Conclusion: the
+  Hub-default 0.016 is an inference-config artefact, not architecture
+  failure. The architecture clears the paper's 0.50 number by +26 pp
+  at correct settings.** The v1.0.0 leaderboard row stays as "at Hub
+  defaults" for audit-trail integrity; v1.0.2 framing leads with the
+  0.764 number and reports the 0.016 as the default-inference reading.
+  Full audit: [`docs/INFERENCE_AUDIT.md`](INFERENCE_AUDIT.md),
+  [`docs/PROBE_RESULTS_V1.0.1.md`](PROBE_RESULTS_V1.0.1.md);
   Aloha success-rule audit (the bench accepts reward ∈ {1..4} while the
   paper's Transfer subtask requires `reward == 4`): PR #89 / [`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md).
 - **Wiring caveat (PR #51)**: The legacy-checkpoint stats recovery in
@@ -216,14 +221,24 @@ the locked SHAs that carry forward.
     suite average"), the paper's is a suite-averaged claim. v1.1 will
     expand to all 10 tasks per suite and close the apples-to-apples
     question. Full audit: [`docs/CLAIM_AUDIT_SMOLVLA.md`](CLAIM_AUDIT_SMOLVLA.md).
-  - **Step caps (PR #89)**: canonical LIBERO uses `max_steps=600` for
-    every suite; v1 inherited lerobot's tighter caps
-    `{spatial=280, object=280, goal=300, libero_10=520}`. Cap-hit
-    rates on **failed** episodes are 22.4%, 47.2%, 7.2%, and **74.8%**
-    respectively, so all four numbers are **lower bounds at our caps**
-    and `libero_10` is the most sensitive. v1.1 reruns under PR #90's
-    selectable canonical criterion. Full audit:
-    [`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md).
+  - **Step caps (PR #89; v1.0.2 probe PR #108 RESOLVED for `libero_10`)**:
+    canonical LIBERO uses `max_steps=600` for every suite; v1 inherited
+    lerobot's tighter caps `{spatial=280, object=280, goal=300, libero_10=520}`.
+    Cap-hit rates on **failed** episodes are 22.4%, 47.2%, 7.2%, and
+    **74.8%** respectively. **The v1.0.2 probe re-ran `libero_10` at
+    canonical cap=600 and measured 0.256 [0.206, 0.314] vs. v1's 0.252
+    at cap=520 — Δ +0.4 pp, essentially zero. Cap-hits stayed at 74.4%
+    even at 600.** Verdict: the cap is binding at both budgets but
+    extending it doesn't recover successes. The 0.252 reading is
+    **policy-bottlenecked, not cap-bottlenecked** — the policy is
+    stuck-while-still-trying (drift-style failure mid-task), not
+    slow-but-eventually-correct. The earlier "lower bound at our cap"
+    framing was technically correct but the lower bound essentially
+    equals the value. The other three LIBERO suites (`spatial`,
+    `object`, `goal`) have far lower cap-hit rates and their numbers
+    remain provisional lower bounds pending re-runs at cap=600 in v1.1.
+    Full audit: [`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md);
+    probe: [`docs/PROBE_RESULTS_V1.0.1.md`](PROBE_RESULTS_V1.0.1.md).
 
   Both caveats compound on the `libero_10` headline cell.
   The within-protocol measurements are bit-reproducible and tight

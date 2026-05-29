@@ -337,8 +337,25 @@ def load_results_parquet(results_path: Path | None) -> pd.DataFrame | None:
             "serving last-good frame" if cached is not None else "no last-good frame",
         )
         return cached
+    df = filter_to_v1_policies(df)
     _RESULTS_CACHE.by_path[key] = df
     return df
+
+
+def filter_to_v1_policies(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows whose ``policy`` is not in :data:`V1_POLICIES`.
+
+    Applied to every parquet read in :func:`load_results_parquet` so
+    the dashboard's leaderboard surfaces (``build_live_leaderboard``,
+    ``run_anomaly_review``, the policy/env cards) never see xvla rows
+    even when the published parquet carries them. The progress table
+    is manifest-driven, so a v1.1 sweep that adds xvla cells would
+    still surface them there — this filter is the per-episode
+    leaderboard gate, not a manifest gate.
+    """
+    if df.empty or "policy" not in df.columns:
+        return df
+    return df[df["policy"].isin(V1_POLICIES)].reset_index(drop=True)
 
 
 def clear_results_cache() -> None:
@@ -1445,11 +1462,15 @@ def env_dashboard_logs_dir() -> Path:
 V1_POLICIES: tuple[str, ...] = (
     "act",
     "diffusion_policy",
+    "smolvla_libero",
     "no_op",
     "random",
-    "smolvla_libero",
-    "xvla_libero",
 )
+# xvla_libero is intentionally absent: deferred to v1.1 (PR #76 — two
+# patched + one unresolved Hub-JSON processor bugs). The published
+# parquet still carries xvla rows for reproducibility, but
+# :func:`load_results_parquet` drops them before any leaderboard
+# aggregate touches them.
 V1_ENVS: tuple[str, ...] = (
     "pusht",
     "aloha_transfer_cube",
