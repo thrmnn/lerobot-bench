@@ -352,11 +352,10 @@ def _coerce_canonical_overlay(raw: Any, *, source: str) -> CanonicalOverlay:
         raise ValueError(f"{source}: canonical has unknown fields: {sorted(extras)}")
 
     max_steps = raw.get("max_steps")
-    if max_steps is not None:
-        if not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps <= 0:
-            raise ValueError(
-                f"{source}: canonical.max_steps must be a positive int, got {max_steps!r}"
-            )
+    if max_steps is not None and (
+        not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps <= 0
+    ):
+        raise ValueError(f"{source}: canonical.max_steps must be a positive int, got {max_steps!r}")
 
     success_metric = raw.get("success_metric")
     if success_metric is not None and not isinstance(success_metric, str):

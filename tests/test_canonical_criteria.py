@@ -401,7 +401,7 @@ envs:
       max_steps: -1
 """
     )
-    with pytest.raises(ValueError, match="canonical.max_steps must be a positive int"):
+    with pytest.raises(ValueError, match=r"canonical\.max_steps must be a positive int"):
         EnvRegistry.from_yaml(yaml_path)
 
 
