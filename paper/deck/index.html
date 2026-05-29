@@ -1,0 +1,1817 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, initial-scale=1">
+<title>lerobot-bench v1 — does pretrained robot software actually work?</title>
+<meta name="description" content="A reproducible benchmark of 5 pretrained robot policies × 6 simulated environments. 5,250 episodes, 25 hours, every per-episode result open.">
+<link rel="icon" href="../../docs/assets/mark.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0d12;--ink:#f5f7fa;--dim:#c5ccd6;--mute:#7d8593;
+  --line:#1e242e;--line-2:#2a323e;--panel:#11161e;--panel-2:#161c26;
+  --accent:#7aa3ff;--accent-soft:#5b8def;
+  --ok:#34d399;--warm:#fbbf24;--fail:#f87171;--defer:#a78bfa;
+  --sans:'Instrument Sans','Helvetica Neue',Arial,sans-serif;
+  --serif:'Instrument Serif','Cambria',Georgia,serif;
+  --mono:'JetBrains Mono','SFMono-Regular',Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+html,body{background:#000;color:var(--ink);font-family:var(--sans);overflow:hidden;height:100%;font-weight:400;}
+body{display:flex;align-items:center;justify-content:center;}
+
+/* ============================ OVERVIEW ============================ */
+#overview{position:fixed;inset:0;background:var(--bg);overflow:auto;z-index:1000;padding:48px 64px 96px;display:flex;flex-direction:column;gap:40px;}
+#overview.hidden{display:none;}
+.ov-head{display:flex;align-items:flex-end;justify-content:space-between;gap:48px;flex-wrap:wrap;}
+.ov-head .left{display:flex;flex-direction:column;gap:14px;max-width:980px;}
+.ov-eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--mute);display:flex;align-items:center;gap:12px;}
+.ov-eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent);}
+.ov-h1{font-family:var(--serif);font-style:italic;font-weight:400;font-size:72px;line-height:1.0;letter-spacing:-1.5px;color:var(--ink);}
+.ov-h1 .em{font-style:normal;color:var(--accent);}
+.ov-sub{font-size:17px;color:var(--dim);line-height:1.6;max-width:820px;}
+.ov-sub kbd{font-family:var(--mono);font-size:12px;padding:2px 7px;border-radius:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);box-shadow:inset 0 -2px 0 var(--line);}
+.ov-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+.ov-actions .btn{font-family:var(--sans);font-weight:500;font-size:14px;padding:13px 20px;border-radius:10px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:10px;transition:all .15s ease;text-decoration:none;}
+.ov-actions .btn:hover{border-color:var(--accent);background:var(--panel-2);}
+.ov-actions .btn.primary{background:var(--accent);border-color:var(--accent);color:#0a0d12;font-weight:600;}
+.ov-actions .btn.primary:hover{background:#a3c0ff;border-color:#a3c0ff;}
+.ov-actions .btn svg{width:14px;height:14px;}
+.ov-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:28px 0;}
+.ov-meta .cell{padding:0 32px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:6px;}
+.ov-meta .cell:first-child{border-left:0;padding-left:0;}
+.ov-meta .k{font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--mute);}
+.ov-meta .v{font-family:var(--mono);font-size:32px;font-weight:600;color:var(--ink);font-feature-settings:"tnum";letter-spacing:-1px;}
+.ov-meta .v .unit{font-size:16px;color:var(--mute);font-weight:400;margin-left:6px;letter-spacing:0;}
+.ov-section{display:flex;align-items:center;gap:18px;font-family:var(--mono);font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--mute);}
+.ov-section::before,.ov-section::after{content:"";flex:1;height:1px;background:var(--line);}
+.ov-section .opt{color:var(--accent);}
+.ov-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:24px;align-content:start;}
+@media (max-width:1500px){.ov-grid{grid-template-columns:repeat(4,minmax(0,1fr));}}
+@media (max-width:1180px){.ov-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
+@media (max-width: 820px){.ov-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.ov-cell{position:relative;aspect-ratio:16/9;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg);cursor:pointer;padding:0;transition:transform .25s cubic-bezier(.16,1,.3,1),border-color .2s ease,box-shadow .25s ease;display:block;font-family:var(--sans);text-align:left;color:inherit;}
+.ov-cell:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 12px 32px rgba(122,163,255,.16);}
+.ov-cell:focus-visible{outline:2px solid var(--accent);outline-offset:3px;}
+.ov-cell.context{border-style:dashed;}
+.ov-cell.rigor{border-color:rgba(251,191,36,.45);}
+.ov-frame{position:absolute;inset:0;overflow:hidden;background:var(--bg);}
+.ov-inner{width:1920px;height:1080px;transform-origin:top left;pointer-events:none;will-change:transform;}
+.ov-tag{position:absolute;top:10px;left:12px;z-index:2;font-family:var(--mono);font-size:11px;letter-spacing:1.5px;color:var(--ink);background:rgba(10,13,18,.78);backdrop-filter:blur(6px);padding:3px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.08);}
+.ov-cell.context .ov-tag{color:var(--accent);border-color:rgba(122,163,255,.4);}
+.ov-cell.rigor .ov-tag{color:var(--warm);border-color:rgba(251,191,36,.4);}
+.ov-cap{position:absolute;bottom:0;left:0;right:0;z-index:2;font-family:var(--sans);font-size:12px;color:var(--ink);background:linear-gradient(180deg,transparent,rgba(10,13,18,.92) 50%);padding:24px 12px 10px;line-height:1.35;letter-spacing:.1px;font-weight:500;}
+
+/* ============================ STAGE ============================ */
+#stage{position:relative;width:1920px;height:1080px;transform-origin:center center;background:var(--bg);overflow:hidden;}
+.slide{position:absolute;inset:0;padding:96px 128px 112px;display:none;flex-direction:column;animation:fadeIn .4s cubic-bezier(.16,1,.3,1);}
+.slide.active{display:flex;}
+.slide.center{justify-content:center;}
+.slide.dark{background:#000;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+
+/* chrome */
+.chrome{position:absolute;top:44px;left:64px;right:64px;display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--mute);letter-spacing:2px;text-transform:uppercase;z-index:5;}
+.chrome .brand{display:flex;align-items:center;gap:10px;color:var(--dim);}
+.chrome .brand svg{width:20px;height:20px;}
+.chrome .num{font-family:var(--mono);font-size:12px;color:var(--mute);letter-spacing:2px;font-feature-settings:"tnum";}
+.chrome .num .of{color:var(--line-2);margin:0 6px;}
+.chrome.context .brand{color:var(--accent);}
+.chrome.rigor .brand{color:var(--warm);}
+
+/* type */
+.eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:4px;text-transform:uppercase;color:var(--mute);}
+.eyebrow.accent{color:var(--accent);}
+.eyebrow.warm{color:var(--warm);}
+.h-mega{font-family:var(--serif);font-weight:400;font-style:italic;font-size:172px;line-height:.98;letter-spacing:-3px;color:var(--ink);}
+.h-mega .em{font-style:normal;color:var(--accent);}
+.h-1{font-family:var(--sans);font-weight:600;font-size:96px;line-height:1.03;letter-spacing:-2.5px;color:var(--ink);}
+.h-2{font-family:var(--sans);font-weight:600;font-size:68px;line-height:1.08;letter-spacing:-1.5px;color:var(--ink);}
+.h-3{font-family:var(--sans);font-weight:600;font-size:44px;line-height:1.15;letter-spacing:-.8px;color:var(--ink);}
+.body{font-family:var(--sans);font-weight:400;font-size:24px;line-height:1.5;color:var(--dim);max-width:1200px;}
+.body-lg{font-family:var(--sans);font-weight:400;font-size:32px;line-height:1.4;color:var(--dim);max-width:1500px;}
+.accent{color:var(--accent);}
+.warm{color:var(--warm);}
+.ink{color:var(--ink);font-weight:500;}
+em{color:var(--ink);font-style:normal;font-weight:500;}
+.mono{font-family:var(--mono);font-feature-settings:"tnum";}
+.serif-it{font-family:var(--serif);font-style:italic;font-weight:400;}
+
+.stat-mega{font-family:var(--mono);font-size:240px;font-weight:600;line-height:.92;letter-spacing:-8px;font-feature-settings:"tnum";color:var(--ink);}
+.stat-mega.fail{color:var(--fail);}
+.stat-mega.ok{color:var(--ok);}
+
+/* paired */
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:48px;flex:1;align-items:center;margin-top:28px;min-height:0;}
+.pair .card{display:flex;flex-direction:column;align-items:center;gap:14px;min-width:0;}
+.pair .card .vid-wrap,.pair .card .img-wrap{width:100%;max-width:440px;aspect-ratio:1;border-radius:14px;border:1px solid var(--line-2);background:#000;overflow:hidden;display:flex;}
+.pair .card .vid-wrap.light,.pair .card .img-wrap.light{background:#fff;}
+.pair .card video,.pair .card img{width:100%;height:100%;object-fit:cover;image-rendering:pixelated;image-rendering:-moz-crisp-edges;}
+.pair .card .verdict{font-family:var(--mono);font-size:17px;letter-spacing:2.5px;text-transform:uppercase;color:var(--mute);}
+.pair .card .verdict.ok{color:var(--ok);}
+.pair .card .verdict.fail{color:var(--fail);}
+.pair .card .meta{font-family:var(--mono);font-size:12px;color:var(--mute);letter-spacing:1.5px;text-align:center;}
+.pair .card .stat{font-family:var(--mono);font-size:64px;font-weight:600;line-height:1;font-feature-settings:"tnum";letter-spacing:-1.5px;}
+.pair .card .stat.ok{color:var(--ok);}
+.pair .card .stat.fail{color:var(--fail);}
+
+/* matrix */
+.matrix-wrap{display:flex;flex:1;align-items:flex-start;gap:56px;margin-top:20px;min-height:0;}
+.matrix{display:grid;grid-template-columns:230px repeat(6,80px);gap:7px;align-items:center;}
+.matrix .row-label{font-family:var(--mono);font-size:14px;color:var(--dim);text-align:right;padding-right:10px;}
+.matrix .col-label{font-family:var(--mono);font-size:11px;color:var(--mute);letter-spacing:1px;writing-mode:vertical-rl;transform:rotate(180deg);text-align:left;height:120px;}
+.matrix .c{height:74px;border-radius:6px;background:var(--line);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:16px;font-weight:600;color:var(--bg);font-feature-settings:"tnum";}
+.matrix .c.on{background:var(--accent);color:#0a0d12;}
+.matrix .c.def{background:var(--defer);color:#0a0d12;font-size:10px;letter-spacing:1.5px;}
+.matrix .c.ok{background:var(--ok);color:#0a0d12;}
+.matrix .c.warm{background:var(--warm);color:#0a0d12;}
+.matrix .c.fail{background:var(--fail);color:#fff;}
+.matrix-key{display:flex;flex-direction:column;gap:9px;font-family:var(--mono);font-size:11px;color:var(--mute);letter-spacing:1.5px;text-transform:uppercase;}
+.matrix-key .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:8px;}
+
+/* policy-as-function flow */
+.flow{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:36px;flex:1;min-height:0;}
+.flow .step{display:flex;flex-direction:column;align-items:center;gap:14px;flex:0 0 240px;}
+.flow .step .box{width:240px;height:180px;border:1px solid var(--line-2);border-radius:16px;background:var(--panel);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;}
+.flow .step .box svg{width:110px;height:110px;}
+.flow .step .lbl{font-family:var(--mono);font-size:13px;color:var(--mute);letter-spacing:2px;text-transform:uppercase;}
+.flow .step .sub{font-family:var(--mono);font-size:11px;color:var(--mute);letter-spacing:1.5px;}
+.flow .arrow{font-family:var(--mono);font-size:32px;color:var(--accent);font-weight:300;}
+
+/* code */
+pre.code{font-family:var(--mono);font-size:20px;line-height:1.6;color:var(--dim);background:var(--panel);border:1px solid var(--line-2);border-radius:14px;padding:32px 40px;margin-top:24px;}
+pre.code .k{color:var(--accent);}
+pre.code .s{color:var(--ok);}
+pre.code .c{color:var(--mute);font-style:italic;}
+pre.code .v{color:var(--ink);}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:36px;flex:1;align-content:start;min-height:0;}
+.tile{background:var(--panel);border:1px solid var(--line-2);border-radius:16px;padding:30px 24px;display:flex;flex-direction:column;gap:14px;min-height:300px;transition:border-color .2s ease,transform .2s ease;}
+.tile:hover{border-color:var(--accent);transform:translateY(-2px);}
+.tile .icon{width:44px;height:44px;border-radius:12px;background:rgba(122,163,255,.12);border:1px solid rgba(122,163,255,.32);display:flex;align-items:center;justify-content:center;}
+.tile .icon svg{width:22px;height:22px;color:var(--accent);}
+.tile .name{font-family:var(--sans);font-size:21px;font-weight:600;color:var(--ink);line-height:1.2;}
+.tile .desc{font-family:var(--sans);font-size:15px;color:var(--dim);line-height:1.55;}
+.tile .url{font-family:var(--mono);font-size:13px;color:var(--accent);word-break:break-all;margin-top:auto;letter-spacing:.2px;}
+
+/* foot */
+.foot{position:absolute;bottom:48px;left:128px;right:128px;display:flex;justify-content:space-between;align-items:baseline;gap:24px;font-family:var(--mono);font-size:12px;color:var(--mute);letter-spacing:1px;padding-top:14px;border-top:1px solid var(--line);text-transform:uppercase;}
+.foot .src{color:var(--mute);text-align:right;}
+
+/* three-card */
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:36px;flex:1;align-content:start;min-height:0;}
+.three .item{display:flex;flex-direction:column;gap:12px;padding:28px 24px;background:var(--panel);border:1px solid var(--line);border-radius:14px;}
+.three .item .n{font-family:var(--mono);font-size:12px;letter-spacing:3px;color:var(--accent);}
+.three .item h4{font-family:var(--sans);font-size:26px;font-weight:600;color:var(--ink);line-height:1.18;letter-spacing:-.4px;}
+.three .item p{font-family:var(--sans);font-size:16px;color:var(--dim);line-height:1.55;}
+
+/* delta-table */
+.delta-table{margin-top:24px;width:100%;border-collapse:collapse;}
+.delta-table th{font-family:var(--mono);font-size:12px;color:var(--mute);letter-spacing:2px;text-transform:uppercase;text-align:left;padding:12px 18px;border-bottom:1px solid var(--line);font-weight:400;}
+.delta-table th:last-child{text-align:right;}
+.delta-table td{font-family:var(--mono);font-size:26px;color:var(--ink);padding:14px 18px;border-bottom:1px solid var(--line);font-feature-settings:"tnum";}
+.delta-table td.policy{font-family:var(--mono);font-size:19px;color:var(--dim);}
+.delta-table td.paper{color:var(--mute);}
+.delta-table td.measured{font-weight:600;}
+.delta-table td.measured.bad{color:var(--fail);}
+.delta-table td.measured.warn{color:var(--warm);}
+.delta-table td.measured.ok{color:var(--ok);}
+.delta-table td.delta{font-family:var(--mono);font-size:19px;text-align:right;color:var(--mute);}
+.delta-table tr:last-child td{border:0;}
+
+/* controls */
+#controls{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:4px;align-items:center;background:rgba(10,13,18,.92);border:1px solid var(--line-2);border-radius:999px;padding:6px 10px;font-family:var(--mono);font-size:12px;color:var(--mute);z-index:100;backdrop-filter:blur(10px);}
+#controls.hidden{display:none;}
+#controls button{background:transparent;border:0;color:var(--mute);cursor:pointer;font-family:var(--mono);font-size:12px;padding:6px 10px;border-radius:999px;display:inline-flex;align-items:center;gap:6px;line-height:1;}
+#controls button:hover{color:var(--ink);background:rgba(255,255,255,.05);}
+#controls button.on{color:var(--accent);}
+#controls .counter{color:var(--ink);padding:0 12px;font-feature-settings:"tnum";letter-spacing:1px;min-width:64px;text-align:center;}
+#controls .sep{color:var(--line-2);}
+#progress{position:fixed;top:0;left:0;height:2px;background:var(--accent);width:0%;transition:width .3s ease;z-index:101;}
+#progress.hidden{display:none;}
+
+/* fig embed */
+.fig-embed{display:flex;flex:1;align-items:center;justify-content:center;margin-top:20px;background:#fafafa;border-radius:14px;padding:20px;overflow:hidden;min-height:0;}
+.fig-embed img{max-width:100%;max-height:100%;object-fit:contain;}
+.hero-single{flex:1;display:flex;align-items:center;justify-content:center;margin-top:20px;min-height:0;}
+.hero-single img,.hero-single video{max-height:100%;max-width:100%;object-fit:contain;border-radius:14px;border:1px solid var(--line-2);image-rendering:pixelated;image-rendering:-moz-crisp-edges;}
+
+/* terminal */
+.term{background:#000;border:1px solid var(--line-2);border-radius:14px;font-family:var(--mono);font-size:20px;color:var(--ink);padding:28px 36px;margin-top:24px;}
+.term .prompt{color:var(--accent);}
+.term .comment{color:var(--mute);}
+.term .ok{color:var(--ok);}
+.term .line{margin:5px 0;line-height:1.5;}
+
+/* split */
+.split{display:grid;grid-template-columns:440px 1fr;gap:48px;flex:1;align-items:center;margin-top:24px;min-height:0;}
+.split.wide{grid-template-columns:480px 1fr;}
+.split .imcard{display:flex;flex-direction:column;align-items:center;gap:12px;min-width:0;}
+.split .imcard .vid-wrap,.split .imcard .img-wrap{width:100%;aspect-ratio:1;border-radius:14px;border:1px solid var(--line-2);background:#000;overflow:hidden;display:flex;}
+.split .imcard .vid-wrap.light,.split .imcard .img-wrap.light{background:#fff;}
+.split .imcard video,.split .imcard img{width:100%;height:100%;object-fit:cover;image-rendering:pixelated;image-rendering:-moz-crisp-edges;}
+.split .imcard .meta{font-family:var(--mono);font-size:12px;color:var(--mute);letter-spacing:1.5px;text-align:center;}
+.split .body-block{display:flex;flex-direction:column;gap:18px;min-width:0;}
+.split .bug{display:flex;flex-direction:column;gap:4px;}
+.split .bug .lab{font-family:var(--mono);font-size:11px;letter-spacing:2.5px;text-transform:uppercase;}
+.split .bug .lab.ok{color:var(--ok);}
+.split .bug .lab.fail{color:var(--fail);}
+.split .bug p{font-family:var(--sans);font-size:18px;color:var(--dim);line-height:1.5;}
+
+/* cold open atmospheric */
+.cold-bg{position:absolute;inset:0;display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(3,1fr);opacity:.09;pointer-events:none;z-index:0;}
+.cold-bg img,.cold-bg video{width:100%;height:100%;object-fit:cover;image-rendering:pixelated;image-rendering:-moz-crisp-edges;filter:grayscale(.7) contrast(1.05);}
+.cold-content{position:relative;z-index:1;}
+
+.title-block{display:flex;flex-direction:column;gap:14px;flex:0 0 auto;}
+.title-block .eyebrow{margin-bottom:4px;}
+
+/* ======================= CONTEXT POLICY/ENV CARDS ======================= */
+.cards-grid{display:grid;gap:18px;flex:1;align-content:start;min-height:0;}
+.cards-grid.cols-2{grid-template-columns:repeat(2,1fr);}
+.cards-grid.cols-3{grid-template-columns:repeat(3,1fr);}
+
+/* policy-card (richer than card-x): top-row svg + body + footer specs */
+.pcard{
+  display:flex;flex-direction:column;gap:12px;
+  padding:24px 22px;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  min-height:0;
+}
+.pcard .pcard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+.pcard .pcard-top .label{display:flex;flex-direction:column;gap:4px;}
+.pcard .name{font-family:var(--mono);font-size:21px;color:var(--ink);font-weight:600;letter-spacing:-.2px;}
+.pcard .sub{font-family:var(--mono);font-size:11px;color:var(--mute);letter-spacing:1.5px;text-transform:uppercase;}
+.pcard .tag{font-family:var(--mono);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding:3px 7px;border-radius:4px;background:rgba(122,163,255,.12);color:var(--accent);border:1px solid rgba(122,163,255,.3);white-space:nowrap;}
+.pcard .tag.def{background:rgba(167,139,250,.12);color:var(--defer);border-color:rgba(167,139,250,.3);}
+.pcard .tag.base{background:rgba(125,133,147,.12);color:var(--mute);border-color:rgba(125,133,147,.3);}
+.pcard .arch{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  background:var(--bg);border:1px solid var(--line);border-radius:10px;
+  padding:10px 14px;height:96px;
+}
+.pcard .arch svg{height:100%;width:auto;max-width:100%;}
+.pcard p{font-family:var(--sans);font-size:15px;color:var(--dim);line-height:1.5;}
+.pcard p .ink{color:var(--ink);font-weight:500;}
+.pcard .specs{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;}
+.pcard .specs span{font-family:var(--mono);font-size:10px;color:var(--mute);letter-spacing:1px;padding:3px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--line);}
+.pcard .specs span.hi{color:var(--accent);border-color:rgba(122,163,255,.3);}
+
+/* baseline card — simpler, no arch diagram */
+.bcard{
+  display:flex;gap:24px;align-items:center;
+  padding:32px 28px;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+}
+.bcard .icon{
+  flex:0 0 110px;height:110px;border-radius:14px;background:var(--bg);
+  display:flex;align-items:center;justify-content:center;border:1px solid var(--line);
+}
+.bcard .icon svg{width:64px;height:64px;color:var(--mute);}
+.bcard .right{display:flex;flex-direction:column;gap:8px;min-width:0;}
+.bcard .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+.bcard .name{font-family:var(--mono);font-size:24px;color:var(--ink);font-weight:600;}
+.bcard .tag{font-family:var(--mono);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:rgba(125,133,147,.15);color:var(--mute);border:1px solid rgba(125,133,147,.3);}
+.bcard p{font-family:var(--sans);font-size:18px;color:var(--dim);line-height:1.5;max-width:760px;}
+.bcard .why{font-family:var(--mono);font-size:13px;color:var(--accent);letter-spacing:.3px;}
+
+/* env card — video + below text */
+.ecard{
+  display:flex;flex-direction:column;gap:10px;
+  padding:18px 18px;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  min-height:0;
+}
+.ecard .vid-thumb{width:100%;aspect-ratio:1;border-radius:10px;border:1px solid var(--line-2);background:#000;overflow:hidden;display:flex;}
+.ecard .vid-thumb.light{background:#fff;}
+.ecard .vid-thumb video,.ecard .vid-thumb img{width:100%;height:100%;object-fit:cover;image-rendering:pixelated;image-rendering:-moz-crisp-edges;}
+.ecard .head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
+.ecard .name{font-family:var(--mono);font-size:18px;color:var(--ink);font-weight:600;letter-spacing:-.2px;}
+.ecard .meta{font-family:var(--mono);font-size:10px;color:var(--mute);letter-spacing:1.5px;text-transform:uppercase;}
+.ecard p{font-family:var(--sans);font-size:14px;color:var(--dim);line-height:1.5;}
+.ecard p .ink{color:var(--ink);font-weight:500;}
+
+/* methodology audit list */
+.audit-list{display:flex;flex-direction:column;gap:10px;flex:1;align-content:start;min-height:0;overflow:hidden;}
+.audit{
+  display:flex;gap:14px;align-items:flex-start;
+  padding:14px 18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+}
+.audit .glyph{
+  flex:0 0 28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:15px;font-weight:600;margin-top:2px;
+}
+.audit.ok .glyph{background:rgba(52,211,153,.15);color:var(--ok);border:1px solid rgba(52,211,153,.3);}
+.audit.warn .glyph{background:rgba(251,191,36,.15);color:var(--warm);border:1px solid rgba(251,191,36,.3);}
+.audit .body-block{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}
+.audit .lab{font-family:var(--mono);font-size:10px;letter-spacing:1.8px;text-transform:uppercase;color:var(--mute);}
+.audit h5{font-family:var(--sans);font-size:16px;color:var(--ink);font-weight:600;line-height:1.22;}
+.audit p{font-family:var(--sans);font-size:13px;color:var(--dim);line-height:1.45;}
+
+/* scatter */
+.scatter-wrap{display:flex;flex:1;align-items:center;justify-content:center;margin-top:20px;min-height:0;}
+
+/* ============ tradeoff comparison table (slide C3) ============ */
+.tradeoff-table{
+  margin-top:20px;width:100%;border-collapse:separate;border-spacing:0;
+  font-family:var(--mono);flex:1;min-height:0;
+  table-layout:fixed;
+}
+.tradeoff-table thead th{
+  font-weight:400;letter-spacing:1.5px;text-transform:uppercase;color:var(--mute);
+  padding:14px 14px;border-bottom:1px solid var(--line-2);text-align:left;font-size:11px;
+  vertical-align:bottom;
+}
+.tradeoff-table thead th.dim-h{width:160px;}
+.tradeoff-table thead th.policy-h{
+  color:var(--ink);font-family:var(--mono);font-weight:600;font-size:15px;letter-spacing:-.2px;
+  text-transform:none;
+}
+.tradeoff-table thead th.policy-h .y{color:var(--mute);font-weight:400;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;display:block;margin-top:4px;}
+.tradeoff-table thead th.policy-h.def{color:var(--defer);}
+.tradeoff-table tbody td{
+  padding:14px 14px;border-bottom:1px solid var(--line);
+  font-size:15px;color:var(--ink);font-family:var(--mono);vertical-align:top;
+}
+.tradeoff-table tbody td.dim{
+  color:var(--mute);font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  font-family:var(--mono);padding-top:18px;
+}
+.tradeoff-table tbody td .num{font-family:var(--mono);font-feature-settings:"tnum";}
+.tradeoff-table tbody td .lo{color:var(--mute);font-size:13px;display:block;margin-top:2px;}
+.tradeoff-table tbody td.v-ok{color:var(--ok);}
+.tradeoff-table tbody td.v-warm{color:var(--warm);}
+.tradeoff-table tbody td.v-fail{color:var(--fail);}
+.tradeoff-table tbody td.v-def{color:var(--defer);font-style:italic;}
+.tradeoff-table tbody td.v-mute{color:var(--mute);font-style:italic;}
+.tradeoff-table tbody tr:last-child td{border:0;}
+
+/* cost bars in the tradeoff table */
+.cost-bar{display:inline-flex;gap:3px;vertical-align:middle;margin-right:8px;}
+.cost-bar i{width:8px;height:14px;border-radius:1px;background:var(--line-2);}
+.cost-bar i.on{background:var(--accent);}
+</style>
+</head>
+<body>
+
+<!--
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║  REUSABLE POLICY-DIAGRAM PRIMITIVES                                       ║
+  ║  See docs/POLICY_DIAGRAM_GUIDE.md for how to add a new policy.            ║
+  ║  Each symbol below has its own viewBox; use it via <use href="#prim-X"   ║
+  ║  x=… y=… width=… height=…/>.                                              ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+-->
+<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+  <defs>
+    <marker id="pa" viewBox="0 0 8 8" refX="5" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0L8 4L0 8z" fill="#7aa3ff"/>
+    </marker>
+
+    <!-- camera (single eye) — input modality: vision -->
+    <symbol id="prim-camera" viewBox="0 0 50 50">
+      <g stroke="#c5ccd6" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="10" width="44" height="32" rx="4"/>
+        <path d="M16 10l3-5h12l3 5"/>
+        <circle cx="25" cy="26" r="7"/>
+        <circle cx="25" cy="26" r="3.5" fill="#7aa3ff" stroke="none"/>
+      </g>
+    </symbol>
+
+    <!-- camera stack (3 stacked frames) — vision with temporal window -->
+    <symbol id="prim-camera-stack" viewBox="0 0 50 50">
+      <g stroke="#c5ccd6" stroke-width="1.4" fill="#11161e">
+        <rect x="14" y="14" width="32" height="32" rx="3"/>
+        <rect x="10" y="10" width="32" height="32" rx="3"/>
+        <rect x="6"  y="6"  width="32" height="32" rx="3"/>
+      </g>
+      <circle cx="22" cy="22" r="4" fill="#7aa3ff" stroke="none"/>
+    </symbol>
+
+    <!-- language bubble — modality: NL goal -->
+    <symbol id="prim-language" viewBox="0 0 100 24">
+      <rect x="0" y="0" width="100" height="24" rx="6" fill="#11161e" stroke="#fbbf24" stroke-width="1.2"/>
+      <text x="50" y="16" text-anchor="middle" font-family="Instrument Serif" font-size="11" fill="#fbbf24" font-style="italic">"task instruction"</text>
+    </symbol>
+
+    <!-- generic transformer block (encoder + decoder) -->
+    <symbol id="prim-transformer" viewBox="0 0 120 60">
+      <rect x="0" y="0" width="120" height="60" rx="9" fill="#11161e" stroke="#7aa3ff" stroke-width="1.4"/>
+      <text x="60" y="26" text-anchor="middle" font-family="Instrument Sans" font-size="13" font-weight="600" fill="#f5f7fa">transformer</text>
+      <text x="60" y="44" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#c5ccd6">enc + dec</text>
+    </symbol>
+
+    <!-- VLA block (ViT + LM + action head) -->
+    <symbol id="prim-vit-lm" viewBox="0 0 160 70">
+      <rect x="0" y="0" width="160" height="70" rx="10" fill="#11161e" stroke="#7aa3ff" stroke-width="1.4"/>
+      <text x="80" y="30" text-anchor="middle" font-family="Instrument Sans" font-size="14" font-weight="600" fill="#f5f7fa">VLA</text>
+      <text x="80" y="50" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#7d8593">ViT + LM + action head</text>
+    </symbol>
+
+    <!-- VLA block — large variant (use for XVLA, pi-family) -->
+    <symbol id="prim-vit-lm-lg" viewBox="0 0 180 80">
+      <rect x="0" y="0" width="180" height="80" rx="12" fill="#11161e" stroke="#a78bfa" stroke-width="1.6"/>
+      <text x="90" y="34" text-anchor="middle" font-family="Instrument Sans" font-size="16" font-weight="700" fill="#f5f7fa">VLA-XL</text>
+      <text x="90" y="54" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#a78bfa">larger backbone</text>
+      <text x="90" y="70" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#7d8593">action head w/ chunked layout</text>
+    </symbol>
+
+    <!-- diffusion conditional U-Net with denoise loop -->
+    <symbol id="prim-diffusion" viewBox="0 0 110 64">
+      <rect x="0" y="0" width="110" height="64" rx="9" fill="#11161e" stroke="#7aa3ff" stroke-width="1.4"/>
+      <text x="55" y="24" text-anchor="middle" font-family="Instrument Sans" font-size="12" font-weight="600" fill="#f5f7fa">cond. U-Net</text>
+      <text x="55" y="40" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#7d8593">denoise · T steps</text>
+      <path d="M12 52 Q55 64 98 52" stroke="#fbbf24" stroke-width="1.4" fill="none" marker-end="url(#pa)"/>
+    </symbol>
+
+    <!-- action chunk output -->
+    <symbol id="prim-action-chunk" viewBox="0 0 70 36">
+      <g font-family="JetBrains Mono" font-size="13" fill="#7aa3ff">
+        <text x="2" y="16">a₁</text>
+        <text x="20" y="16">a₂</text>
+        <text x="38" y="16">…</text>
+        <text x="52" y="16">aₖ</text>
+      </g>
+      <text x="35" y="32" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#7d8593">chunk</text>
+    </symbol>
+
+    <!-- action trajectory output -->
+    <symbol id="prim-action-traj" viewBox="0 0 50 36">
+      <text x="25" y="16" text-anchor="middle" font-family="JetBrains Mono" font-size="13" fill="#7aa3ff">a₁..ₖ</text>
+      <text x="25" y="32" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#7d8593">trajectory</text>
+    </symbol>
+
+    <!-- proprioception input (joint angles) -->
+    <symbol id="prim-proprio" viewBox="0 0 60 30">
+      <g stroke="#c5ccd6" stroke-width="1.4" fill="none" stroke-linecap="round">
+        <rect x="2" y="12" width="20" height="6" rx="2"/>
+        <line x1="26" y1="15" x2="58" y2="15" stroke-dasharray="3 3"/>
+      </g>
+      <text x="30" y="28" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#7d8593">proprio</text>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- ============================================================== -->
+<!-- OVERVIEW -->
+<!-- ============================================================== -->
+<div id="overview">
+  <header class="ov-head">
+    <div class="left">
+      <div class="ov-eyebrow"><span class="dot"></span>lerobot-bench · v1.0.0 · 2026</div>
+      <h1 class="ov-h1">Does pretrained robot software <span class="em">actually</span> work?</h1>
+      <div class="ov-sub">
+        A reproducible benchmark of 5 pretrained robot policies × 6 simulated environments.
+        5,250 episodes. 25 hours. Every per-episode result open.<br>
+        Click any thumbnail · <kbd>O</kbd> overview · <kbd>←</kbd> <kbd>→</kbd> navigate · <kbd>P</kbd> autoplay · <kbd>F</kbd> fullscreen · <kbd>Esc</kbd> back to overview.
+      </div>
+    </div>
+    <div class="ov-actions">
+      <button class="btn primary" id="enterMainBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+        start with the question
+      </button>
+      <button class="btn" id="enterContextBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+        include context (5 slides)
+      </button>
+      <a class="btn" href="https://github.com/thrmnn/lerobot-bench" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        repo
+      </a>
+    </div>
+  </header>
+
+  <div class="ov-meta">
+    <div class="cell"><span class="k">policies</span><span class="v">5</span></div>
+    <div class="cell"><span class="k">environments</span><span class="v">6</span></div>
+    <div class="cell"><span class="k">episodes</span><span class="v">5,250</span></div>
+    <div class="cell"><span class="k">failures</span><span class="v">0<span class="unit">/ 25 h</span></span></div>
+  </div>
+
+  <div class="ov-section"><span><span class="opt">prelude</span> — context (skip if you know the field)</span></div>
+  <div class="ov-grid" id="ovContextGrid"></div>
+
+  <div class="ov-section"><span>the talk</span></div>
+  <div class="ov-grid" id="ovMainGrid"></div>
+
+  <div class="ov-section"><span>supplementary — technical depth + outro</span></div>
+  <div class="ov-grid" id="ovOutroGrid"></div>
+</div>
+
+<!-- ============================================================== -->
+<!-- STAGE -->
+<!-- ============================================================== -->
+<div id="progress" class="hidden"></div>
+<div id="stage">
+
+<!-- ===================================================================== -->
+<!-- C1 — PRELUDE COVER -->
+<!-- ===================================================================== -->
+<section class="slide active center" data-section="context" data-cap="Prelude · skippable for those already familiar with the field.">
+  <div class="chrome context">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · prelude</div>
+    <div class="num">C1<span class="of">/</span>C5</div>
+  </div>
+  <div style="max-width:1500px;">
+    <div class="eyebrow accent" style="margin-bottom:24px;">context · skip if you know the field</div>
+    <h1 class="h-1" style="font-size:76px;margin-bottom:32px;">Five slides of setup<br>before we start.</h1>
+    <div class="body-lg" style="margin-bottom:48px;font-size:26px;">
+      We meet the <span class="ink">4 learned policies</span> in scope, look at their <span class="ink">tradeoffs side-by-side</span>, then cover the <span class="ink">2 baselines</span> that anchor every comparison and the <span class="ink">6 simulated environments</span> they run on.<br>
+      <span style="color:var(--mute);">If you already work on robot learning, jump straight to the question.</span>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;">
+      <button onclick="goto('main')" style="border:0;background:var(--accent);color:#0a0d12;padding:14px 22px;border-radius:10px;font-family:var(--sans);font-weight:600;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;gap:10px;">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+        skip to the question →
+      </button>
+      <button onclick="show(cur+1)" style="border:1px solid var(--line-2);background:var(--panel);color:var(--ink);padding:14px 22px;border-radius:10px;font-family:var(--sans);font-weight:500;font-size:15px;cursor:pointer;">
+        continue with context
+      </button>
+    </div>
+  </div>
+  <div class="foot"><span>5 prelude slides → 22 talk slides → 2 supplementary</span><span class="src">press space or → to advance</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- C2 — THE 4 LEARNED POLICIES -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="context" data-cap="The 4 learned policies — what they are, how they work, what they were trained on.">
+  <div class="chrome context">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · prelude</div>
+    <div class="num">C2<span class="of">/</span>C5</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow accent">the learned policies (4)</span>
+    <h2 class="h-2" style="font-size:52px;">Four pretrained models. Different ideas, same job.</h2>
+  </div>
+
+  <div class="cards-grid cols-2" style="grid-template-rows:repeat(2,1fr);gap:14px;margin-top:18px;">
+
+    <!-- ACT -->
+    <div class="pcard">
+      <div class="pcard-top">
+        <div class="label">
+          <span class="name">act</span>
+          <span class="sub">action chunking transformer · zhao et al. 2023</span>
+        </div>
+        <span class="tag">imitation</span>
+      </div>
+      <div class="arch">
+        <svg viewBox="0 0 320 90" xmlns="http://www.w3.org/2000/svg">
+          <g font-family="JetBrains Mono" font-size="10" fill="#7d8593">
+            <!-- cameras -->
+            <g stroke="#c5ccd6" stroke-width="1.4" fill="none">
+              <rect x="6" y="14" width="38" height="26" rx="4"/><circle cx="25" cy="27" r="6"/><circle cx="25" cy="27" r="2.5" fill="#7aa3ff" stroke="none"/>
+              <rect x="6" y="50" width="38" height="26" rx="4"/><circle cx="25" cy="63" r="6"/><circle cx="25" cy="63" r="2.5" fill="#7aa3ff" stroke="none"/>
+            </g>
+            <text x="25" y="86" text-anchor="middle">2 cams</text>
+            <line x1="46" y1="27" x2="86" y2="44" stroke="#5b8def" stroke-width="1.2"/><line x1="46" y1="63" x2="86" y2="46" stroke="#5b8def" stroke-width="1.2"/>
+            <!-- transformer -->
+            <rect x="86" y="20" width="100" height="50" rx="8" fill="#11161e" stroke="#7aa3ff"/>
+            <text x="136" y="40" text-anchor="middle" font-size="11" fill="#f5f7fa">transformer</text>
+            <text x="136" y="56" text-anchor="middle" font-size="9" fill="#7d8593">enc + dec</text>
+            <!-- proprio -->
+            <g transform="translate(78,80)" stroke="#c5ccd6" stroke-width="1.2" fill="none">
+              <rect x="0" y="-4" width="20" height="8" rx="2"/>
+            </g>
+            <text x="74" y="86" font-size="9" fill="#7d8593" text-anchor="end">proprio →</text>
+            <!-- action chunk -->
+            <line x1="186" y1="45" x2="216" y2="45" stroke="#7aa3ff" stroke-width="1.4" marker-end="url(#a1)"/>
+            <g font-size="11" fill="#7aa3ff">
+              <text x="225" y="36">a₁</text><text x="246" y="36">a₂</text><text x="267" y="36">…</text><text x="280" y="36">aₖ</text>
+            </g>
+            <text x="252" y="62" text-anchor="middle">chunk = k future joint cmds</text>
+            <defs><marker id="a1" viewBox="0 0 8 8" refX="5" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="#7aa3ff"/></marker></defs>
+          </g>
+        </svg>
+      </div>
+      <p>Watches two camera feeds + joint angles, predicts <em>chunks</em> of the next k joint commands at once. Smoother than 1-step regressors.</p>
+      <div class="specs"><span class="hi">~80 M params</span><span>2 cams + proprio</span><span>aloha sim demos</span></div>
+    </div>
+
+    <!-- Diffusion Policy -->
+    <div class="pcard">
+      <div class="pcard-top">
+        <div class="label">
+          <span class="name">diffusion_policy</span>
+          <span class="sub">conditional action diffusion · chi et al. 2023</span>
+        </div>
+        <span class="tag">imitation</span>
+      </div>
+      <div class="arch">
+        <svg viewBox="0 0 320 90" xmlns="http://www.w3.org/2000/svg">
+          <g font-family="JetBrains Mono" font-size="10" fill="#7d8593">
+            <!-- image stack -->
+            <g stroke="#c5ccd6" stroke-width="1.2" fill="#11161e">
+              <rect x="14" y="22" width="38" height="38" rx="3"/>
+              <rect x="10" y="18" width="38" height="38" rx="3"/>
+              <rect x="6" y="14" width="38" height="38" rx="3"/>
+            </g>
+            <text x="25" y="78" text-anchor="middle">3 frames</text>
+            <line x1="48" y1="34" x2="78" y2="42" stroke="#5b8def" stroke-width="1.2"/>
+            <!-- encoder -->
+            <rect x="78" y="20" width="58" height="46" rx="6" fill="#11161e" stroke="#5b8def"/>
+            <text x="107" y="42" text-anchor="middle" font-size="10" fill="#c5ccd6">vision</text>
+            <text x="107" y="55" text-anchor="middle" font-size="10" fill="#c5ccd6">encoder</text>
+            <line x1="136" y1="42" x2="170" y2="42" stroke="#5b8def" stroke-width="1.2"/>
+            <!-- denoising loop -->
+            <rect x="170" y="18" width="84" height="52" rx="8" fill="#11161e" stroke="#7aa3ff"/>
+            <text x="212" y="34" text-anchor="middle" font-size="10" fill="#f5f7fa">cond. U-Net</text>
+            <text x="212" y="48" text-anchor="middle" font-size="9" fill="#7d8593">denoise T steps</text>
+            <path d="M180 60 Q212 75 244 60" stroke="#fbbf24" stroke-width="1.4" fill="none" marker-end="url(#a2)"/>
+            <!-- action traj -->
+            <line x1="254" y1="42" x2="280" y2="42" stroke="#7aa3ff" stroke-width="1.4" marker-end="url(#a2)"/>
+            <text x="300" y="38" text-anchor="middle" font-size="11" fill="#7aa3ff">a₁..ₖ</text>
+            <text x="300" y="60" text-anchor="middle">action traj</text>
+            <defs><marker id="a2" viewBox="0 0 8 8" refX="5" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="#7aa3ff"/></marker></defs>
+          </g>
+        </svg>
+      </div>
+      <p>Treats an <em>action trajectory</em> as a noisy signal and denoises it conditioned on recent frames. Multi-modal-friendly; slower at inference (T denoise steps).</p>
+      <div class="specs"><span class="hi">~250 M params</span><span>3-frame stack</span><span>pusht 2-D demos</span></div>
+    </div>
+
+    <!-- SmolVLA — composed from <defs> primitives (camera + language + vit-lm + action-chunk) -->
+    <div class="pcard">
+      <div class="pcard-top">
+        <div class="label">
+          <span class="name">smolvla_libero</span>
+          <span class="sub">vision-language-action · hf 2024</span>
+        </div>
+        <span class="tag">VLA · fine-tuned</span>
+      </div>
+      <div class="arch">
+        <svg viewBox="0 0 320 90" xmlns="http://www.w3.org/2000/svg">
+          <use href="#prim-camera"   x="4"   y="10" width="46" height="46"/>
+          <use href="#prim-language" x="0"   y="62" width="92" height="22"/>
+          <line x1="52" y1="34" x2="106" y2="40" stroke="#5b8def" stroke-width="1.2"/>
+          <line x1="92" y1="73" x2="106" y2="54" stroke="#5b8def" stroke-width="1.2"/>
+          <use href="#prim-vit-lm"   x="106" y="14" width="146" height="64"/>
+          <line x1="252" y1="46" x2="270" y2="46" stroke="#7aa3ff" stroke-width="1.4" marker-end="url(#pa)"/>
+          <use href="#prim-action-chunk" x="268" y="22" width="52" height="34"/>
+        </svg>
+      </div>
+      <p>Reads a <em>natural-language goal</em> together with the pixel observation; outputs action chunks. Pretrained at internet scale, fine-tuned per LIBERO suite.</p>
+      <div class="specs"><span class="hi">~450 M params</span><span>image + text</span><span>libero × 4 fine-tunes</span></div>
+    </div>
+
+    <!-- XVLA — composed from <defs>; uses vit-lm-lg variant -->
+    <div class="pcard" style="opacity:.78;">
+      <div class="pcard-top">
+        <div class="label">
+          <span class="name">xvla_libero</span>
+          <span class="sub">larger VLA · fine-tuned on LIBERO</span>
+        </div>
+        <span class="tag def">deferred to v1.1</span>
+      </div>
+      <div class="arch">
+        <svg viewBox="0 0 320 90" xmlns="http://www.w3.org/2000/svg">
+          <use href="#prim-camera"   x="4"   y="8"  width="46" height="46"/>
+          <use href="#prim-language" x="0"   y="62" width="92" height="22"/>
+          <line x1="52" y1="32" x2="100" y2="38" stroke="#a78bfa" stroke-width="1.2"/>
+          <line x1="92" y1="73" x2="100" y2="54" stroke="#a78bfa" stroke-width="1.2"/>
+          <use href="#prim-vit-lm-lg" x="100" y="6"  width="170" height="76"/>
+          <line x1="270" y1="44" x2="288" y2="44" stroke="#a78bfa" stroke-width="1.4" marker-end="url(#pa)"/>
+          <text x="300" y="48" text-anchor="middle" font-family="JetBrains Mono" font-size="13" fill="#a78bfa">a₁..ₖ</text>
+        </svg>
+      </div>
+      <p>Same family as SmolVLA, ~6× bigger. <em>Deferred from v1</em> — two patched Hub-processor bugs, one unresolved (chunked-action layout). See slide 13.</p>
+      <div class="specs"><span class="hi">~3 B params</span><span>image + text</span><span>upstream #3674</span></div>
+    </div>
+
+  </div>
+  <div class="foot"><span>checkpoints pinned to Hub SHAs · MODEL_CARDS.md</span><span class="src">configs/policies.yaml</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- C3 — TRADEOFF COMPARISON                                              -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="context" data-cap="How the 4 policies trade off — at a glance.">
+  <div class="chrome context">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · prelude</div>
+    <div class="num">C3<span class="of">/</span>C5</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow accent">the tradeoffs</span>
+    <h2 class="h-2" style="font-size:48px;">How the four policies trade off.</h2>
+  </div>
+  <div class="body" style="margin-top:10px;font-size:20px;color:var(--dim);">
+    Each row is a design dimension. Each column is a policy. <em>The patterns matter more than any one number.</em>
+  </div>
+  <table class="tradeoff-table">
+    <thead>
+      <tr>
+        <th class="dim-h">dimension</th>
+        <th class="policy-h">act<span class="y">2023 · imitation</span></th>
+        <th class="policy-h">diffusion_policy<span class="y">2023 · diffusion</span></th>
+        <th class="policy-h">smolvla_libero<span class="y">2024 · VLA · fine-tuned</span></th>
+        <th class="policy-h def">xvla_libero<span class="y">2024 · deferred v1.1</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="dim">params</td>
+        <td><span class="num">~80 M</span></td>
+        <td><span class="num">~250 M</span></td>
+        <td><span class="num">~450 M</span></td>
+        <td class="v-def"><span class="num">~3 B</span></td>
+      </tr>
+      <tr>
+        <td class="dim">input modality</td>
+        <td>2 cameras + proprio</td>
+        <td>3-frame image stack</td>
+        <td>image + text</td>
+        <td class="v-def">image + text</td>
+      </tr>
+      <tr>
+        <td class="dim">inference cost</td>
+        <td><span class="cost-bar"><i class="on"></i><i></i><i></i></span>low</td>
+        <td><span class="cost-bar"><i class="on"></i><i class="on"></i><i></i></span>medium</td>
+        <td><span class="cost-bar"><i class="on"></i><i class="on"></i><i></i></span>medium</td>
+        <td class="v-def"><span class="cost-bar"><i class="on"></i><i class="on"></i><i class="on"></i></span>high</td>
+      </tr>
+      <tr>
+        <td class="dim">training data</td>
+        <td>aloha sim teleop demos</td>
+        <td>pusht 2-D demos</td>
+        <td>internet pretrain + libero FT</td>
+        <td class="v-def">internet pretrain + libero FT</td>
+      </tr>
+      <tr>
+        <td class="dim">best cell here</td>
+        <td class="v-fail"><span class="num">0.016</span><span class="lo">aloha</span></td>
+        <td class="v-ok"><span class="num">0.816</span><span class="lo">pusht</span></td>
+        <td class="v-ok"><span class="num">0.928</span><span class="lo">libero_goal</span></td>
+        <td class="v-def">—<span class="lo">deferred</span></td>
+      </tr>
+      <tr>
+        <td class="dim">spread across envs</td>
+        <td class="v-mute">n/a (1 env)</td>
+        <td class="v-mute">n/a (1 env)</td>
+        <td class="v-warm"><span class="num">0.252 → 0.928</span><span class="lo">huge variance</span></td>
+        <td class="v-def">n/a</td>
+      </tr>
+      <tr>
+        <td class="dim">one-line takeaway</td>
+        <td>does not beat random on aloha</td>
+        <td>reproduces the paper</td>
+        <td>language-conditioned · suite-dependent</td>
+        <td class="v-def">upstream wiring bugs · slide 13</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="body" style="margin-top:12px;font-size:15px;color:var(--mute);">
+    <span class="accent">Adding a new policy?</span> Drop a column here, copy a card to slide C2, compose primitives from <span class="mono">&lt;defs&gt;</span> — see <span class="mono">docs/POLICY_DIAGRAM_GUIDE.md</span>.
+  </div>
+  <div class="foot"><span>configs/policies.yaml · MODEL_CARDS.md · matches slide 04 matrix</span><span class="src">v1.1 will fill the deferred column</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- C4 — THE 2 BASELINES                                                  -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="context" data-cap="The 2 baselines — why every benchmark needs a floor.">
+  <div class="chrome context">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · prelude</div>
+    <div class="num">C4<span class="of">/</span>C5</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow accent">the two baselines</span>
+    <h2 class="h-2" style="font-size:52px;">Floors are not optional.</h2>
+  </div>
+  <div class="body-lg" style="margin-top:24px;font-size:24px;color:var(--dim);">
+    Before believing <em>"a policy learned the task"</em>, we need to know what a <em>non-policy</em> would score. Two trivial baselines run on every env.
+  </div>
+
+  <div class="cards-grid cols-2" style="margin-top:24px;gap:20px;flex:1;">
+
+    <div class="bcard">
+      <div class="icon">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="14" y1="32" x2="50" y2="32"/>
+          <polyline points="42,24 50,32 42,40"/>
+          <text x="32" y="56" font-family="JetBrains Mono" font-size="10" fill="#7d8593" text-anchor="middle">a = 0</text>
+        </svg>
+      </div>
+      <div class="right">
+        <div class="top"><span class="name">no_op</span><span class="tag">baseline · 0 params</span></div>
+        <p>Returns the <em>identity action</em> every step — joints stay still, gripper does nothing.</p>
+        <span class="why">▸ catches envs that auto-complete or reward inaction</span>
+      </div>
+    </div>
+
+    <div class="bcard">
+      <div class="icon">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 36 L18 28 L22 40 L30 24 L36 38 L42 22 L48 34 L54 30"/>
+          <polyline points="46,24 54,30 46,36" stroke-linejoin="round"/>
+          <text x="32" y="56" font-family="JetBrains Mono" font-size="10" fill="#7d8593" text-anchor="middle">a ~ U[low, high]</text>
+        </svg>
+      </div>
+      <div class="right">
+        <div class="top"><span class="name">random</span><span class="tag">baseline · 0 params</span></div>
+        <p>Samples actions <em>uniformly</em> from the env's action space every step.</p>
+        <span class="why">▸ catches envs that reward any contact event (slide 11: aloha is one)</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="body" style="margin-top:24px;font-size:18px;color:var(--mute);">
+    A learned policy that doesn't beat these floors is not actually learning the task — it's exploiting the env.
+  </div>
+  <div class="foot"><span>src/lerobot_bench/policies.py</span><span class="src">no_op + random = 12 of 22 runnable cells (2 baselines × 6 envs)</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- C5 — THE 6 ENVS (with full-completion videos)                         -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="context" data-cap="The 6 simulated environments — every preview shows actual completion.">
+  <div class="chrome context">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · prelude</div>
+    <div class="num">C5<span class="of">/</span>C5</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow accent">the environments (6 simulated)</span>
+    <h2 class="h-2" style="font-size:52px;">Every preview is a real successful episode.</h2>
+  </div>
+  <div class="cards-grid cols-3" style="grid-template-rows:repeat(2,1fr);margin-top:18px;gap:14px;">
+
+    <div class="ecard">
+      <div class="vid-thumb light"><video src="../../docs/assets/rollouts/loops/dp-pusht.mp4" autoplay muted loop playsinline></video></div>
+      <div class="head"><span class="name">pusht</span><span class="meta">2-D · diffusion policy</span></div>
+      <p>Push a T-shape onto a target zone. Top-down view. From the <em>Diffusion Policy</em> paper. <span class="ink">Success = T pose within tolerance.</span></p>
+    </div>
+
+    <div class="ecard">
+      <div class="vid-thumb"><video src="../../docs/assets/rollouts/loops/aloha-success.mp4" autoplay muted loop playsinline></video></div>
+      <div class="head"><span class="name">aloha_transfer_cube</span><span class="meta">bimanual · ACT</span></div>
+      <p>Two 6-DOF arms transfer a cube between grippers. From the <em>ALOHA</em> paper. <span class="ink">Success = cube held by the receiver gripper.</span></p>
+    </div>
+
+    <div class="ecard">
+      <div class="vid-thumb"><video src="../../docs/assets/rollouts/loops/libero-spatial-success.mp4" autoplay muted loop playsinline></video></div>
+      <div class="head"><span class="name">libero_spatial</span><span class="meta">7-DOF · libero</span></div>
+      <p>Single-arm tabletop. Tasks emphasizing <em>spatial reasoning</em> (which side, which slot). We run <span class="mono">task_id = 0</span>.</p>
+    </div>
+
+    <div class="ecard">
+      <div class="vid-thumb"><video src="../../docs/assets/rollouts/loops/libero-object-success.mp4" autoplay muted loop playsinline></video></div>
+      <div class="head"><span class="name">libero_object</span><span class="meta">7-DOF · libero</span></div>
+      <p>Single-arm tabletop. <em>Object-centric</em> pick-and-place. Same hardware, scripted scene variation per episode.</p>
+    </div>
+
+    <div class="ecard">
+      <div class="vid-thumb"><video src="../../docs/assets/rollouts/loops/libero-goal-success.mp4" autoplay muted loop playsinline></video></div>
+      <div class="head"><span class="name">libero_goal</span><span class="meta">7-DOF · libero</span></div>
+      <p>Single-arm tabletop. <em>Goal-conditioned</em> manipulation — different target every episode. Where SmolVLA's gap is smallest.</p>
+    </div>
+
+    <div class="ecard">
+      <div class="vid-thumb"><video src="../../docs/assets/rollouts/loops/libero-10-success.mp4" autoplay muted loop playsinline></video></div>
+      <div class="head"><span class="name">libero_10</span><span class="meta">7-DOF · libero · long horizon</span></div>
+      <p>LIBERO's <em>10 long-horizon tasks</em>. Multi-step plans, long episodes. The benchmark stress test — where the SmolVLA gap is widest.</p>
+    </div>
+
+  </div>
+  <div class="foot"><span>all clips: real rollouts from results/sweep-full/videos · 256 × 256 px renders · MuJoCo</span><span class="src">src/lerobot_bench/envs.py</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 01 — COLD OPEN -->
+<!-- ===================================================================== -->
+<section class="slide center dark" data-section="main" data-cap="Cold open — the question that drove the project.">
+  <div class="cold-bg">
+    <video src="../../docs/assets/rollouts/loops/libero-goal-success.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/dp-pusht.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/smolvla-10-fail.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/aloha-success.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/libero-object-success.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/xvla-goal.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/random-aloha.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/act-aloha-fail.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/libero-spatial-success.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/dp-pusht.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/libero-10-success.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/aloha-success.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/libero-object-success.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/xvla-goal.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/smolvla-10-fail.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/random-aloha.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/libero-spatial-success.mp4" autoplay muted loop playsinline></video>
+    <video src="../../docs/assets/rollouts/loops/act-aloha-fail.mp4" autoplay muted loop playsinline></video>
+  </div>
+  <div class="cold-content" style="text-align:left;max-width:1620px;padding:0 32px;">
+    <div class="eyebrow" style="margin-bottom:32px;">the question</div>
+    <div class="h-mega">Does pretrained<br>robot software<br><span class="em">actually</span> work?</div>
+  </div>
+  <div class="foot" style="z-index:2;"><span>lerobot-bench · v1.0.0</span><span class="src">20 talk slides · background is moving</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 02 — REPLICATION CRISIS -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="The replication gap, in one table.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">02<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:36px;">
+    <span class="eyebrow">the premise</span>
+    <h1 class="h-1">Pretrained robot software<br>under <span class="accent">default Hub configs.</span></h1>
+  </div>
+  <div class="body-lg" style="margin-top:24px;font-size:26px;">
+    Five pretrained checkpoints, each shipped with a paper number. We re-ran each one <span class="ink">250 times</span> on the lerobot eval defaults. Some replicate. Some don't. <span class="warm">All four smolvla rows compare a single task vs the paper's 10-task suite average</span> — see slides 07 + 08 before drawing conclusions.
+  </div>
+  <table class="delta-table">
+    <tr><th>policy × env</th><th>paper said</th><th>we measured</th><th>Δ <span style="color:var(--warm);">⚠</span></th></tr>
+    <tr><td class="policy">smolvla · libero_10 <span style="color:var(--warm);">⚠</span></td><td class="paper">0.71 <span class="lo" style="display:inline;color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured bad">0.252 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">−45.8 pp*</td></tr>
+    <tr><td class="policy">smolvla · libero_object <span style="color:var(--warm);">⚠</span></td><td class="paper">0.96 <span style="color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured bad">0.528 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">−43.2 pp*</td></tr>
+    <tr><td class="policy">smolvla · libero_spatial <span style="color:var(--warm);">⚠</span></td><td class="paper">0.90 <span style="color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured warn">0.776 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">−12.4 pp*</td></tr>
+    <tr><td class="policy">smolvla · libero_goal <span style="color:var(--warm);">⚠</span></td><td class="paper">0.92 <span style="color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured ok">0.928 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">+0.8 pp*</td></tr>
+    <tr><td class="policy">act · aloha_transfer_cube <span style="color:var(--warm);">⚠</span></td><td class="paper">0.50 <span style="color:var(--mute);font-size:12px;">(human teleop)</span></td><td class="measured bad">0.016 <span style="color:var(--mute);font-size:12px;">(Hub default)</span><br><span style="color:var(--accent);font-weight:600;">→ 0.764</span> <span style="color:var(--mute);font-size:12px;">(paper settings**)</span></td><td class="delta">−48 pp<br><span style="color:var(--accent);">+26 pp**</span></td></tr>
+    <tr><td class="policy">diffusion_policy · pusht</td><td class="paper">0.83</td><td class="measured ok">0.816</td><td class="delta">−1.4 pp</td></tr>
+  </table>
+  <div class="foot"><span>* smolvla scope · ** act default vs paper inference (temporal_ensemble_coeff=0.01, n_action_steps=1) — v1.0.2 probe</span><span class="src">results.parquet · PROBE_RESULTS_V1.0.1.md</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 03 — WHAT IS A POLICY -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="What a robot policy actually is — pixels → torques.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">03<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:36px;">
+    <span class="eyebrow">first, the basics</span>
+    <h2 class="h-2">A policy is a <span class="serif-it accent">function.</span><br>Pixels in. Motor commands out.</h2>
+  </div>
+  <div class="flow">
+    <div class="step">
+      <div class="box">
+        <svg viewBox="0 0 64 64" fill="none" stroke="#c5ccd6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="14" width="52" height="38" rx="5"/><path d="M20 14l4-6h16l4 6"/>
+          <circle cx="32" cy="33" r="9"/><circle cx="32" cy="33" r="4.5" fill="#7aa3ff" stroke="none"/><circle cx="50" cy="20" r="1.5" fill="#7aa3ff" stroke="none"/>
+        </svg>
+      </div>
+      <div class="lbl">camera frames</div><div class="sub">image · proprioception</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="step">
+      <div class="box">
+        <svg viewBox="0 0 120 80" fill="none" stroke="#c5ccd6" stroke-width="1.6">
+          <g stroke="#5b8def" stroke-opacity=".55">
+            <line x1="14" y1="20" x2="56" y2="14"/><line x1="14" y1="20" x2="56" y2="40"/><line x1="14" y1="20" x2="56" y2="66"/>
+            <line x1="14" y1="40" x2="56" y2="14"/><line x1="14" y1="40" x2="56" y2="40"/><line x1="14" y1="40" x2="56" y2="66"/>
+            <line x1="14" y1="60" x2="56" y2="14"/><line x1="14" y1="60" x2="56" y2="40"/><line x1="14" y1="60" x2="56" y2="66"/>
+            <line x1="56" y1="14" x2="106" y2="30"/><line x1="56" y1="14" x2="106" y2="50"/>
+            <line x1="56" y1="40" x2="106" y2="30"/><line x1="56" y1="40" x2="106" y2="50"/>
+            <line x1="56" y1="66" x2="106" y2="30"/><line x1="56" y1="66" x2="106" y2="50"/>
+          </g>
+          <g fill="#11161e" stroke="#7aa3ff" stroke-width="1.8">
+            <circle cx="14" cy="20" r="5"/><circle cx="14" cy="40" r="5"/><circle cx="14" cy="60" r="5"/>
+            <circle cx="56" cy="14" r="5"/><circle cx="56" cy="40" r="5"/><circle cx="56" cy="66" r="5"/>
+            <circle cx="106" cy="30" r="5"/><circle cx="106" cy="50" r="5"/>
+          </g>
+        </svg>
+      </div>
+      <div class="lbl">policy</div><div class="sub">100 M – 3 B params</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="step">
+      <div class="box">
+        <svg viewBox="0 0 64 64" fill="none" stroke="#c5ccd6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="22" y="48" width="20" height="10" rx="2"/><line x1="32" y1="48" x2="32" y2="40"/>
+          <circle cx="32" cy="40" r="3.5" fill="#7aa3ff" stroke="none"/><line x1="32" y1="40" x2="46" y2="26"/>
+          <circle cx="46" cy="26" r="3.5" fill="#7aa3ff" stroke="none"/><line x1="46" y1="26" x2="36" y2="14"/>
+          <circle cx="36" cy="14" r="3" fill="#7aa3ff" stroke="none"/><path d="M36 14 l-4 -3 M36 14 l-1 -5"/>
+        </svg>
+      </div>
+      <div class="lbl">joint torques</div><div class="sub">action chunk · ∈ ℝⁿ</div>
+    </div>
+  </div>
+  <div class="body" style="margin-top:24px;max-width:1500px;font-size:22px;">
+    Train it on demonstration videos. Ship the weights to Hugging Face. Anyone downloads and runs it. <span class="serif-it" style="color:var(--dim);">— or so the story goes.</span>
+  </div>
+  <div class="foot"><span>image observation · proprioception → action chunk</span><span class="src">src/lerobot_bench/eval.py</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 04 — THE MATRIX (with smolvla skew note) -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="The 5×6 evaluation matrix.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">04<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow">the matrix</span>
+    <h2 class="h-2"><span class="mono">5 policies × 6 envs.</span></h2>
+  </div>
+  <div class="matrix-wrap">
+    <div class="matrix">
+      <div class="row-label"></div>
+      <div class="col-label">pusht</div><div class="col-label">aloha_transfer_cube</div><div class="col-label">libero_spatial</div><div class="col-label">libero_object</div><div class="col-label">libero_goal</div><div class="col-label">libero_10</div>
+      <div class="row-label">no_op</div><div class="c on">·</div><div class="c on">·</div><div class="c on">·</div><div class="c on">·</div><div class="c on">·</div><div class="c on">·</div>
+      <div class="row-label">random</div><div class="c on">·</div><div class="c on">·</div><div class="c on">·</div><div class="c on">·</div><div class="c on">·</div><div class="c on">·</div>
+      <div class="row-label">diffusion_policy</div><div class="c ok">.82</div><div class="c"></div><div class="c"></div><div class="c"></div><div class="c"></div><div class="c"></div>
+      <div class="row-label">act</div><div class="c"></div><div class="c fail">.02</div><div class="c"></div><div class="c"></div><div class="c"></div><div class="c"></div>
+      <div class="row-label">smolvla_libero</div><div class="c"></div><div class="c"></div><div class="c ok">.78</div><div class="c warm">.53</div><div class="c ok">.93</div><div class="c fail">.25</div>
+      <div class="row-label" style="color:var(--mute);">xvla_libero</div><div class="c"></div><div class="c"></div><div class="c def">DEF</div><div class="c def">DEF</div><div class="c def">DEF</div><div class="c def">DEF</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px;flex:1;max-width:560px;padding-top:120px;">
+      <div class="body" style="font-size:20px;">
+        <em>Sparse by design.</em> Each filled cell exists only where a public Hub checkpoint exists for that policy × env pair.
+      </div>
+      <div class="body" style="font-size:20px;color:var(--warm);">
+        ⚠ Coverage is <em>skewed toward SmolVLA</em> (4 of the 6 non-baseline cells) because LIBERO publishes 4 per-suite fine-tunes. ACT and Diffusion Policy each have only one home env.
+      </div>
+      <div class="body" style="font-size:20px;color:var(--dim);">
+        <em>22 runnable cells.</em> 107 dispatched (each baseline splits per env). 0 failures over 25 hours.
+      </div>
+      <div class="matrix-key" style="margin-top:4px;">
+        <span><span class="sw" style="background:var(--ok);"></span>rate &gt; .70</span>
+        <span><span class="sw" style="background:var(--warm);"></span>rate .30–.70</span>
+        <span><span class="sw" style="background:var(--fail);"></span>rate &lt; .30</span>
+        <span><span class="sw" style="background:var(--defer);"></span>executed, deferred v1.1</span>
+        <span><span class="sw" style="background:var(--accent);"></span>baseline</span>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>configs/sweep_full.yaml · v1.1 plans broader coverage (slide 21)</span><span class="src">5 seeds × 50 episodes / cell</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 05 — PAIRED HERO (VIDEO) -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="Same model, same task — different outcomes (live).">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">05<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow">why N matters</span>
+    <h2 class="h-2">Same model. Same checkpoint.<br><span class="accent">Different outcomes.</span></h2>
+  </div>
+  <div class="pair">
+    <div class="card">
+      <div class="vid-wrap"><video src="../../docs/assets/rollouts/loops/libero-goal-success.mp4" autoplay muted loop playsinline></video></div>
+      <div class="verdict"><span class="ok">✓ success</span> · 116 steps</div>
+      <div class="meta">smolvla_libero · libero_goal · seed 3 · ep 1</div>
+    </div>
+    <div class="card">
+      <div class="vid-wrap"><video src="../../docs/assets/rollouts/loops/smolvla-10-fail.mp4" autoplay muted loop playsinline></video></div>
+      <div class="verdict"><span class="fail">✕ timeout</span> · 520 steps</div>
+      <div class="meta">smolvla_libero · libero_10 · seed 0 · ep 0</div>
+    </div>
+  </div>
+  <div class="body" style="margin-top:16px;max-width:none;text-align:center;font-size:22px;">
+    A single rollout tells you nothing. <em>That's why every cell in this benchmark is N=250.</em>
+  </div>
+  <div class="foot"><span>same lerobot/smolvla_libero @ Hub revision</span><span class="src">videos/smolvla_libero__*.mp4</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 06 — THE HEADLINE GAP -->
+<!-- ===================================================================== -->
+<section class="slide center dark" data-section="main" data-cap="The headline gap — paper vs measured.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">06<span class="of">/</span>22</div>
+  </div>
+  <div style="max-width:1620px;width:100%;">
+    <div class="eyebrow" style="margin-bottom:20px;">smolvla on libero-10 · single task_id=0 · careful read</div>
+    <div style="display:flex;align-items:baseline;gap:48px;flex-wrap:wrap;">
+      <div>
+        <div class="eyebrow" style="font-size:11px;color:var(--mute);margin-bottom:12px;">paper · 10-task suite avg</div>
+        <div class="stat-mega" style="color:var(--mute);font-size:160px;">0.71</div>
+      </div>
+      <div class="serif-it" style="font-size:104px;color:var(--mute);">→</div>
+      <div>
+        <div class="eyebrow" style="font-size:11px;color:var(--fail);margin-bottom:12px;">ours · task 0 only</div>
+        <div class="stat-mega fail" style="font-size:200px;">0.252</div>
+      </div>
+    </div>
+    <div class="body-lg" style="margin-top:32px;font-size:24px;">
+      <span class="warm">⚠ Two compounding caveats.</span> The 0.252 is (a) a <em>single task</em> vs the paper's <em>10-task average</em> (audit PR #84), and (b) <em>truncated at 520 steps</em> while the canonical LIBERO protocol allows 600 — and <span class="ink">74.8% of our episodes hit the cap</span> (audit PR #89).<br>
+      The number is statistically tight (Wilson 95% CI <span class="mono ink">[.202, .309]</span>, MDE <span class="mono">12.3 pp</span>) but is a <em>lower bound</em> on this checkpoint's true single-task success rate. <em>Not</em> a paper-replication gap until v1.1 fixes both.
+    </div>
+  </div>
+  <div class="foot"><span>N=250 · 5 seeds × 50 ep · audits #84 (scope) + #89 (step cap) both confirmed</span><span class="src">paper §4 · see slide 08</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 07 — METHODOLOGY: WHAT WE VERIFIED -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="Methodology — what we verified before making the claim.">
+  <div class="chrome rigor">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · methodology</div>
+    <div class="num">07<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow warm">before drawing conclusions · what we verified</span>
+    <h2 class="h-2">A 46 pp claim needs receipts.</h2>
+  </div>
+  <div class="audit-list" style="margin-top:24px;">
+    <div class="audit ok">
+      <div class="glyph">✓</div>
+      <div class="body-block">
+        <span class="lab">checkpoint</span>
+        <h5>Hub revision SHA pinned, matches paper-cited release.</h5>
+        <p>No <span class="mono">main</span> branches. <span class="mono">configs/policies.yaml</span> locks each policy to a 40-char SHA; same SHA on every re-run.</p>
+      </div>
+    </div>
+    <div class="audit ok">
+      <div class="glyph">✓</div>
+      <div class="body-block">
+        <span class="lab">processor wiring</span>
+        <h5>Pre / post-processors loaded from the Hub artifact, audited for completeness.</h5>
+        <p>This audit caught the XVLA bugs (slide 13). For SmolVLA it ran clean — image norm, action denorm, action chunk decoding all match the published spec.</p>
+      </div>
+    </div>
+    <div class="audit ok">
+      <div class="glyph">✓</div>
+      <div class="body-block">
+        <span class="lab">determinism</span>
+        <h5>Re-run yields bit-identical parquet rows.</h5>
+        <p>Seed triple <span class="mono">(env, action, policy)</span> + resume drill verified. Numbers are <em>reproducible</em> — they're not stochastic.</p>
+      </div>
+    </div>
+    <div class="audit ok">
+      <div class="glyph">✓</div>
+      <div class="body-block">
+        <span class="lab">statistical resolution</span>
+        <h5>Gap is 4× the MDE — not in the noise.</h5>
+        <p>N=250 puts our minimum detectable effect at <span class="mono">12.3 pp</span>. A 45.8 pp gap is <em>well outside</em> sampling-error range. Wilson CI excludes the paper number by 40 pp.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>scripts/audit_processor.py · src/lerobot_bench/stats.py · docs/MDE_TABLE.md</span><span class="src">all checks scripted &amp; rerunnable</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 08 — METHODOLOGY: OPEN QUESTIONS -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="Methodology — what we have NOT yet ruled out.">
+  <div class="chrome rigor">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · methodology</div>
+    <div class="num">08<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow warm">v1.0.1 audit verdict · honest list</span>
+    <h2 class="h-2">Three confirmed mismatches — and what they do to the headline.</h2>
+  </div>
+  <div class="audit-list" style="margin-top:20px;">
+    <div class="audit warn">
+      <div class="glyph">!</div>
+      <div class="body-block">
+        <span class="lab">PR #84 · task coverage — scope mismatch</span>
+        <h5>SmolVLA paper §4.1: <span class="mono">10 tasks × 10 trials per task = 100-ep suite averages.</span> We ran <span class="mono">task 0 × 5 seeds × 50 ep = 250 single-task episodes.</span></h5>
+        <p>The two scalars measure <em>different quantities</em>. The "0.71 → 0.252" headline is a <em>single-task probe</em>, not a paper-replication number — until v1.1 runs all 10 tasks. Full verdict: <span class="mono">docs/CLAIM_AUDIT_SMOLVLA.md</span>.</p>
+      </div>
+    </div>
+    <div class="audit ok">
+      <div class="glyph">✓</div>
+      <div class="body-block">
+        <span class="lab">PR #86 · inference settings — ACT temporal ensembling · <span style="color:var(--accent);">v1.0.2 PROBE RESOLVED</span></span>
+        <h5>Hub ships <span class="mono">temporal_ensemble_coeff=None, n_action_steps=100</span>; Zhao 2023 Table I used <span class="mono">coeff=0.01, n=1</span>.</h5>
+        <p>Probe at paper settings: <span class="ink" style="font-weight:600;">0.764 [0.708, 0.812]</span> vs v1.0.0 default <span class="mono">0.016</span> — Wilson CIs disjoint by an order of magnitude. The 0.016 was Hub-default inference; the architecture clears paper on this env at correct settings. (See PROBE_RESULTS_V1.0.1.md.)</p>
+      </div>
+    </div>
+    <div class="audit warn">
+      <div class="glyph">!</div>
+      <div class="body-block">
+        <span class="lab">PR #89 · success criterion + step cap — under-count</span>
+        <h5>LIBERO <span class="mono">max_steps={280, 280, 300, 520}</span> vs canonical <span class="mono">600</span>. PushT + Aloha success rules also non-canonical.</h5>
+        <p>74.8% of <span class="mono">smolvla × libero_10</span> episodes hit our 520-step cap → the 0.252 is a <em>lower bound</em>. Aloha accepts <span class="mono">reward ∈ {1..4}</span> vs ACT paper's <span class="mono">reward == 4</span>. v1.1 adopts canonical (PR #90 lands selectable rules).</p>
+      </div>
+    </div>
+  </div>
+  <div class="body" style="margin-top:14px;font-size:14px;color:var(--mute);">
+    <span class="warm">Net for the headline:</span> smolvla × libero_10 sits under <em>two compounding caveats</em> (scope + truncation); <span style="color:var(--accent);">ACT × aloha caveat RESOLVED — 0.016 → 0.764 at paper settings (v1.0.2 probe).</span> External replication + cross-hardware variance: see slide 18 limitations.
+  </div>
+  <div class="foot"><span>4 of 6 §1 audits closed (incl. ACT probe RESOLVED) · §§1.4–1.6 holding</span><span class="src">docs/PIPELINE_ROADMAP.md</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 09 — FULL CHART -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="SmolVLA across all four LIBERO suites — full chart.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">09<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow">the headline isn't one number</span>
+    <h2 class="h-2">SmolVLA across all four LIBERO suites.</h2>
+  </div>
+  <div class="fig-embed">
+    <img src="../../docs/assets/fig-smolvla-libero.png" alt="SmolVLA success rate across LIBERO suites, with paper-reported rates marked">
+  </div>
+  <div class="foot"><span>solid bars = task_id=0 only · dashes = paper · 10-task suite avg (PR #84 mismatch) · error bars = Wilson 95%</span><span class="src">notebooks/01-write-finding.ipynb</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 10 — WHERE PRETRAINED DELIVERS -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="Where pretrained reproduces — and where it doesn't.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">10<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow">classical heads on their home env</span>
+    <h2 class="h-2">One reproduces. The other <span class="accent">does not.</span></h2>
+  </div>
+  <div class="pair">
+    <div class="card">
+      <div class="vid-wrap light"><video src="../../docs/assets/rollouts/loops/dp-pusht.mp4" autoplay muted loop playsinline></video></div>
+      <div class="stat ok">0.816</div>
+      <div class="meta">diffusion_policy · pusht · 95% CI [.74, .87]</div>
+    </div>
+    <div class="card">
+      <div class="vid-wrap"><video src="../../docs/assets/rollouts/loops/act-aloha-fail.mp4" autoplay muted loop playsinline></video></div>
+      <div class="stat fail">0.016<span style="font-size:24px;color:var(--warm);vertical-align:super;margin-left:6px;">⚠</span></div>
+      <div class="meta">act · aloha_transfer_cube · 95% CI [.01, .04]</div>
+    </div>
+  </div>
+  <div class="body" style="margin-top:14px;max-width:none;text-align:center;font-size:22px;">
+    Diffusion Policy on PushT reproduces. <span class="warm">⚠ ACT's 0.016 likely reflects missing temporal ensembling</span> (PR #86 audit) — pending a 1-seed probe with paper settings before we restate it.
+  </div>
+  <div class="foot"><span>lerobot/diffusion_pusht · lerobot/act_aloha_sim_transfer_cube_human</span><span class="src">paper §4</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 11 — RANDOM FLOOR -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="The honest floor — random does 5.2% on one env.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">11<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow">the honest floor</span>
+    <h2 class="h-2">Even random does <span class="warm">5.2%</span><br>on one task.</h2>
+  </div>
+  <div class="split">
+    <div class="imcard">
+      <div class="vid-wrap"><video src="../../docs/assets/rollouts/loops/random-aloha.mp4" autoplay muted loop playsinline></video></div>
+      <div class="meta">random · aloha · what it looks like</div>
+    </div>
+    <div class="body-block">
+      <div class="body-lg" style="font-size:28px;">
+        On <span class="ink">Aloha transfer-cube</span>, uniform-random actions succeed <em>13 / 250</em> times.<br>
+        Wilson upper bound: <span class="mono ink">8.7%</span>.
+      </div>
+      <div class="body" style="font-size:19px;">
+        The success threshold rewards <em>any</em> contact event.<br>
+        A policy needs to <em>beat this number</em> to claim it learned the task.<br><br>
+        <span class="ink">ACT scores 1.6% on the same cell</span> — <em>at our default inference settings.</em><br>
+        <span style="color:var(--accent);font-weight:600;">✓ v1.0.2 probe at paper inference settings (coeff=0.01, n=1): 76.4% [70.8%, 81.2%].</span> The Hub-default reading was missing temporal ensembling; the architecture clears random-baseline by ~67 pp at correct settings.
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>no_op = 0 / 1500 · random = 0 everywhere except aloha</span><span class="src">paper §4.3</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 12 — THE CONTRACT -->
+<!-- ===================================================================== -->
+<section class="slide center" data-section="main" data-cap="The protocol — 5 seeds × 50 episodes per cell.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">12<span class="of">/</span>22</div>
+  </div>
+  <div style="max-width:1620px;width:100%;">
+    <div class="eyebrow" style="margin-bottom:28px;">the contract, per cell</div>
+    <div style="display:flex;align-items:baseline;gap:24px;font-family:var(--mono);font-feature-settings:'tnum';flex-wrap:wrap;">
+      <span style="font-size:180px;font-weight:600;color:var(--ink);line-height:1;letter-spacing:-6px;">5</span>
+      <span style="font-size:52px;color:var(--mute);">seeds</span>
+      <span style="font-size:120px;color:var(--mute);font-weight:300;">×</span>
+      <span style="font-size:180px;font-weight:600;color:var(--ink);line-height:1;letter-spacing:-6px;">50</span>
+      <span style="font-size:52px;color:var(--mute);">episodes</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:24px;margin-top:16px;font-family:var(--mono);font-feature-settings:'tnum';flex-wrap:wrap;">
+      <span style="font-size:88px;color:var(--accent);font-weight:300;">=</span>
+      <span style="font-size:180px;font-weight:600;color:var(--accent);line-height:1;letter-spacing:-6px;">250</span>
+      <span style="font-size:30px;color:var(--dim);font-family:var(--sans);">binary outcomes / cell</span>
+    </div>
+    <div class="body-lg" style="margin-top:40px;font-size:26px;">
+      Cell-boundary checkpointing means <span class="ink">kill -9 loses one cell, not a night.</span><br>
+      The seed triple <span class="mono ink">(env, action, policy)</span> makes parquet rows bit-reproducible.
+    </div>
+  </div>
+  <div class="foot"><span>src/lerobot_bench/checkpointing.py</span><span class="src">5,250 episodes total · 25 h wall</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 13 — XVLA DEFERRAL -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="XVLA deferral — two patched + one unresolved upstream bug.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">13<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow">held for v1.1 — debugged in public</span>
+    <h2 class="h-2">XVLA: <span style="color:var(--fail);">875 rollouts, 0 successes.</span></h2>
+  </div>
+  <div class="split wide">
+    <div class="imcard">
+      <div class="vid-wrap" style="border-color:var(--defer);"><video src="../../docs/assets/rollouts/loops/xvla-goal.mp4" autoplay muted loop playsinline></video></div>
+      <div class="meta" style="color:var(--defer);">xvla · libero_goal · timeout</div>
+    </div>
+    <div class="body-block">
+      <div class="bug">
+        <span class="lab ok">▸ bug 1 — patched (PR #71)</span>
+        <p>Hub postprocessor missing the <span class="mono">rotation-6D → axis-angle</span> step. Loader inserts it at load time.</p>
+      </div>
+      <div class="bug">
+        <span class="lab ok">▸ bug 2 — patched (PR #74)</span>
+        <p>Hub preprocessor declares <span class="mono">VISUAL: IDENTITY</span> — skips ImageNet norm. Loader inserts it.</p>
+      </div>
+      <div class="bug">
+        <span class="lab fail">▸ bug 3 — unresolved (deferral driver)</span>
+        <p>Both fixes confirmed firing — sanity still <span class="mono">0 / 40</span>. Suspect: chunked-action layout. <em>Upstream issue filed.</em></p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>docs/DEFERRED_POLICIES.md · huggingface/lerobot#3674</span><span class="src">lerobot/xvla-libero @ 12e8783e</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 14 — INFRASTRUCTURE -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="The infrastructure that survives 25 hours unattended.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">14<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow">how this ran for 25 hours unattended</span>
+    <h2 class="h-2">Calibrate → cap → sweep.</h2>
+  </div>
+  <div style="margin-top:24px;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;">
+    <svg viewBox="0 0 1600 360" style="width:100%;height:auto;max-height:100%;" preserveAspectRatio="xMidYMid meet">
+      <defs><marker id="arr" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#7aa3ff"/></marker></defs>
+      <g><line x1="0" y1="40" x2="1600" y2="40" stroke="#f87171" stroke-width="1.2" stroke-dasharray="6 6" opacity=".5"/>
+        <text x="20" y="32" font-family="JetBrains Mono" font-size="13" fill="#f87171" opacity=".85" letter-spacing="2">KERNEL-ENFORCED 18 GB CAP — LAPTOP SURVIVES EVERY CELL</text></g>
+      <g><rect x="40" y="120" width="280" height="160" rx="18" fill="#11161e" stroke="#2a323e" stroke-width="1.5"/>
+        <g transform="translate(180,170)" stroke="#7aa3ff" stroke-width="2" fill="none" stroke-linecap="round">
+          <circle cx="0" cy="0" r="22"/><line x1="0" y1="0" x2="0" y2="-15"/><line x1="0" y1="0" x2="12" y2="6"/></g>
+        <text x="180" y="232" text-anchor="middle" font-family="Instrument Sans" font-size="22" font-weight="600" fill="#f5f7fa">calibrate</text>
+        <text x="180" y="258" text-anchor="middle" font-family="JetBrains Mono" font-size="13" fill="#c5ccd6">20-step probe</text></g>
+      <line x1="320" y1="200" x2="370" y2="200" stroke="#7aa3ff" stroke-width="1.8" marker-end="url(#arr)"/>
+      <g><rect x="380" y="120" width="280" height="160" rx="18" fill="#11161e" stroke="#2a323e" stroke-width="1.5"/>
+        <g transform="translate(520,168)" stroke="#7aa3ff" stroke-width="2" fill="none" stroke-linecap="round">
+          <path d="M-22 8 L0 -10 L22 8"/><line x1="0" y1="-10" x2="0" y2="18"/></g>
+        <text x="520" y="232" text-anchor="middle" font-family="Instrument Sans" font-size="22" font-weight="600" fill="#f5f7fa">auto-downscope</text>
+        <text x="520" y="258" text-anchor="middle" font-family="JetBrains Mono" font-size="13" fill="#c5ccd6">trim N to fit budget</text></g>
+      <line x1="660" y1="200" x2="710" y2="200" stroke="#7aa3ff" stroke-width="1.8" marker-end="url(#arr)"/>
+      <g><rect x="720" y="120" width="280" height="160" rx="18" fill="#11161e" stroke="#2a323e" stroke-width="1.5"/>
+        <g transform="translate(860,168)" stroke="#7aa3ff" stroke-width="2" fill="none" stroke-linecap="round">
+          <rect x="-24" y="-14" width="48" height="28" rx="4"/><line x1="-16" y1="-3" x2="16" y2="-3"/><line x1="-16" y1="5" x2="8" y2="5"/></g>
+        <text x="860" y="232" text-anchor="middle" font-family="Instrument Sans" font-size="22" font-weight="600" fill="#f5f7fa">run_capped.sh</text>
+        <text x="860" y="258" text-anchor="middle" font-family="JetBrains Mono" font-size="13" fill="#c5ccd6">systemd-run · MemoryMax=18G</text></g>
+      <line x1="1000" y1="200" x2="1050" y2="200" stroke="#7aa3ff" stroke-width="1.8" marker-end="url(#arr)"/>
+      <g><rect x="1060" y="120" width="500" height="160" rx="18" fill="rgba(52,211,153,.08)" stroke="#34d399" stroke-width="1.5"/>
+        <g transform="translate(1140,180)" stroke="#34d399" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="-12,2 -4,10 14,-10"/><circle cx="0" cy="0" r="20" stroke-width="1.6"/></g>
+        <text x="1340" y="178" text-anchor="middle" font-family="Instrument Sans" font-size="26" font-weight="600" fill="#34d399">sweep complete</text>
+        <text x="1340" y="214" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#c5ccd6">107 cells · 0 failures · 5,250 episodes</text>
+        <text x="1340" y="240" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#c5ccd6">25 h wall · cell-boundary resume</text></g>
+      <text x="800" y="335" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="#7d8593" letter-spacing="2">RUN AGAIN — THE PARQUET ROWS MATCH</text>
+    </svg>
+  </div>
+  <div class="foot"><span>scripts/{calibrate,merge_calibration,auto_downscope,run_capped}.py</span><span class="src">sweep_manifest.json</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 15 — ARTIFACTS -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="Four artifacts shipping under MIT.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">15<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow">what ships, openly</span>
+    <h2 class="h-2">Four artifacts. One license. <span class="accent">MIT.</span></h2>
+  </div>
+  <div class="tiles">
+    <div class="tile">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+      <div class="name">Hugging Face Space</div>
+      <div class="desc">Public leaderboard, paired comparisons, rollout videos on click.</div>
+      <div class="url">hf.co/spaces/thrmnn/lerobot-bench</div>
+    </div>
+    <div class="tile">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg></div>
+      <div class="name">Hub Dataset</div>
+      <div class="desc">Every per-episode row. Every MP4. Queryable.</div>
+      <div class="url">hf.co/datasets/thrmnn/lerobot-bench-v1</div>
+    </div>
+    <div class="tile">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg></div>
+      <div class="name">arxiv paper</div>
+      <div class="desc">Methodology, related work, results, limitations.</div>
+      <div class="url">paper/main.tex</div>
+    </div>
+    <div class="tile">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg></div>
+      <div class="name">Upstream PR</div>
+      <div class="desc">Eval pipeline as <span class="mono">lerobot.eval.multi_seed</span>.</div>
+      <div class="url">huggingface/lerobot#3674</div>
+    </div>
+  </div>
+  <div class="foot"><span>v1.0.0 · 2026-05-26</span><span class="src">github.com/thrmnn/lerobot-bench</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 16 — TRY IT -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="Five minutes to first verified result.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">16<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:36px;">
+    <span class="eyebrow">five minutes to first result</span>
+    <h2 class="h-2">Run your own cell.</h2>
+  </div>
+  <div class="term">
+    <div class="line"><span class="prompt">$</span> git clone github.com/thrmnn/lerobot-bench &amp;&amp; cd lerobot-bench</div>
+    <div class="line"><span class="prompt">$</span> pip install -e ".[all]"</div>
+    <div class="line"><span class="comment"># run one cell — 5 episodes, ~2 minutes on a GPU</span></div>
+    <div class="line"><span class="prompt">$</span> python scripts/run_one.py --policy act --env aloha_transfer_cube --seed 0 --n-episodes 5</div>
+    <div class="line" style="margin-top:14px;color:var(--mute);">  cell {policy=act, env=aloha_transfer_cube, seed=0, n_ep=5}</div>
+    <div class="line" style="color:var(--mute);">  <span class="ok">✓</span> success 1 / 5  ·  <span class="ok">✓</span> reproducible (run again, same rows)</div>
+    <div class="line" style="color:var(--mute);">  → results/.../act__aloha_transfer_cube__seed0.parquet</div>
+    <div class="line" style="color:var(--mute);">  → results/.../videos/*.mp4</div>
+  </div>
+  <div class="body" style="margin-top:24px;font-size:20px;">
+    Or skip straight to the leaderboard: <span class="mono ink">hf.co/spaces/thrmnn/lerobot-bench</span>
+  </div>
+  <div class="foot"><span>docs/GETTING_STARTED.md · CONTRIBUTING.md</span><span class="src">python 3.12 · pip · git</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 17 — CONTRIBUTE -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="Add a policy in one PR — six lines of YAML.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">17<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:36px;">
+    <span class="eyebrow">add a policy in one PR</span>
+    <h2 class="h-2">Six lines of YAML.</h2>
+  </div>
+  <pre class="code"><span class="c"># configs/policies.yaml</span>
+- <span class="k">name:</span>     <span class="s">my_new_policy</span>
+  <span class="k">factory:</span>  <span class="s">lerobot.policies.factory.from_pretrained</span>
+  <span class="k">repo_id:</span>  <span class="s">my-org/my-checkpoint</span>
+  <span class="k">revision:</span> <span class="s">a1b2c3d4e5f6...</span>           <span class="c"># pinned SHA — never `main`</span>
+  <span class="k">envs:</span>     [<span class="s">pusht</span>, <span class="s">aloha_transfer_cube</span>]
+  <span class="k">paper_rates:</span>                             <span class="c"># optional — shown on Space</span>
+    <span class="k">pusht:</span>  <span class="s">0.85</span></pre>
+  <div class="body" style="margin-top:24px;font-size:20px;">
+    The orchestrator picks it up. Calibration sets N. The matrix runs your cell. CI guards lint, types, fast tests.
+  </div>
+  <div class="foot"><span>CONTRIBUTING.md · examples/add_a_policy.py</span><span class="src">first-PR friendly</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 18 — LIMITATIONS -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="Three honest limits — the rest are in the paper.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">18<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:36px;">
+    <span class="eyebrow">what we don't claim</span>
+    <h2 class="h-2">Three structural limits.</h2>
+  </div>
+  <div class="three">
+    <div class="item">
+      <span class="n">01 / sim only</span>
+      <h4>No sim-to-real bridge.</h4>
+      <p>PushT, Aloha, LIBERO — all MuJoCo. Real-robot transfer is out of scope for v1.</p>
+    </div>
+    <div class="item">
+      <span class="n">02 / sparse matrix</span>
+      <h4>Each policy on its home env only.</h4>
+      <p>Pooled per-policy comparisons aren't statistically defined when env supports don't overlap.</p>
+    </div>
+    <div class="item">
+      <span class="n">03 / one task / suite</span>
+      <h4>LIBERO at task_id = 0.</h4>
+      <p>v1.1 expands to all 10 tasks per suite. Today's numbers are per-suite, not per-suite-averaged. (See slide 08.)</p>
+    </div>
+  </div>
+  <div class="body" style="margin-top:28px;font-size:19px;color:var(--mute);">
+    Three more in <span class="mono">paper §6</span> — multi-comparison correction, single-hardware wall-time, calibrated MDE band.
+  </div>
+  <div class="foot"><span>paper §6 Limitations · docs/LIMITATIONS.md</span><span class="src">scoped, not hidden</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 19 — STATISTICAL MACHINERY -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="How we say 'different' — Wilson, bootstrap, MDE.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">19<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:36px;">
+    <span class="eyebrow">how we say "different"</span>
+    <h2 class="h-2">Wilson · Bootstrap · MDE.</h2>
+  </div>
+  <div class="three">
+    <div class="item"><span class="n">01 / wilson</span><h4>Closed-form 95% CIs on every cell.</h4><p>Valid at the edges (0% and 100%) where the Gaussian approximation lies.</p></div>
+    <div class="item"><span class="n">02 / bootstrap</span><h4>10,000 stratified resamples.</h4><p>For distributions and paired deltas, with (seed × episode) as the bootstrap unit.</p></div>
+    <div class="item"><span class="n">03 / mde</span><h4>≈ 12.3 pp at N = 250.</h4><p>Deltas smaller than this are inconclusive — we report them as such, not as findings.</p></div>
+  </div>
+  <div class="body" style="margin-top:28px;font-size:19px;">
+    A stats reviewer holds <em>veto authority</em> on every numeric claim. Every chart caption is a defensible interval.
+  </div>
+  <div class="foot"><span>src/lerobot_bench/stats.py · docs/MDE_TABLE.md</span><span class="src">α = 0.05 two-sided</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 20 — ROADMAP -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="main" data-cap="v1.1 — what we'd add next.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">20<span class="of">/</span>22</div>
+  </div>
+  <div class="title-block" style="margin-top:36px;">
+    <span class="eyebrow">v1.1 — what we'd add next</span>
+    <h2 class="h-2">Three open threads.</h2>
+  </div>
+  <div class="three">
+    <div class="item"><span class="n">→ coverage</span><h4>All 10 LIBERO tasks per suite.</h4><p>Closes the largest caveat from slide 08. ~10× the libero cell count; calibrated to fit a weekend sweep.</p></div>
+    <div class="item"><span class="n">→ xvla</span><h4>Root-cause Bug 3.</h4><p>Chunked-action layout vs <span class="mono ink">empty_camera_0</span> handling. Upstream issue in flight.</p></div>
+    <div class="item"><span class="n">→ upstream</span><h4>Land <span class="mono ink">lerobot.eval.multi_seed</span>.</h4><p>Eval module as a reusable upstream piece. Fork ready. Tests green on our side.</p></div>
+  </div>
+  <div class="body" style="margin-top:28px;font-size:19px;color:var(--mute);">
+    Full roadmap (v1.1 → vNext): <span class="mono">docs/PIPELINE_ROADMAP.md</span> — covers pi-family, sim-to-real, MetaWorld, online RL.
+  </div>
+  <div class="foot"><span>docs/DEFERRED_POLICIES.md · docs/PIPELINE_ROADMAP.md</span><span class="src">target: v1.1 cut Q3 2026</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 21 — ACKS -->
+<!-- ===================================================================== -->
+<section class="slide center" data-section="main" data-cap="Standing on open shoulders.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">21<span class="of">/</span>22</div>
+  </div>
+  <div style="max-width:1620px;">
+    <div class="eyebrow" style="margin-bottom:28px;">standing on open shoulders</div>
+    <h2 class="h-2" style="font-size:46px;margin-bottom:36px;line-height:1.25;">
+      <span class="ink">The LeRobot team</span> built the policies and the env wrappers.<br>
+      <span class="ink">Hugging Face</span> hosts the leaderboard for free.<br>
+      <span class="ink">Diffusion Policy, ACT, SmolVLA, X-VLA authors</span> shipped pretrained checkpoints.<br>
+      <span class="ink">Anthropic</span> shipped the agent harness that made a one-person sweep tractable.
+    </h2>
+    <div class="body-lg" style="color:var(--mute);font-size:24px;">
+      None of this exists without them. The contribution here is the <em class="serif-it" style="color:var(--ink);">protocol</em> — the connective tissue that lets you trust a row in the table.
+    </div>
+  </div>
+  <div class="foot"><span>issues + PRs welcome</span><span class="src">CONTRIBUTING.md</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- 22 — TAKEAWAY -->
+<!-- ===================================================================== -->
+<section class="slide center dark" data-section="main" data-cap="The takeaway — the protocol is the contribution.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench</div>
+    <div class="num">22<span class="of">/</span>22</div>
+  </div>
+  <div style="text-align:left;max-width:1620px;">
+    <div class="eyebrow" style="margin-bottom:28px;">takeaway</div>
+    <div class="h-mega" style="font-size:128px;line-height:1.08;letter-spacing:-3px;">
+      The benchmark<br>is the <span style="color:var(--mute);">data.</span><br>
+      The protocol<br>is the <span class="em">contribution.</span>
+    </div>
+  </div>
+  <div class="foot"><span>thank you · questions?</span><span class="src">github.com/thrmnn/lerobot-bench · v1.0.0</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- S1 — SUPPLEMENTARY: paper vs measured scatter -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="outro" data-cap="Supplementary — paper vs measured, all 5 points.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · supplementary</div>
+    <div class="num">S1<span class="of">/</span>S2</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow accent">supplementary · for the technically curious</span>
+    <h2 class="h-2">Paper-reported vs measured. <span class="serif-it accent">One picture.</span></h2>
+  </div>
+  <div class="fig-embed">
+    <img src="../../docs/assets/fig-replication-scatter.png" alt="Paper-reported vs measured success rate scatter, with Wilson 95% CI error bars; classical heads on the diagonal, SmolVLA scatters below.">
+  </div>
+  <div class="body" style="margin-top:8px;font-size:18px;color:var(--mute);">
+    Above the diagonal = beat the paper. Below = missed it. Classical heads sit on the line; the VLA scatters below — and the gap correlates with task complexity. <span class="warm">All caveats from slide 08 apply.</span>
+  </div>
+  <div class="foot"><span>scripts/replication_scatter.py · results.parquet + configs/policies.yaml</span><span class="src">docs/assets/fig-replication-scatter.png</span></div>
+</section>
+
+<!-- ===================================================================== -->
+<!-- S2 — RESEARCH EXTENSIONS -->
+<!-- ===================================================================== -->
+<section class="slide" data-section="outro" data-cap="Supplementary — research extensions beyond v1.x.">
+  <div class="chrome">
+    <div class="brand"><svg viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="116" height="116" rx="22"/><line x1="34" y1="92" x2="34" y2="74"/><line x1="64" y1="92" x2="64" y2="58"/><line x1="94" y1="92" x2="94" y2="42"/></svg> lerobot-bench · supplementary</div>
+    <div class="num">S2<span class="of">/</span>S2</div>
+  </div>
+  <div class="title-block" style="margin-top:32px;">
+    <span class="eyebrow accent">supplementary · research extensions</span>
+    <h2 class="h-2">Where this work could go next.</h2>
+  </div>
+  <div class="cards-grid cols-2" style="grid-template-rows:repeat(2,1fr);gap:16px;">
+    <div class="pcard">
+      <div class="pcard-top"><div class="label"><span class="name">sim → real</span><span class="sub">hardware bridge</span></div><span class="tag">v1.3</span></div>
+      <p>Re-run the protocol on physical <em>Koch</em> and <em>SO-100</em> arms. Sparser matrix, same statistics. The reproducibility story should survive the embodiment gap.</p>
+      <div class="specs"><span>real hardware</span><span>cross-embodiment</span><span>noise model</span></div>
+    </div>
+    <div class="pcard">
+      <div class="pcard-top"><div class="label"><span class="name">all-tasks LIBERO + new envs</span><span class="sub">coverage</span></div><span class="tag">v1.1 / v1.2</span></div>
+      <p>10× LIBERO tasks per suite first. Then add <em>aloha_insertion</em>, robomimic, MetaWorld pick-place. Multi-comparison correction across the wider grid.</p>
+      <div class="specs"><span>~10× cells</span><span>task heatmap</span><span>holm correction</span></div>
+    </div>
+    <div class="pcard">
+      <div class="pcard-top"><div class="label"><span class="name">scaling laws</span><span class="sub">params × data × success</span></div><span class="tag">v1.2</span></div>
+      <p>Plot measured success vs parameter count vs training-data size. Does the VLA replication gap narrow at scale, or widen? Pi-family unlocks the high-end data point.</p>
+      <div class="specs"><span>4-bit GPTQ</span><span>π₀ · π₀.₅</span><span>log-log</span></div>
+    </div>
+    <div class="pcard">
+      <div class="pcard-top"><div class="label"><span class="name">online learning</span><span class="sub">close the replication gap</span></div><span class="tag">v1.3+</span></div>
+      <p>Use the deterministic-ceiling baseline as a critic. Fine-tune VLAs with small-batch RL until they beat their paper number. Closing the gap is the obvious next contribution.</p>
+      <div class="specs"><span>PPO / SAC</span><span>cheap fine-tune</span><span>fair-comparison protocol</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>full plan: docs/PIPELINE_ROADMAP.md · discuss in GitHub Discussions</span><span class="src">PRs welcome</span></div>
+</section>
+
+</div>
+
+<!-- controls -->
+<div id="controls" class="hidden">
+  <button id="overviewBtn" title="O · overview"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></button>
+  <span class="sep">|</span>
+  <button id="prev" title="← prev">‹</button>
+  <span class="counter" id="counter">01 / 28</span>
+  <button id="next" title="next →">›</button>
+  <span class="sep">|</span>
+  <button id="play" title="P · auto 20s">▶ play</button>
+  <button id="full" title="F · fullscreen"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+</div>
+
+<script>
+(function(){
+  const slides    = Array.from(document.querySelectorAll('#stage > .slide'));
+  const counter   = document.getElementById('counter');
+  const progress  = document.getElementById('progress');
+  const stage     = document.getElementById('stage');
+  const playBtn   = document.getElementById('play');
+  const overview  = document.getElementById('overview');
+  const controls  = document.getElementById('controls');
+  const prevBtn   = document.getElementById('prev');
+  const nextBtn   = document.getElementById('next');
+  const fullBtn   = document.getElementById('full');
+  const ovBtn     = document.getElementById('overviewBtn');
+
+  const firstMain  = slides.findIndex(s => s.dataset.section === 'main');
+  const firstOutro = slides.findIndex(s => s.dataset.section === 'outro');
+
+  let cur = 0, mode = 'overview', autoTimer = null, playing = false;
+
+  function fitStage(){ stage.style.transform = `scale(${Math.min(innerWidth/1920, innerHeight/1080)})`; }
+
+  function render(){
+    slides.forEach((s,j) => s.classList.toggle('active', j === cur));
+    counter.textContent = String(cur+1).padStart(2,'0') + ' / ' + String(slides.length).padStart(2,'0');
+    progress.style.width = ((cur+1)/slides.length*100) + '%';
+    if(mode === 'slides'){
+      overview.classList.add('hidden');
+      controls.classList.remove('hidden');
+      progress.classList.remove('hidden');
+      fitStage();
+    } else {
+      overview.classList.remove('hidden');
+      controls.classList.add('hidden');
+      progress.classList.add('hidden');
+      stopAuto();
+    }
+    try{ const h = mode==='slides' ? '#'+(cur+1) : '#overview'; if(location.hash !== h) history.replaceState(null,'',h); }catch(_){}
+  }
+
+  function show(i){
+    cur = ((i % slides.length) + slides.length) % slides.length;
+    if(autoTimer){ clearTimeout(autoTimer); autoTimer = setTimeout(()=>show(cur+1), 20000); }
+    render();
+  }
+
+  function enterSlides(i){ mode='slides'; cur = (typeof i === 'number' && i>=0 && i<slides.length) ? i : cur; render(); }
+  function enterOverview(){ mode='overview'; render(); }
+
+  window.goto = function(target){
+    if(target === 'overview') return enterOverview();
+    if(target === 'main')     return enterSlides(firstMain);
+    if(target === 'outro')    return enterSlides(firstOutro);
+    if(typeof target === 'number') return enterSlides(target);
+    if(typeof target === 'string' && /^\d+$/.test(target)) return enterSlides(parseInt(target,10)-1);
+  };
+  window.show = show;
+
+  function startAuto(){ if(playing) return; playing=true; autoTimer = setTimeout(()=>show(cur+1), 20000); playBtn.classList.add('on'); playBtn.textContent='⏸ playing'; }
+  function stopAuto(){ playing=false; if(autoTimer){clearTimeout(autoTimer); autoTimer=null;} playBtn.classList.remove('on'); playBtn.textContent='▶ play'; }
+  function toggleAuto(){ playing ? stopAuto() : startAuto(); }
+
+  document.addEventListener('keydown', e => {
+    if(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    const k = e.key;
+    if(k==='o'||k==='O'){ mode==='slides' ? enterOverview() : enterSlides(cur); e.preventDefault(); return; }
+    if(k==='Escape' && mode==='slides'){ enterOverview(); e.preventDefault(); return; }
+    if(mode !== 'slides'){ if(k==='Enter'){ enterSlides(firstMain); e.preventDefault(); } return; }
+    if(k==='ArrowRight'||k===' '||k==='PageDown'){ e.preventDefault(); show(cur+1); }
+    else if(k==='ArrowLeft'||k==='PageUp'){ e.preventDefault(); show(cur-1); }
+    else if(k==='Home'){ e.preventDefault(); show(0); }
+    else if(k==='End'){ e.preventDefault(); show(slides.length-1); }
+    else if(k==='p'||k==='P'){ e.preventDefault(); toggleAuto(); }
+    else if(k==='f'||k==='F'){ e.preventDefault(); document.documentElement.requestFullscreen?.(); }
+  });
+
+  prevBtn.onclick = () => show(cur-1);
+  nextBtn.onclick = () => show(cur+1);
+  playBtn.onclick = toggleAuto;
+  fullBtn.onclick = () => document.documentElement.requestFullscreen?.();
+  ovBtn.onclick   = enterOverview;
+  document.getElementById('enterMainBtn').onclick = () => enterSlides(firstMain);
+  document.getElementById('enterContextBtn').onclick = () => enterSlides(0);
+
+  addEventListener('resize', () => { if(mode==='slides') fitStage(); scaleThumbnails(); });
+
+  function buildThumb(slide, idx){
+    const cell = document.createElement('button');
+    const isCtx = slide.dataset.section === 'context';
+    const isRig = (slide.querySelector('.chrome.rigor') !== null);
+    cell.className = 'ov-cell' + (isCtx ? ' context' : '') + (isRig ? ' rigor' : '');
+    cell.type = 'button';
+    const label = String(idx+1).padStart(2,'0');
+    cell.setAttribute('aria-label', `Slide ${label}: ${slide.dataset.cap || ''}`);
+    const tag = document.createElement('span'); tag.className='ov-tag'; tag.textContent=label; cell.appendChild(tag);
+    const cap = document.createElement('span'); cap.className='ov-cap'; cap.textContent = slide.dataset.cap || ''; cell.appendChild(cap);
+    const frame = document.createElement('div'); frame.className='ov-frame';
+    const inner = document.createElement('div'); inner.className='ov-inner';
+    const clone = slide.cloneNode(true);
+    clone.classList.add('active');
+    clone.style.animation = 'none';
+    clone.querySelectorAll('video').forEach(v => v.removeAttribute('autoplay'));
+    inner.appendChild(clone); frame.appendChild(inner); cell.appendChild(frame);
+    cell.addEventListener('click', () => enterSlides(idx));
+    return cell;
+  }
+
+  function buildOverview(){
+    const ctx = document.getElementById('ovContextGrid');
+    const main = document.getElementById('ovMainGrid');
+    const out = document.getElementById('ovOutroGrid');
+    slides.forEach((s,i) => {
+      const target = s.dataset.section === 'context' ? ctx
+                   : s.dataset.section === 'outro'   ? out : main;
+      target.appendChild(buildThumb(s, i));
+    });
+    scaleThumbnails();
+  }
+
+  function scaleThumbnails(){
+    document.querySelectorAll('.ov-cell').forEach(cell => {
+      const inner = cell.querySelector('.ov-inner');
+      if(!inner) return;
+      inner.style.transform = `scale(${cell.clientWidth / 1920})`;
+    });
+  }
+
+  buildOverview();
+
+  const h = (location.hash || '').replace('#','');
+  if(h && h !== 'overview'){
+    const n = parseInt(h, 10);
+    if(!isNaN(n) && n>=1 && n<=slides.length) enterSlides(n-1);
+    else render();
+  } else render();
+})();
+</script>
+</body>
+</html>
