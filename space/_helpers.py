@@ -341,6 +341,27 @@ def filter_episodes(
 # --------------------------------------------------------------------- #
 
 
+def video_filename(policy: str, env: str, seed: int, episode: int) -> str:
+    """Return the flat MP4 filename for one episode.
+
+    This MUST stay byte-for-byte identical to the publisher's
+    ``scripts/publish_results.py::_video_filename`` (and the renderer it
+    mirrors). The files on the Hub dataset are FLAT — there is no nested
+    ``<policy>/<env>/seed<N>/`` directory tree — so any divergence here
+    404s every ``gr.Video`` panel. The contract is::
+
+        {policy}__{env}__seed{seed}__ep{episode:03d}.mp4
+
+    ``episode`` is zero-padded to 3 digits; ``seed`` is not padded.
+    ``tests/test_space_helpers.py`` pins this against the publisher.
+    """
+    if seed < 0:
+        raise ValueError(f"seed must be non-negative, got {seed}")
+    if episode < 0:
+        raise ValueError(f"episode must be non-negative, got {episode}")
+    return f"{policy}__{env}__seed{seed}__ep{episode:03d}.mp4"
+
+
 def format_video_url(policy: str, env: str, seed: int, episode: int) -> str:
     """Return the direct Hub URL for one episode's MP4.
 
@@ -349,20 +370,11 @@ def format_video_url(policy: str, env: str, seed: int, episode: int) -> str:
     DESIGN.md § Video render policy as the load-bearing choice for
     free-CPU compatibility.
 
-    The URL pattern mirrors the directory layout written by
-    ``lerobot_bench.render`` + ``scripts/publish_results.py``::
-
-        videos/<policy>/<env>/seed<N>/episode<E>.mp4
-
-    Filenames use zero-padded indices for clean sort order on the
-    Hub file browser, but the Hub URL resolver is not picky about
-    leading zeros — keep it simple and match the writer.
+    The URL is ``<resolve>/videos/<flat-filename>.mp4`` where the flat
+    filename comes from :func:`video_filename` — kept in lock-step with
+    ``scripts/publish_results.py``.
     """
-    if seed < 0:
-        raise ValueError(f"seed must be non-negative, got {seed}")
-    if episode < 0:
-        raise ValueError(f"episode must be non-negative, got {episode}")
-    return f"{HUB_RAW_PREFIX}/videos/{policy}/{env}/seed{seed}/episode{episode}.mp4"
+    return f"{HUB_RAW_PREFIX}/videos/{video_filename(policy, env, seed, episode)}"
 
 
 def episode_metadata(row: pd.Series) -> dict[str, object]:
