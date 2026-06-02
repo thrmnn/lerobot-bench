@@ -101,7 +101,10 @@ worktree-prune:  ## Remove merged/clean git worktrees under .claude/worktrees (k
 			echo "skip (uncommitted changes): $$wt"; continue; \
 		fi; \
 		br=$$(git -C "$$wt" rev-parse --abbrev-ref HEAD 2>/dev/null); \
-		if [ "$$br" != "HEAD" ] && ! git branch --merged main | grep -qxF "  $$br"; then \
+		if [ "$$br" = "HEAD" ]; then \
+			echo "skip (detached HEAD; can't confirm merged): $$wt"; continue; \
+		fi; \
+		if ! git branch --merged main | grep -qxF "  $$br"; then \
 			echo "skip (unmerged branch $$br): $$wt"; continue; \
 		fi; \
 		echo "remove: $$wt ($$br)"; \
