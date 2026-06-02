@@ -1,0 +1,64 @@
+name: wm-smoke
+
+# Placeholder smoke check for the FUTURE exploratory world-model / JEPA-planner
+# track (WM planners evaluated AS policies via act(obs)->action).
+#
+# Deliberately scoped so it NEVER becomes a gate on normal bench work:
+#   - PATH-SCOPED to research/** and docs/WM_RESEARCH_TRACK.md only — it does
+#     NOT run on ordinary bench PRs (no src/**, tests/**, configs/** triggers).
+#   - CPU-ONLY (ubuntu-latest, no GPU): the WM track is not GPU-wired yet.
+#   - NON-REQUIRED: do not add this job to branch-protection required checks.
+#     It is informational; a red wm-smoke must never block a merge.
+#
+# Until the WM track exists (research/ dir + docs/WM_RESEARCH_TRACK.md), this is
+# an intentional no-op that reports "nothing to smoke-test" and exits green.
+# workflow_dispatch lets it be exercised manually before the trigger paths land.
+
+on:
+  pull_request:
+    paths:
+      - "research/**"
+      - "docs/WM_RESEARCH_TRACK.md"
+      - ".github/workflows/wm-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wm-smoke:
+    name: world-model track (placeholder, non-required)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Detect WM track presence
+        id: probe
+        run: |
+          if [ -d research ] || [ -f docs/WM_RESEARCH_TRACK.md ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::WM track not present yet (no research/ or docs/WM_RESEARCH_TRACK.md); placeholder no-op."
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.probe.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # CPU-only placeholder. When the WM track lands, replace this with the
+      # real act(obs)->action dispatch smoke (one tiny cell, synthetic obs).
+      # Keep it CPU-only and non-required.
+      - name: Placeholder smoke
+        if: steps.probe.outputs.present == 'true'
+        run: |
+          echo "WM track files present; placeholder smoke is a no-op for now."
+          echo "TODO(wm-track): boot the act(obs)->action planner dispatch on a"
+          echo "  synthetic single-cell obs and assert it returns an action."

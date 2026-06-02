@@ -49,7 +49,11 @@ all: lint typecheck test  ## Lint + typecheck + test
 
 # --- bench-specific ---
 
-.PHONY: calibrate sweep-mini sweep-full publish space-deploy dashboard probe-act probe-smolvla probes
+.PHONY: calibrate sweep-mini sweep-full publish space-deploy worktree-prune dashboard probe-act probe-smolvla probes
+
+# Slug for the HF Space git remote; override if the Space lives elsewhere.
+HF_SPACE_REMOTE ?= hf-space
+HF_SPACE_URL    ?= https://huggingface.co/spaces/thrmnn/lerobot-bench
 
 calibrate:  ## Day 0b: per-policy step latency probe
 	$(PYTHON) scripts/calibrate.py
@@ -79,8 +83,35 @@ review-results:  ## Sanity-check the partial sweep results.parquet for anomalies
 publish:  ## Push results to HF Hub dataset: pass `ARGS="--results-path ... --manifest-path ... --videos-dir ..."`
 	$(PYTHON) scripts/publish_results.py $(ARGS)
 
-space-deploy:  ## Push the Spaces app to HF Spaces git remote
-	cd space && git push hf-space main
+space-deploy:  ## Deploy space/ to the HF Space via subtree push (create the Space + remote first; see docs/RUNBOOK.md)
+	@git remote get-url $(HF_SPACE_REMOTE) >/dev/null 2>&1 || { \
+		echo "No '$(HF_SPACE_REMOTE)' remote. Create the Space + add the remote first:"; \
+		echo "  huggingface-cli repo create lerobot-bench --type space --space_sdk gradio"; \
+		echo "  git remote add $(HF_SPACE_REMOTE) $(HF_SPACE_URL)"; \
+		exit 2; }
+	git subtree push --prefix space $(HF_SPACE_REMOTE) main
+
+worktree-prune:  ## Remove merged/clean git worktrees under .claude/worktrees (keeps current + dirty ones)
+	@cur=$$(git rev-parse --show-toplevel); \
+	git worktree list --porcelain | awk '/^worktree /{print $$2}' | while read -r wt; do \
+		case "$$wt" in */.claude/worktrees/*) ;; *) continue ;; esac; \
+		[ "$$wt" = "$$cur" ] && { echo "skip (current): $$wt"; continue; }; \
+		[ -d "$$wt" ] || continue; \
+		if [ -n "$$(git -C "$$wt" status --porcelain 2>/dev/null)" ]; then \
+			echo "skip (uncommitted changes): $$wt"; continue; \
+		fi; \
+		br=$$(git -C "$$wt" rev-parse --abbrev-ref HEAD 2>/dev/null); \
+		if [ "$$br" = "HEAD" ]; then \
+			echo "skip (detached HEAD; can't confirm merged): $$wt"; continue; \
+		fi; \
+		if ! git branch --merged main | grep -qxF "  $$br"; then \
+			echo "skip (unmerged branch $$br): $$wt"; continue; \
+		fi; \
+		echo "remove: $$wt ($$br)"; \
+		git worktree remove "$$wt" 2>/dev/null || git worktree remove --force "$$wt"; \
+	done; \
+	git worktree prune; \
+	echo "done."
 
 dashboard:  ## Launch the local-first operator sweep dashboard (Gradio)
 	$(PYTHON) dashboard/app.py

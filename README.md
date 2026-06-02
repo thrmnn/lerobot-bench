@@ -17,7 +17,7 @@
 **Quick links:** [Get started](docs/GETTING_STARTED.md) · [Live leaderboard](https://huggingface.co/spaces/thrmnn/lerobot-bench) · [Dataset](https://huggingface.co/datasets/thrmnn/lerobot-bench-v1) · [Paper](paper/main.tex) · [Contributing](CONTRIBUTING.md) · [Reproduce](docs/REPRODUCE.md)
 <!-- Hero image: the public HF Space leaderboard. Captured by the maintainer once the Space is live; see docs/assets/README.md. The repo renders fine while this file is absent. -->
 <picture>
-  <img src="docs/assets/leaderboard.png" alt="lerobot-bench leaderboard: success rate with 95% confidence intervals for 6 pretrained LeRobot policies across 6 simulated manipulation environments" width="820">
+  <img src="docs/assets/leaderboard.png" alt="lerobot-bench leaderboard: success rate with 95% confidence intervals for the 5 public-leaderboard LeRobot policies (xvla deferred to v1.1) across a 6×6 policy×env matrix executed in the v1 sweep" width="820">
 </picture>
 
 </div>
@@ -98,6 +98,18 @@ After v1.0 sweep completion we conducted a static methodology audit against each
 - **Safety.** All heavy workloads run under a kernel-enforced 18 GB cgroup memory cap via `scripts/run_capped.sh`. Pre-flight gate refuses launch when baseline RAM > 55% used to protect parallel tenants on the host.
 
 Full design: [`docs/DESIGN.md`](docs/DESIGN.md). Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). MDE math: [`docs/MDE_TABLE.md`](docs/MDE_TABLE.md).
+
+---
+
+## What's next (planned, not shipped)
+
+These are **roadmap items, not v1 deliverables** — listed so you can see where the benchmark is heading. Full plan: [`docs/PIPELINE_ROADMAP.md`](docs/PIPELINE_ROADMAP.md).
+
+- **Coverage breadth (v1.1+).** All-10-task LIBERO sweep to close the SmolVLA single-task scope caveat; re-enable `xvla_libero` on the leaderboard once the upstream Hub-artifact bug is resolved; pi-family via streaming/quantized load.
+- **Sim-to-real bridge (v1.3).** Re-run a subset of the matrix on physical Koch v1.1 / SO-100 hardware; the statistics infrastructure carries over unchanged.
+- **World-model / JEPA planner track (exploratory).** A separate, slow-lane research effort evaluates world-model planners *as policies* (`act(obs) -> action`) through the same eval contract. It runs in its own repo with its own toolchain and does **not** touch the production leaderboard: the only write into the bench is a gated adapter PR, held off the leaderboard until a planner is explicitly promoted. The two-speed operating model is documented in [`docs/TWO_SPEED.md`](docs/TWO_SPEED.md); the research track itself in [`docs/WM_RESEARCH_TRACK.md`](docs/WM_RESEARCH_TRACK.md).
+
+This separation is deliberate: the production benchmark ships and stays stable (fast lane) while world-model research moves on its own clock (slow lane). See [`docs/TWO_SPEED.md`](docs/TWO_SPEED.md).
 
 ---
 

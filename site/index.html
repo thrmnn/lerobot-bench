@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lerobot-bench — a reproducible benchmark for pretrained robot policies</title>
-<meta name="description" content="Six pretrained policies × six simulated environments. 5 seeds × 50 episodes each, Wilson 95% CIs, every per-episode result open.">
+<meta name="description" content="A 6×6 policy×env matrix executed; 5 policies on the public leaderboard (xvla deferred to v1.1). 5 seeds × 50 episodes each, Wilson 95% CIs, every per-episode result open.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@
   <header class="hero">
     <span class="eyebrow"><span class="dot"></span>lerobot-bench · v1</span>
     <h1 class="h-1">A reproducible benchmark for <span class="em">pretrained robot policies</span>.</h1>
-    <p class="tagline">Six policies × six sim environments, every per-episode result open. Built on <span class="mono ink">lerobot 0.5.1</span>.</p>
+    <p class="tagline">A 6×6 policy×env matrix executed; 5 policies on the public leaderboard (xvla deferred to v1.1). Every per-episode result open. Built on <span class="mono ink">lerobot 0.5.1</span>.</p>
 
     <blockquote class="headline-quote">
       <strong class="ink">Headline:</strong>
@@ -55,7 +55,7 @@
 
     <figure class="figure-card">
       <div class="figure-frame">
-        <img src="assets/replication_scatter.svg" alt="Replication scatter: measured success rate vs. each policy's reported paper number across the 6 × 6 matrix. The ACT × aloha point at paper inference settings sits at 0.764, on the replication diagonal; the Hub-default point sits near zero." loading="lazy">
+        <img src="assets/replication_scatter.svg" alt="Replication scatter: measured success rate vs. each policy's reported paper number for the 5 leaderboard policies (xvla deferred). The ACT × aloha point at paper inference settings sits at 0.764, on the replication diagonal; the Hub-default point sits near zero." loading="lazy">
       </div>
       <figcaption>
         <span class="cap-lab">Fig. 1 · Replication scatter</span>
@@ -116,12 +116,12 @@
       <div class="method-item">
         <span class="n">02 · INTERVALS</span>
         <h4>Wilson 95% CIs, Holm-Bonferroni.</h4>
-        <p>Per-cell from <span class="mono">N = 250</span>; family-wise correction across <span class="mono">36 cells</span>.</p>
+        <p>Per-cell from <span class="mono">N = 250</span>; family-wise correction across the leaderboard cells (of <span class="mono">110</span> executed).</p>
       </div>
       <div class="method-item">
         <span class="n">03 · MDE BAND</span>
         <h4>What 250 episodes can resolve.</h4>
-        <p>Minimum detectable effect <span class="mono ink">~9pp</span> at p ≈ 0.5.</p>
+        <p>Minimum detectable effect <span class="mono ink">~12.3pp</span> at p ≈ 0.5.</p>
       </div>
     </div>
   </section>

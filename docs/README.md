@@ -1,7 +1,8 @@
 # Documentation index
 
 `lerobot-bench` is a public, reproducible benchmark of pretrained LeRobot
-manipulation policies — 6 policies × 6 simulated environments, run under a
+manipulation policies — a 6×6 policy×env matrix executed (110 cells), with
+5 policies on the public leaderboard and xvla deferred to v1.1, run under a
 multi-seed contract with Wilson and bootstrap confidence intervals, minimum
 detectable difference (MDE) bounds, paired comparisons, and a hand-labeled
 failure taxonomy.
@@ -81,6 +82,14 @@ want the *why* behind the project or are preparing a release.
   reviewer concerns; the *what* and *why* of the benchmark.
 - [`CEO-PLAN.md`](CEO-PLAN.md) — strategic framing of the project as a triptych
   artifact (benchmark + arxiv writeup + upstream PR).
+- [`PIPELINE_ROADMAP.md`](PIPELINE_ROADMAP.md) — how the benchmark evolves past
+  v1.0: the publish chain, the methodology-audit gate, coverage breadth, the
+  sim-to-real bridge, and the world-model research track (§6).
+- [`TWO_SPEED.md`](TWO_SPEED.md) — the two-speed operating model: the fast-lane
+  production benchmark vs. the slow-lane world-model research track, and the
+  single gated adapter PR that is the only write from research into the bench.
+- [`WM_RESEARCH_TRACK.md`](WM_RESEARCH_TRACK.md) — the world-model / JEPA planner
+  research track: scope, repo split, and how a planner is evaluated as a policy.
 - [`NEXT_STEPS.md`](NEXT_STEPS.md) — live execution checklist tracking what
   lands in the next PR.
 - [`SECURITY.md`](SECURITY.md) — security policy: how to report a vulnerability

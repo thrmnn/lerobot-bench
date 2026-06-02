@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-06-02
+
 > v1.0.1 + v1.0.2 audit + consolidation work has landed on `main` (pending a tagged release). The two reads on the v1 dataset that the audit changed:
 > - **act × aloha** : **0.016 → 0.764** at paper inference settings (PR #97 probe, task #121). The Hub-default `temporal_ensemble_coeff=None, n_action_steps=100` were hiding ~75 pp of ACT's competence on this env. The v1.0.0 cell rows stay published as-is (audit-trail integrity); the reframing changes what those rows *mean*, not what they record.
 > - **smolvla × LIBERO** : single-task (`task_id=0`) probe, not 10-task average like the paper. Step caps `{280, 280, 300, 520}` are below canonical 600. The cap=600 probe resolved (task #122, PR #108): **0.256 [0.206, 0.314]**, with 74.4 % cap-hits at 600 vs 74.8 % at 520 — the policy is the bottleneck, not the step cap; the 0.252 lower bound essentially holds.
@@ -169,6 +171,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 - No implementation code yet. Day 0 of the build per `docs/CEO-PLAN.md`.
 
-[Unreleased]: https://github.com/thrmnn/lerobot-bench/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/thrmnn/lerobot-bench/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/thrmnn/lerobot-bench/compare/v1.0.0...v1.0.2
 [1.0.0]: https://github.com/thrmnn/lerobot-bench/compare/v0.0.1...v1.0.0
 [0.0.1]: https://github.com/thrmnn/lerobot-bench/releases/tag/v0.0.1
