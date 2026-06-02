@@ -72,3 +72,92 @@ jobs:
         if: always()
         run: |
           if [ -f /tmp/space.pid ]; then kill "$(cat /tmp/space.pid)" 2>/dev/null || true; fi
+
+  schema-drift:
+    # Guards against the Space's PINNED lerobot-bench lib (the
+    # ``git+...@<sha>`` line in space/requirements.txt) silently
+    # disagreeing with the LIVE published parquet it reads at runtime.
+    # The Space imports RESULT_SCHEMA/wilson_ci/filter_to_v1_policies from
+    # the pin but reads the parquet from the live Hub dataset; a schema
+    # bump on the publisher side can break the deployed Space with no
+    # local signal. We load the live parquet through the pinned lib and
+    # assert the REQUIRED columns are present (tolerating extra OPTIONAL
+    # columns) so a breaking drift fails CI before deploy.
+    name: schema drift guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install the PINNED lerobot-bench lib + parquet readers
+        run: |
+          pip install --upgrade pip
+          # Reuse the exact pin the Space deploys with: the
+          # ``git+https://...@<sha>`` line from space/requirements.txt.
+          # Grepping it out keeps this in lock-step with the deploy pin
+          # without hand-duplicating the SHA here.
+          PIN="$(grep -E '^git\+https://github\.com/.+/lerobot-bench\.git@' space/requirements.txt)"
+          if [ -z "$PIN" ]; then
+            echo "::error::could not find the pinned lerobot-bench git line in space/requirements.txt"
+            exit 1
+          fi
+          echo "Installing pinned lib: $PIN"
+          pip install "$PIN" pandas pyarrow
+
+      - name: Assert live parquet satisfies the pinned REQUIRED schema
+        env:
+          # Mirrors space/_helpers.py::HUB_DATASET_REPO. The Space reads
+          # the parquet from this dataset's resolve/main at runtime.
+          PARQUET_URL: "https://huggingface.co/datasets/thrmnn/lerobot-bench-v1/resolve/main/results.parquet"
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          import pandas as pd
+
+          # Prefer the post-split REQUIRED set if the eval-core PR has
+          # landed; otherwise the whole RESULT_SCHEMA is the required set.
+          # Either way we assert REQUIRED is a SUBSET of the parquet's
+          # columns so extra OPTIONAL columns published later don't fail.
+          from lerobot_bench import checkpointing
+
+          required = getattr(checkpointing, "REQUIRED_SCHEMA", None)
+          if required is None:
+              required = checkpointing.RESULT_SCHEMA
+              print("note: pinned lib has no REQUIRED_SCHEMA; using RESULT_SCHEMA as required")
+          required = set(required)
+          print(f"pinned lib requires {len(required)} columns: {sorted(required)}")
+
+          url = os.environ["PARQUET_URL"]
+          try:
+              # Probe reachability first so a transient Hub outage is a
+              # NEUTRAL skip, not a false schema-drift failure. Only a
+              # successfully-fetched parquet with a MISSING required column
+              # is a real drift and hard-fails below.
+              req = urllib.request.Request(url, method="HEAD")
+              urllib.request.urlopen(req, timeout=30)
+          except (urllib.error.URLError, TimeoutError) as exc:
+              print(f"::warning::live parquet not reachable in CI ({exc}); skipping drift check")
+              sys.exit(0)
+
+          df = pd.read_parquet(url)
+          cols = set(df.columns)
+          missing = sorted(required - cols)
+          if missing:
+              extra = sorted(cols - required)
+              print(f"::error::live parquet is MISSING required columns {missing}")
+              print(f"  parquet columns: {sorted(cols)}")
+              print(f"  (extra/optional columns tolerated: {extra})")
+              sys.exit(1)
+
+          extra = sorted(cols - required)
+          print(f"OK: live parquet has all {len(required)} required columns "
+                f"(plus {len(extra)} optional: {extra})")
+          PY
