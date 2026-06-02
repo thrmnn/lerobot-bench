@@ -178,6 +178,31 @@ quickly, and the writeup (Day 8) needs the labeled CSV to render the
 taxonomy bar chart. Path A (the work that ships before lerobot install)
 gets to this template; the actual labels land on Day 7.
 
+## Dashboard drill-down (before labels exist)
+
+The operator dashboard's **Failures** tab (see `docs/MONITORING.md`) is
+the on-ramp to this template. Because the per-episode parquet has **no
+`failure_mode` column yet** — a real one is a future schema bump owned
+by the eval writer, not the dashboard — the tab degrades gracefully and
+surfaces only the label-free signals already on disk for a selected
+`(policy, env)` cell:
+
+* success and episode-length (`n_steps`) distributions;
+* the **cap-hit rate** — the fraction of *failed* episodes whose
+  `n_steps` reached the env `max_steps`. This is a direct proxy for the
+  **Timeout** mode (mode 3): a cell whose failures are almost all
+  cap-hits is failing by timeout, whereas a low cap-hit rate means the
+  failures terminate early (overshoot, slip, premature release, …) and
+  warrant a closer look in the rollouts;
+* direct MP4 links to the failed episodes via the flat video naming
+  `{policy}__{env}__seed{seed}__ep{NNN}.mp4`, so the labeler can scrub
+  straight to a failure and assign one of the six modes below.
+
+In other words: the dashboard narrows *which* failures to watch and
+pre-distinguishes timeouts; the human still assigns the mode into the
+CSV template below. When the real `failure_mode` column lands, the
+Failures tab grows a per-mode bar chart fed from that column.
+
 ## CSV template
 
 Fill this in as labels are produced. Append-only — never overwrite a
