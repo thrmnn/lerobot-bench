@@ -10,13 +10,13 @@ lazy-imports for ``torch`` / ``lerobot`` / ``lerobot_bench.render``, an
 exit-code-driven CLI, and a pure-orchestration :func:`run_one` function
 that the tests can drive without touching real lerobot/torch.
 
-**On error capture**: rows produced by :meth:`CellResult.to_rows` follow
-``RESULT_SCHEMA`` exactly — there is no ``error`` column. Per-episode
-exceptions captured by :func:`lerobot_bench.eval.run_cell` show up as
-``success=False`` rows with zeroed timing fields; the human-readable
-error string is written to the operator log line only, not to the
-parquet. This matches the leaderboard schema (one row per episode,
-boolean success) and is documented in DESIGN.md § Methodology.
+**On error capture**: rows produced by :meth:`CellResult.to_rows` carry
+the optional boolean ``errored`` column (audit H3): a per-episode
+exception captured by :func:`lerobot_bench.eval.run_cell` shows up as a
+``success=False, errored=True`` row with zeroed timing fields, so an
+OOM/env-crash is distinguishable from a legit task failure and
+``plan_resume`` re-runs the cell. The full human-readable error string
+is still only on the operator log line, not the parquet.
 
 **On mid-cell resume**: this script runs ONE cell. It is atomic at the
 cell granularity — either every episode's row lands in the parquet, or
@@ -251,6 +251,7 @@ def run_one(
     envs_yaml: Path,
     dry_run: bool,
     criterion: str = "v1_legacy",
+    eval_run_id: str = "",
 ) -> RunOneOutcome:
     """Run one cell end-to-end. Pure orchestration; lazy-imports torch/lerobot.
 
@@ -372,6 +373,7 @@ def run_one(
         device=device,
         record_video=record_video,
         videos_dir=videos_dir if record_video else None,
+        eval_run_id=eval_run_id,
     )
 
     # Pull the per-episode SHA list (parallel to episodes). When the
@@ -491,6 +493,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "v1_legacy default. See docs/CANONICAL_CRITERIA.md for the per-env table."
         ),
     )
+    parser.add_argument(
+        "--eval-run-id",
+        type=str,
+        default="",
+        help=(
+            "Provenance handle for this row's eval_run_id column. Normally "
+            "minted once per sweep by run_sweep and threaded down; defaults "
+            "to empty for standalone single-cell runs."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable DEBUG logging.")
     return parser.parse_args(argv)
 
@@ -516,6 +528,7 @@ def main(argv: list[str] | None = None) -> int:
             envs_yaml=args.envs_yaml,
             dry_run=args.dry_run,
             criterion="canonical" if args.canonical else "v1_legacy",
+            eval_run_id=args.eval_run_id,
         )
     except FileNotFoundError as exc:
         # Missing yaml is operator error -- treat as runtime-missing.
