@@ -1,9 +1,19 @@
 version: 2
 
-# Python deps are intentionally NOT bumped automatically.
+# The project's CORE Python deps are intentionally NOT bumped automatically.
 # `lerobot==0.5.1` is the reproducibility anchor; a sweep was run against
 # this exact pin. Bumping it requires a re-run of the sweep matrix and a
-# manifest version bump. Dependabot only watches GitHub Actions versions.
+# manifest version bump.
+#
+# The two PUBLIC-SURFACE requirement files (space/, dashboard/) are the
+# exception: they pin only presentation libs (gradio, pandas, pyarrow,
+# scipy, matplotlib, huggingface-hub) plus the same reproducibility
+# anchors. We let dependabot watch those presentation libs so a CVE or a
+# breaking gradio bump surfaces as a PR, but `ignore` the reproducibility
+# anchors (`lerobot`) so the pin can never be auto-bumped. The
+# `git+https://github.com/thrmnn/lerobot-bench.git@<sha>` line in
+# space/requirements.txt is a VCS dependency dependabot does not track by
+# package name, so it is left to the manual SHA-bump-per-sweep workflow.
 
 updates:
   - package-ecosystem: "github-actions"
@@ -21,5 +31,49 @@ updates:
       - "ci"
     groups:
       actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/space"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "space"
+    # Reproducibility anchor — never auto-bump. The `git+...lerobot-bench`
+    # VCS line is not name-tracked by dependabot and is excluded implicitly.
+    ignore:
+      - dependency-name: "lerobot"
+      - dependency-name: "lerobot-bench"
+    groups:
+      space-deps:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "dashboard"
+    ignore:
+      - dependency-name: "lerobot"
+      - dependency-name: "lerobot-bench"
+    groups:
+      dashboard-deps:
         patterns:
           - "*"
