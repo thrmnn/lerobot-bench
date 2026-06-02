@@ -90,7 +90,13 @@ git push origin main --tags
 
 ---
 
-## 0 · Why this doc exists
+## 0 · Two-speed framing
+
+This roadmap describes the **fast lane**: the production benchmark — shipping, testing, coverage breadth, the publish chain. There is also a **slow lane**: the world-model / JEPA planner research track, which runs in its own repo on its own clock and writes into the bench through exactly one gated adapter PR (held off the leaderboard until promoted). The two-speed operating model — what belongs in each lane, and the single sanctioned write across the boundary — is specified in [`docs/TWO_SPEED.md`](TWO_SPEED.md); the research track itself in [`docs/WM_RESEARCH_TRACK.md`](WM_RESEARCH_TRACK.md). Everything in §§1–5 below is fast-lane work; §6 is where the slow lane lands when (and only when) a planner is promoted.
+
+---
+
+## 0.1 · Why this doc exists
 
 The v1.0 sweep produced strong, quotable numbers:
 
@@ -274,7 +280,33 @@ Once v1.3 is out:
 
 ---
 
-## 6 · How this gets executed
+## 6 · World-model / JEPA planner track (slow lane, exploratory)
+
+This is the **slow lane** — research-grade, not on the v1 critical path. It is **planned, not shipped**, and it deliberately lives outside the production benchmark. The framing rule (see [`docs/TWO_SPEED.md`](TWO_SPEED.md)) is: world-model research moves on its own clock, in its own repo, with its own toolchain; the **only** write into this benchmark is a single gated adapter PR, held off the public leaderboard until a planner is explicitly promoted.
+
+### 6.1 What it is
+
+- Evaluate world-model / JEPA-style planners **as policies** through the existing eval contract: a planner exposes `act(obs) -> action` and is scored cell-by-cell with the same `(policy, env, seed, n_eps) -> CellResult` machinery (Wilson + bootstrap CIs, MDE bounds, failure taxonomy) as every other policy.
+- The benchmark stays policy-agnostic: a planner is just another callable behind the eval loop. No new statistics, no new success rules.
+
+### 6.2 Why a separate lane (and a separate repo)
+
+- Research churn (model classes, planning horizons, latent dynamics) would destabilise a benchmark whose value is its stability. The two-speed split keeps the prod bench shippable while the WM work iterates freely.
+- The research track owns its dependencies and compute profile; it does not impose them on `lerobot-bench` users. Repo split + toolchain rationale live in [`docs/WM_RESEARCH_TRACK.md`](WM_RESEARCH_TRACK.md).
+
+### 6.3 The single sanctioned write: a gated adapter PR
+
+- When a planner is mature enough to benchmark, it enters via **one** adapter PR that wires a WM `kind` into `load_policy` (a future dispatch branch in `src/lerobot_bench/eval.py`, alongside the existing baseline / `repo_id` branches).
+- That adapter lands **behind the leaderboard filter** (the same `leaderboard_filter.py` mechanism that defers `xvla_libero`): executed in the sweep, published in the raw parquet for reproducibility, but **excluded from the public board** until explicitly promoted.
+- Promotion is a deliberate, reviewed step — not an automatic consequence of the cell running green. Until then the WM cells are exploratory, clearly labelled, and carry no leaderboard standing.
+
+### 6.4 Readiness
+
+- **Not autonomous, not v1-blocking.** This section is a placeholder for the slow lane; no WM `kind` dispatch exists in `eval.py` today, and adding one is explicitly out of scope for the v1 wave. Sequencing: the prod bench must publish (top of this doc) and the v1.0.1 audit gate must close before any WM cell is taken seriously.
+
+---
+
+## 7 · How this gets executed
 
 - **Publish first.** The publish chain (top of this doc) is the live priority — the public surfaces are content-ready and hard-blocked on the Hub artifacts existing.
 - **One milestone at a time.** v1.0.1 (audit) must close before v1.1 starts — otherwise we keep building on numbers we haven't validated. Per §1, the gate is achievable with doc-only waivers + one cheap local probe (§1.6).
@@ -286,7 +318,7 @@ Once v1.3 is out:
 
 ---
 
-## 7 · What's intentionally *not* on this roadmap
+## 8 · What's intentionally *not* on this roadmap
 
 - **Tuning the policies themselves.** This is a benchmark, not a methods paper. If a policy under-performs, we report it; we don't fix it.
 - **A new training loop.** Out of scope until §5.4 (online learning track), and even then we treat it as a separately-scored fine-tune column rather than replacing the baseline checkpoint.
