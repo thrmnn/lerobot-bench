@@ -1,7 +1,10 @@
 # Code ownership for lerobot-bench.
 # https://docs.github.com/articles/about-code-owners
 # Sole maintainer: @thrmnn. The catch-all covers everything; the
-# explicit lines below exist only to make ownership obvious at a glance.
+# explicit lines below exist only to make ownership obvious at a glance
+# AND to define the non-overlapping file sets used by parallel-agent
+# dispatch waves. See docs/ORCHESTRATION.md — every wave assigns each
+# agent one of the globs below so no two agents touch the same path.
 
 # Catch-all — everything is owned by the maintainer.
 *               @thrmnn
@@ -11,6 +14,25 @@
 
 # Library source and tests.
 /src/           @thrmnn
+/tests/         @thrmnn
 
-# arXiv writeup.
+# Run/sweep/calibration scripts and pinned configs.
+/scripts/       @thrmnn
+/configs/       @thrmnn
+
+# Public read surfaces — keep these two in lockstep; both re-export the
+# v1-policy filter from src/lerobot_bench/leaderboard_filter.py.
+/dashboard/     @thrmnn
+/space/         @thrmnn
+
+# Static results site and its assets.
+/site/          @thrmnn
+
+# Brand / visual identity assets.
+/design/        @thrmnn
+
+# arXiv writeup, deck, and figures.
 /paper/         @thrmnn
+
+# Exploratory world-model / JEPA-planner track (future WM-as-policy work).
+/research/      @thrmnn
