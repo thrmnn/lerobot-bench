@@ -7,7 +7,7 @@ If you are adding a slide, a chart, a Space tab, or a README badge: read this fi
 
 ## Brand identity
 
-lerobot-bench is a public, reproducible benchmark of pretrained LeRobot manipulation policies — five policies, six sim envs, 5,250 episodes, every per-episode result open. The visual identity carries the same posture as the writing: dark surface, monospaced numerics, evidence-first composition, semantic color reserved for things that mean something (replicated, below paper, deferred, caveated).
+lerobot-bench is a public, reproducible benchmark of pretrained LeRobot manipulation policies — a 6×6 policy×env matrix executed (110 cells), with 5 policies on the public leaderboard and xvla deferred to v1.1; every per-episode result open. The visual identity carries the same posture as the writing: dark surface, monospaced numerics, evidence-first composition, semantic color reserved for things that mean something (replicated, below paper, deferred, caveated).
 
 **Tagline.** *Does pretrained robot software actually work?* — from the deck's title meta. Use it as a hero subtitle, not a slogan.
 
