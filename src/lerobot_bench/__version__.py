@@ -5,4 +5,4 @@ package (and triggering its dependencies). `pyproject.toml` mirrors this
 string and the top-level `VERSION` file does too. Bump all three on release.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.2"
