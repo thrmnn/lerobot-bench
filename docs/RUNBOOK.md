@@ -14,6 +14,7 @@ companion to `docs/DESIGN.md` (the *what* and *why*).
 6. [Deploy + roll back the Space](#deploy--roll-back-the-space)
 7. [Verify reproducibility of a published cell](#verify-reproducibility-of-a-published-cell)
 8. [Release a new lerobot-bench version](#release-a-new-lerobot-bench-version)
+9. [Prune stale agent worktrees](#prune-stale-agent-worktrees)
 
 ---
 
@@ -101,13 +102,38 @@ schema change.
 
 ## Deploy + roll back the Space
 
-```bash
-# Deploy the Spaces app (separate git remote on huggingface.co):
-make space-deploy
+`space/` is **not** a standalone repo — it lives inside this monorepo. A flat
+`git push` of the parent would nest `app.py` under `space/` where the Space
+can't find it, so the deploy uses a **subtree push** that lands `space/`'s
+contents at the Space root.
 
-# Roll back if a push broke the Space:
-cd space
-git push -f hf-space main~1:main
+One-time setup (create the Space + add the remote; auth as `thrmnn`):
+
+```bash
+huggingface-cli repo create lerobot-bench --type space --space_sdk gradio
+git remote add hf-space https://huggingface.co/spaces/thrmnn/lerobot-bench
+```
+
+Then deploy (the target guards on the `hf-space` remote existing and prints
+the two commands above if it doesn't):
+
+```bash
+make space-deploy
+# == git subtree push --prefix space hf-space main
+```
+
+The Space reads the dataset by URL, so it renders non-empty only after the
+dataset parquet is published (see Publish step). `space/requirements.txt`
+pins the project at a GitHub SHA — confirm that SHA is an ancestor of `main`
+before deploying.
+
+Roll back if a push broke the Space. A subtree push has no plain
+`main~1:main` ancestor on the remote, so re-push the previous good
+`space/` tree by checking out an earlier parent commit and re-running the
+subtree push (or push a revert commit through it):
+
+```bash
+git subtree push --prefix space hf-space main   # after reverting space/ on main
 ```
 
 The Space is configured for free CPU tier; `space/requirements.txt`
@@ -153,3 +179,25 @@ git push origin main --tags
 
 Tags are immutable. A bad release is fixed by the next version, not by
 moving the tag.
+
+## Prune stale agent worktrees
+
+Repo-modifying agents run in isolated worktrees under `.claude/worktrees/`.
+Once their branches merge, the worktrees are dead weight. Clean them up:
+
+```bash
+make worktree-prune
+```
+
+It is **conservative by design** — it only touches worktrees under
+`.claude/worktrees/`, and it **skips** any that are (a) the current one,
+(b) have uncommitted changes, or (c) sit on a branch not yet merged into
+`main`. Skipped worktrees are printed with the reason. It never deletes
+branches, only the worktree checkout, then runs `git worktree prune` to
+clear stale administrative entries.
+
+Dry-run equivalent (just see what it would do, without removing):
+
+```bash
+git worktree list --porcelain
+```

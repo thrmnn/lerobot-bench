@@ -27,6 +27,17 @@ make all
 - One logical change per commit. Squash later if needed.
 - Open a PR against `main`. CI must pass before review.
 
+### Working in parallel / agent dispatch
+
+Larger changes are often built by several authoring agents running
+concurrently, each in its own git worktree and owning a non-overlapping set
+of files (the path globs in [`.github/CODEOWNERS`](.github/CODEOWNERS)). The
+operating convention — disjoint file ownership, worktree isolation,
+`PYTHONPATH=$(pwd)/src` test runs, and the serial squash-merge drain into
+strict-protected `main` — is documented in
+[`docs/ORCHESTRATION.md`](docs/ORCHESTRATION.md). Read it before launching a
+multi-agent wave.
+
 ## Code style
 
 - `ruff` for lint and format. Configured in `pyproject.toml`.
