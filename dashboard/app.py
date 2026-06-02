@@ -38,29 +38,38 @@ import gradio as gr
 import pandas as pd
 from _helpers import (
     CALIBRATION_COLUMNS,
+    COMPARE_COLUMNS,
     DEFAULT_LOG_TAIL_LINES,
     DEFAULT_VIDEO_ROOTS,
     EPISODE_SELECT_FIRST,
     EPISODE_SELECT_REPRESENTATIVE,
+    FAILURE_DISTRIBUTION_COLUMNS,
     HEALTH_AMBER,
     HEALTH_GREEN,
     HEALTH_RED,
     LEADERBOARD_COLUMNS,
     PROGRESS_COLUMNS,
+    WM_PROGRESS_COLUMNS,
     AnomalyReport,
     MissionKPIs,
     StaleDataCache,
     ThrottleState,
     build_calibration_table,
     build_live_leaderboard,
+    build_paper_vs_measured_table,
     build_progress_table,
+    build_wm_vs_vla_table,
+    cell_max_steps,
     clear_video_cache,
     column_glossary_markdown,
+    compute_cell_failure_summary,
     compute_mission_kpis,
     discover_sweep_logs,
-    discover_sweep_runs,
+    discover_wm_progress_files,
     env_dashboard_logs_dir,
     env_dashboard_results_dir,
+    failed_episode_video_links,
+    failure_summary_table,
     find_latest_calibration,
     find_video_path,
     format_bytes_gb,
@@ -71,15 +80,22 @@ from _helpers import (
     load_results_parquet,
     load_with_stale_fallback,
     per_tab_intro_markdown,
+    policy_dropdown_choices,
     read_system_memory,
     read_throttle_state,
+    read_wm_progress,
+    resolve_selected_run,
     resolved_paths_banner_markdown,
     run_anomaly_review,
+    run_selector_label_map,
     scan_video_index,
     select_representative_episode,
     summarize_log,
     tail_log_lines,
     video_index_options,
+    wm_policy_names,
+    wm_progress_summary,
+    wm_progress_table,
 )
 
 logger = logging.getLogger("dashboard-app")
@@ -99,6 +115,9 @@ LOG_REFRESH_SECONDS = 2.0
 STATUS_TAB_ID = "status"
 PREFLIGHT_TAB_ID = "preflight"
 ROLLOUTS_TAB_ID = "rollouts"
+COMPARE_TAB_ID = "compare"
+FAILURES_TAB_ID = "failures"
+TRAINING_TAB_ID = "training"
 
 # --------------------------------------------------------------------- #
 # Stale-data resilience cache                                           #
@@ -123,20 +142,48 @@ def reset_stale_caches() -> None:
 # --------------------------------------------------------------------- #
 
 
-def _newest_manifest_path() -> Path | None:
-    """Return the manifest path of the most recently started sweep run.
+def _manifest_path_for_run(selected_run: str | None) -> Path | None:
+    """Manifest path for the *selected* run, falling back to newest.
 
-    This is the heart of the Status-screen auto-load: there is **no**
-    run-selector dropdown. ``discover_sweep_runs`` already sorts runs by
-    ``started_utc`` descending, so ``runs[0]`` is the live sweep. The
-    Status screen calls this on every paint, so a sweep that starts
-    after the dashboard is already open is picked up on the next tick
-    with no operator action -- which was the bug the old Sweep-progress
-    tab had (its dropdown defaulted to nothing and the table stayed
-    empty mid-sweep).
+    The Status tab now carries a run-selector dropdown whose value is a
+    run *name* (directory basename). ``resolve_selected_run`` returns the
+    matching :class:`SweepRun`, or the newest run when the name is
+    ``None`` (first paint) or stale (run dir gone) -- preserving the old
+    auto-newest behaviour. ``None`` only when no run is on disk.
     """
-    runs = discover_sweep_runs(env_dashboard_results_dir())
-    return runs[0].manifest_path if runs else None
+    run = resolve_selected_run(selected_run, env_dashboard_results_dir())
+    return run.manifest_path if run is not None else None
+
+
+def _newest_manifest_path() -> Path | None:
+    """Manifest path of the most recently started run (selector default).
+
+    Thin wrapper over :func:`_manifest_path_for_run` with no selection,
+    so the newest run is chosen. Retained for the handful of call sites
+    that have no run-selector context (e.g. cold-start defaults).
+    """
+    return _manifest_path_for_run(None)
+
+
+def _run_selector_choice_pairs() -> list[tuple[str, str]]:
+    """``(label, value)`` choices for the Status-tab run selector.
+
+    Label carries the ``[running]``/``[done]`` marker; value is the bare
+    run name so the selection survives a re-discovery. Empty list on a
+    fresh checkout -- the dropdown then renders empty and every handler
+    falls back to newest (which is also ``None``).
+    """
+    label_map = run_selector_label_map(env_dashboard_results_dir())
+    return [(label, name) for name, label in label_map.items()]
+
+
+def _refresh_run_choices() -> Any:
+    """Repopulate the run-selector dropdown from disk (load / refresh).
+
+    Does not change the current value -- a run that just finished keeps
+    its selection, only its label flips ``[running]`` -> ``[done]``.
+    """
+    return gr.update(choices=_run_selector_choice_pairs())
 
 
 # --------------------------------------------------------------------- #
@@ -309,7 +356,7 @@ def _summarise_progress(table: pd.DataFrame) -> str:
     return " · ".join(parts)
 
 
-def _refresh_progress_grid() -> tuple[pd.DataFrame, str]:
+def _refresh_progress_grid(selected_run: str | None = None) -> tuple[pd.DataFrame, str]:
     """Re-read the newest run's manifest + parquet for the progress grid.
 
     Returns ``(table_df, summary_markdown)``. There is no run-selector:
@@ -317,7 +364,7 @@ def _refresh_progress_grid() -> tuple[pd.DataFrame, str]:
     manifest falls back to the last-good snapshot via the stale-data
     cache rather than blanking the grid.
     """
-    manifest_path = _newest_manifest_path()
+    manifest_path = _manifest_path_for_run(selected_run)
     if manifest_path is None:
         return _empty_progress_table(), _summarise_progress(_empty_progress_table())
 
@@ -343,7 +390,9 @@ def _refresh_progress_grid() -> tuple[pd.DataFrame, str]:
 # --------------------------------------------------------------------- #
 
 
-def refresh_status() -> tuple[str, str, pd.DataFrame, str, pd.DataFrame, str, str]:
+def refresh_status(
+    selected_run: str | None = None,
+) -> tuple[str, str, pd.DataFrame, str, pd.DataFrame, str, str]:
     """Recompute every Status section. Driven by the 5 s timer + load.
 
     Returns the 7-tuple
@@ -355,7 +404,7 @@ def refresh_status() -> tuple[str, str, pd.DataFrame, str, pd.DataFrame, str, st
     rather than crashing the tick. The raw-log accordion has its own
     handler (it polls faster).
     """
-    manifest_path = _newest_manifest_path()
+    manifest_path = _manifest_path_for_run(selected_run)
     manifest: dict[str, Any] = {}
     results_path: Path | None = None
     if manifest_path is not None:
@@ -369,7 +418,7 @@ def refresh_status() -> tuple[str, str, pd.DataFrame, str, pd.DataFrame, str, st
     leaderboard = leaderboard_dataframe(build_live_leaderboard(results_df))
     anomalies = run_anomaly_review(results_path)
 
-    progress_df, progress_summary = _refresh_progress_grid()
+    progress_df, progress_summary = _refresh_progress_grid(selected_run)
 
     return (
         _render_health_banner(kpis),
@@ -489,9 +538,9 @@ EPISODE_SELECT_RADIO_CHOICES: list[tuple[str, str]] = [
 ]
 
 
-def _latest_results_df() -> pd.DataFrame | None:
-    """Load the per-episode parquet of the newest sweep run, if any."""
-    manifest_path = _newest_manifest_path()
+def _latest_results_df(selected_run: str | None = None) -> pd.DataFrame | None:
+    """Load the per-episode parquet of the selected (or newest) run, if any."""
+    manifest_path = _manifest_path_for_run(selected_run)
     if manifest_path is None:
         return None
     return load_results_parquet(manifest_path.parent / "results.parquet")
@@ -623,7 +672,7 @@ def _on_video_select(
 # --------------------------------------------------------------------- #
 
 
-def _build_status_tab(demo: gr.Blocks) -> None:
+def _build_status_tab(demo: gr.Blocks, selected_run: gr.State) -> None:
     """Render the Status tab -- the default landing screen.
 
     One scrolling screen, auto-refreshing every 5 s: health banner,
@@ -636,6 +685,20 @@ def _build_status_tab(demo: gr.Blocks) -> None:
         "It refreshes itself every 5 s — green means you can close "
         "the laptop, red means look._"
     )
+
+    # 0. Run selector. Defaults to the newest run (the live sweep) so the
+    # 5-second test is unchanged on first paint; the operator can switch
+    # to an older run for review. The State holds the run *name* (the
+    # dropdown value); every status handler reads it.
+    with gr.Row():
+        run_dd = gr.Dropdown(
+            choices=_run_selector_choice_pairs(),
+            value=None,
+            label="Sweep run",
+            info="Newest run is the live sweep. Switch to review an older run.",
+            interactive=True,
+            scale=4,
+        )
 
     # 1. Health banner -- the 5-second-test sentence.
     banner = gr.HTML()
@@ -664,7 +727,7 @@ def _build_status_tab(demo: gr.Blocks) -> None:
         ],
         interactive=False,
         wrap=True,
-        label="Per-(policy, env) cell status — newest sweep run",
+        label="Per-(policy, env) cell status — selected sweep run",
     )
     with gr.Accordion("What the columns mean", open=False):
         gr.Markdown(column_glossary_markdown("progress"))
@@ -704,13 +767,25 @@ def _build_status_tab(demo: gr.Blocks) -> None:
         resource_panel,
     ]
 
-    demo.load(fn=refresh_status, inputs=None, outputs=status_outputs)
+    # On load, repopulate the selector choices from disk (the newest run
+    # may have appeared after the process started) and paint the newest
+    # run's status. ``selected_run`` stays None so the handlers fall back
+    # to newest until the operator picks one.
+    demo.load(fn=_refresh_run_choices, inputs=None, outputs=[run_dd])
+    demo.load(fn=refresh_status, inputs=[selected_run], outputs=status_outputs)
     demo.load(fn=refresh_raw_log, inputs=None, outputs=[log_view, log_header])
-    refresh_btn.click(fn=refresh_status, inputs=None, outputs=status_outputs)
+
+    # Picking a run updates the State, then repaints from that run.
+    run_dd.change(fn=lambda v: v, inputs=[run_dd], outputs=[selected_run]).then(
+        fn=refresh_status, inputs=[selected_run], outputs=status_outputs
+    )
+
+    refresh_btn.click(fn=_refresh_run_choices, inputs=None, outputs=[run_dd])
+    refresh_btn.click(fn=refresh_status, inputs=[selected_run], outputs=status_outputs)
     refresh_btn.click(fn=refresh_raw_log, inputs=None, outputs=[log_view, log_header])
 
     status_timer = gr.Timer(value=STATUS_REFRESH_SECONDS)
-    status_timer.tick(fn=refresh_status, inputs=None, outputs=status_outputs)
+    status_timer.tick(fn=refresh_status, inputs=[selected_run], outputs=status_outputs)
 
     log_timer = gr.Timer(value=LOG_REFRESH_SECONDS)
     log_timer.tick(fn=refresh_raw_log, inputs=None, outputs=[log_view, log_header])
@@ -826,6 +901,287 @@ def _build_rollouts_tab(demo: gr.Blocks) -> None:
         )
 
 
+# --------------------------------------------------------------------- #
+# Compare tab (monitoring layer, item 2)                                #
+# --------------------------------------------------------------------- #
+#
+# Two comparison modes share one Dataframe: paper-vs-measured (the
+# policy's published rate from MODEL_CARDS vs our re-run) and the
+# forward-looking WM-vs-VLA (a world-model planner run as a policy vs a
+# VLA baseline). The delta chip reuses ``delta_chip`` so the colour
+# buckets match the policy cards. WM-vs-VLA shows an empty state in v1
+# (no WM rows in the parquet yet).
+
+_COMPARE_DATATYPE = ["str", "str", "str", "str", "str"]
+
+
+def _compare_paper(policy: str | None, selected_run: str | None) -> tuple[Any, str]:
+    """Build the paper-vs-measured table for one policy + a caption."""
+    if not policy:
+        empty = build_paper_vs_measured_table("", results_df=None)
+        return empty, "_Pick a policy to compare its paper-reported rate against our re-run._"
+    df = _latest_results_df(selected_run)
+    table = build_paper_vs_measured_table(policy, results_df=df)
+    caption = (
+        f"**{policy}** — paper-reported vs our re-run, one row per supported env. "
+        "Chip: 🟢 clean repro · 🟡 notable gap · 🔴 large gap. "
+        "`(pending)` = cell not yet in the selected run's parquet."
+    )
+    return table, caption
+
+
+def _compare_wm_vla(
+    wm_policy: str | None,
+    vla_policy: str | None,
+    selected_run: str | None,
+) -> tuple[Any, str]:
+    """Build the WM-vs-VLA table; friendly empty state when no WM rows."""
+    df = _latest_results_df(selected_run)
+    wm_choices = wm_policy_names(df)
+    if not wm_choices:
+        empty = build_wm_vs_vla_table(None, None, results_df=None)
+        return empty, (
+            "_No world-model / planner runs in this run's parquet yet. The "
+            "exploratory WM track is evaluated as a policy (`act(obs) -> "
+            "action`) and lands in a later wave; this view activates the "
+            "moment a non-v1 policy appears here._"
+        )
+    table = build_wm_vs_vla_table(wm_policy, vla_policy, results_df=df)
+    caption = (
+        f"**{wm_policy}** (world-model planner) vs **{vla_policy}** (VLA) on the "
+        "envs both ran. Chip keys on |Δ| like the paper comparison."
+    )
+    return table, caption
+
+
+def _refresh_wm_choices(selected_run: str | None) -> Any:
+    """Repopulate the WM-policy dropdown from the selected run's parquet."""
+    df = _latest_results_df(selected_run)
+    return gr.update(choices=wm_policy_names(df))
+
+
+def _build_compare_tab(demo: gr.Blocks, selected_run: gr.State) -> None:
+    """Render the Compare tab: paper-vs-measured + (forward) WM-vs-VLA."""
+    gr.Markdown(
+        "**Compare.** Two views on the same axes. *Paper-reported vs "
+        "measured* puts each policy's published success rate (from "
+        "`docs/MODEL_CARDS.md`) next to our re-run. *World-model vs VLA* "
+        "is forward-looking: it compares a world-model planner (run as a "
+        "policy) against a VLA baseline on the shared envs — empty until "
+        "a WM run appears in the parquet."
+    )
+
+    with gr.Tab("Paper-reported vs measured"):
+        paper_caption = gr.Markdown("")
+        policy_dd = gr.Dropdown(
+            choices=policy_dropdown_choices(),
+            label="Policy",
+            interactive=True,
+        )
+        paper_table = gr.Dataframe(
+            headers=list(COMPARE_COLUMNS),
+            datatype=_COMPARE_DATATYPE,
+            interactive=False,
+            wrap=True,
+            label="Paper-reported vs our re-run",
+        )
+        policy_dd.change(
+            fn=_compare_paper,
+            inputs=[policy_dd, selected_run],
+            outputs=[paper_table, paper_caption],
+        )
+        demo.load(
+            fn=lambda: _compare_paper(None, None),
+            inputs=None,
+            outputs=[paper_table, paper_caption],
+        )
+
+    with gr.Tab("World-model vs VLA (forward-looking)"):
+        wm_caption = gr.Markdown("")
+        with gr.Row():
+            wm_dd = gr.Dropdown(choices=[], label="World-model policy", interactive=True)
+            vla_dd = gr.Dropdown(
+                choices=policy_dropdown_choices(),
+                label="VLA baseline",
+                interactive=True,
+            )
+        wm_table = gr.Dataframe(
+            headers=list(COMPARE_COLUMNS),
+            datatype=_COMPARE_DATATYPE,
+            interactive=False,
+            wrap=True,
+            label="World-model planner vs VLA baseline",
+        )
+        for dd in (wm_dd, vla_dd):
+            dd.change(
+                fn=_compare_wm_vla,
+                inputs=[wm_dd, vla_dd, selected_run],
+                outputs=[wm_table, wm_caption],
+            )
+        demo.load(fn=_refresh_wm_choices, inputs=[selected_run], outputs=[wm_dd])
+        demo.load(
+            fn=lambda run: _compare_wm_vla(None, None, run),
+            inputs=[selected_run],
+            outputs=[wm_table, wm_caption],
+        )
+
+
+# --------------------------------------------------------------------- #
+# Failures tab (monitoring layer, item 3)                               #
+# --------------------------------------------------------------------- #
+#
+# The parquet has no failure_mode column yet (future schema bump). This
+# tab degrades GRACEFULLY: success/length distributions, the cap-hit
+# (timeout-proxy) rate, and MP4 links to failed episodes via the flat
+# video naming. See docs/MONITORING.md + docs/FAILURE_TAXONOMY.md.
+
+_FAILURE_DATATYPE = ["str", "str"]
+
+
+def _failure_cell_choices(selected_run: str | None) -> list[str]:
+    """``policy / env`` cell labels present in the selected run's parquet."""
+    df = _latest_results_df(selected_run)
+    if df is None or df.empty or not {"policy", "env"}.issubset(df.columns):
+        return []
+    pairs = df[["policy", "env"]].drop_duplicates()
+    return [f"{r.policy} / {r.env}" for r in pairs.itertuples(index=False)]
+
+
+def _parse_cell_label(label: str | None) -> tuple[str, str] | None:
+    """Split a ``policy / env`` label back into the pair; None on garbage."""
+    if not label or " / " not in label:
+        return None
+    policy, env = label.split(" / ", 1)
+    return policy.strip(), env.strip()
+
+
+def _refresh_failure_cells(selected_run: str | None) -> Any:
+    """Repopulate the failure-drill-down cell dropdown."""
+    return gr.update(choices=_failure_cell_choices(selected_run))
+
+
+def _failure_drilldown(cell_label: str | None, selected_run: str | None) -> tuple[Any, str]:
+    """Build the failure summary table + a links/empty-state caption."""
+    parsed = _parse_cell_label(cell_label)
+    if parsed is None:
+        empty = failure_summary_table(None)
+        return empty, "_Pick a `policy / env` cell to drill into its failures._"
+    policy, env = parsed
+    df = _latest_results_df(selected_run)
+    summary = compute_cell_failure_summary(
+        df, policy=policy, env=env, max_steps=cell_max_steps(env)
+    )
+    table = failure_summary_table(summary)
+    if summary is None:
+        return table, f"_No episodes on disk for `{policy} / {env}` in this run yet._"
+
+    index = scan_video_index(DEFAULT_VIDEO_ROOTS)
+    links = failed_episode_video_links(index, df, policy=policy, env=env)
+    parts = [
+        f"**{policy} / {env}** — {summary.n_failures} failure(s) of "
+        f"{summary.n_episodes} episode(s).",
+        "_No `failure_mode` labels yet (a future parquet schema bump — see "
+        "`docs/FAILURE_TAXONOMY.md`). Showing the label-free signals on disk: "
+        "success/length distributions and the cap-hit (timeout) proxy._",
+    ]
+    if links:
+        link_md = " · ".join(f"[{label}]({path.as_uri()})" for label, path in links)
+        parts.append(f"**Failed-episode rollouts:** {link_md}")
+    else:
+        parts.append("_No failed-episode MP4s found on disk for this cell._")
+    return table, "\n\n".join(parts)
+
+
+def _build_failures_tab(demo: gr.Blocks, selected_run: gr.State) -> None:
+    """Render the Failures drill-down tab (graceful, label-free)."""
+    gr.Markdown(
+        "**Failure drill-down.** The parquet carries no `failure_mode` "
+        "column yet — a real one is a future schema bump (see "
+        "`docs/FAILURE_TAXONOMY.md`). Until then this view degrades to the "
+        "label-free signals already on disk: success and episode-length "
+        "distributions, the **cap-hit rate** (failed episodes that ran to "
+        "the env step cap — the closest timeout proxy), and direct MP4 "
+        "links to failed episodes."
+    )
+    caption = gr.Markdown("")
+    cell_dd = gr.Dropdown(choices=[], label="Cell (policy / env)", interactive=True)
+    table = gr.Dataframe(
+        headers=list(FAILURE_DISTRIBUTION_COLUMNS),
+        datatype=_FAILURE_DATATYPE,
+        interactive=False,
+        wrap=True,
+        label="Label-free failure summary for the selected cell",
+    )
+    cell_dd.change(
+        fn=_failure_drilldown,
+        inputs=[cell_dd, selected_run],
+        outputs=[table, caption],
+    )
+    demo.load(fn=_refresh_failure_cells, inputs=[selected_run], outputs=[cell_dd])
+    demo.load(
+        fn=lambda run: _failure_drilldown(None, run),
+        inputs=[selected_run],
+        outputs=[table, caption],
+    )
+
+
+# --------------------------------------------------------------------- #
+# Training tab (monitoring layer, item 4)                               #
+# --------------------------------------------------------------------- #
+#
+# Tails the latest results/wm-runs/<run_id>/progress.jsonl if present;
+# friendly empty state when absent (the v1 default — no WM training has
+# run). Schema is a PROPOSAL documented in docs/MONITORING.md.
+
+TRAINING_REFRESH_SECONDS = 5.0
+
+_TRAINING_DATATYPE = ["str", "str", "str", "str"]
+
+
+def _refresh_training() -> tuple[Any, str]:
+    """Tail the newest training-progress JSONL; friendly empty state."""
+    files = discover_wm_progress_files(env_dashboard_results_dir())
+    if not files:
+        empty = wm_progress_table([])
+        return empty, (
+            "_No training runs found under_ "
+            f"`{env_dashboard_results_dir() / 'wm-runs'}`. _A world-model "
+            "training run appears here once it appends to "
+            "`<run_id>/progress.jsonl` via `scripts/wm_run_log.py`._"
+        )
+    path = files[0]
+    run_id = path.parent.name
+    records = read_wm_progress(path)
+    return wm_progress_table(records), wm_progress_summary(records, run_id=run_id)
+
+
+def _build_training_tab(demo: gr.Blocks) -> None:
+    """Render the Training tab (slow-lane WM-run visibility)."""
+    gr.Markdown(
+        "**Training (slow lane).** Offline-first visibility into a "
+        "world-model / JEPA training run on this laptop — no wandb. The "
+        "writer (`scripts/wm_run_log.py`) appends minimal "
+        "`{ts, run_id, step, metric, value}` records to "
+        "`results/wm-runs/<run_id>/progress.jsonl`; this tab tails the "
+        "newest such file. The schema is a **proposal** (see "
+        "`docs/MONITORING.md`) the WM repo will import later."
+    )
+    summary = gr.Markdown("")
+    table = gr.Dataframe(
+        headers=list(WM_PROGRESS_COLUMNS),
+        datatype=_TRAINING_DATATYPE,
+        interactive=False,
+        wrap=True,
+        label="Latest training-progress records",
+    )
+    refresh_btn = gr.Button("Refresh now", variant="secondary")
+
+    demo.load(fn=_refresh_training, inputs=None, outputs=[table, summary])
+    refresh_btn.click(fn=_refresh_training, inputs=None, outputs=[table, summary])
+    timer = gr.Timer(value=TRAINING_REFRESH_SECONDS)
+    timer.tick(fn=_refresh_training, inputs=None, outputs=[table, summary])
+
+
 def build_app() -> gr.Blocks:
     """Construct the Gradio Blocks app.
 
@@ -843,13 +1199,23 @@ def build_app() -> gr.Blocks:
         with gr.Accordion("Diagnostics", open=False):
             gr.Markdown(resolved_paths_banner_markdown())
 
+        # The selected-run State is created here so every run-scoped tab
+        # (Status, Compare, Failures) reads the same selection.
+        selected_run = gr.State(value=None)
+
         with gr.Tabs():
             with gr.Tab("Status", id=STATUS_TAB_ID):
-                _build_status_tab(demo)
+                _build_status_tab(demo, selected_run)
             with gr.Tab("Pre-flight", id=PREFLIGHT_TAB_ID):
                 _build_preflight_tab(demo)
             with gr.Tab("Rollouts", id=ROLLOUTS_TAB_ID):
                 _build_rollouts_tab(demo)
+            with gr.Tab("Compare", id=COMPARE_TAB_ID):
+                _build_compare_tab(demo, selected_run)
+            with gr.Tab("Failures", id=FAILURES_TAB_ID):
+                _build_failures_tab(demo, selected_run)
+            with gr.Tab("Training", id=TRAINING_TAB_ID):
+                _build_training_tab(demo)
 
     return demo
 

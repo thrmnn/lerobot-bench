@@ -3391,3 +3391,474 @@ def format_bytes_gb(value: int | None) -> str:
     if value is None:
         return STAT_PLACEHOLDER
     return f"{value / 1024**3:.1f} GB"
+
+
+# --------------------------------------------------------------------- #
+# Cross-run registry + selector (monitoring layer, item 1)              #
+# --------------------------------------------------------------------- #
+#
+# The Status tab historically hardwired ``runs[0]`` -- the newest sweep.
+# That is the right default but makes the dashboard useless for
+# comparing this run against last week's. The helpers below turn the run
+# list into a dropdown-friendly registry and resolve a *selected* run by
+# name, falling back to newest when the selection is stale.
+#
+# PROPOSED run-registry record shape (documented in docs/MONITORING.md,
+# pending user confirmation): the dropdown carries the run *name* (the
+# directory basename) as its value; everything else is recovered by
+# re-discovering on disk so the dropdown never holds a stale Path.
+
+
+def run_selector_choices(results_root: Path | None = None) -> list[str]:
+    """Return the run *names* for the Status-tab run selector, newest first.
+
+    Values are the directory basenames (``discover_sweep_runs`` already
+    sorts newest-first by ``started_utc``). The basename is the dropdown
+    value so the selection survives a re-discovery even when a run's
+    ``finished_utc`` flips mid-session. Empty list on a missing/empty
+    results dir.
+    """
+    root = results_root if results_root is not None else env_dashboard_results_dir()
+    return [run.name for run in discover_sweep_runs(root)]
+
+
+def run_selector_label_map(results_root: Path | None = None) -> dict[str, str]:
+    """Map run name -> human label (with ``[running]``/``[done]`` marker).
+
+    Insertion-ordered (newest first) so a caller can build
+    ``(label, value)`` dropdown choices directly while keeping the bare
+    name as the stable selection value.
+    """
+    root = results_root if results_root is not None else env_dashboard_results_dir()
+    return {run.name: run.label for run in discover_sweep_runs(root)}
+
+
+def resolve_selected_run(
+    selected_name: str | None,
+    results_root: Path | None = None,
+) -> SweepRun | None:
+    """Return the :class:`SweepRun` for ``selected_name``, or newest on miss.
+
+    The selector stores a run *name*. ``None`` (first paint) or a name no
+    longer on disk falls back to the newest run -- the same auto-newest
+    behaviour the Status tab had before the selector. Returns ``None``
+    only when there are no runs at all.
+    """
+    root = results_root if results_root is not None else env_dashboard_results_dir()
+    runs = discover_sweep_runs(root)
+    if not runs:
+        return None
+    if selected_name:
+        for run in runs:
+            if run.name == selected_name:
+                return run
+    return runs[0]
+
+
+# --------------------------------------------------------------------- #
+# Compare tab: paper-vs-measured AND WM-vs-VLA on shared axes           #
+# --------------------------------------------------------------------- #
+#
+# Item 2. Two comparison modes share one table shape because both are
+# "two success rates per (policy, env) cell + a colour-chipped delta".
+# Reuses :func:`delta_chip` + :func:`_our_success_rate` (no new delta
+# math) so the chip thresholds stay identical to the policy cards.
+
+COMPARE_COLUMNS: tuple[str, ...] = ("env", "left", "right", "delta", "")
+
+COMPARE_MODE_PAPER = "paper-vs-measured"
+COMPARE_MODE_WM_VLA = "wm-vs-vla"
+
+
+def build_paper_vs_measured_table(
+    policy_name: str,
+    *,
+    registry: PolicyRegistry | None = None,
+    results_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """One row per supported env: paper-reported vs our re-run + delta chip.
+
+    Left is the paper-reported rate (from the policy's
+    ``paper_reported_success`` map, sourced from ``docs/MODEL_CARDS.md``
+    -- read-only here); right is our pooled re-run rate from the parquet.
+    The chip is :func:`delta_chip` so it matches the policy-card buckets.
+    Cells with no parquet rows show ``(pending)``; envs with no paper
+    reference show :data:`STAT_PLACEHOLDER` on the left. Unknown policy
+    returns the canonical-column empty frame.
+    """
+    reg = registry if registry is not None else load_policy_registry()
+    try:
+        spec: PolicySpec = reg.get(policy_name)
+    except KeyError:
+        return pd.DataFrame({c: [] for c in COMPARE_COLUMNS})
+
+    paper_map = spec.paper_reported_success or {}
+    rows: list[dict[str, Any]] = []
+    for env in spec.env_compat:
+        paper_val = paper_map.get(env)
+        ours_val = _our_success_rate(results_df, policy=spec.name, env=env)
+        left = f"{paper_val:.3f}" if paper_val is not None else STAT_PLACEHOLDER
+        if ours_val is None:
+            right, delta_cell, chip = "(pending)", STAT_PLACEHOLDER, ""
+        else:
+            right = f"{ours_val:.3f}"
+            delta_cell, chip = delta_chip(paper_val, ours_val)
+        rows.append({"env": env, "left": left, "right": right, "delta": delta_cell, "": chip})
+    return pd.DataFrame(rows, columns=list(COMPARE_COLUMNS))
+
+
+def build_wm_vs_vla_table(
+    wm_policy: str | None,
+    vla_policy: str | None,
+    *,
+    results_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """WM-planner vs VLA on the shared envs both ran, + delta chip.
+
+    Both rates come from the parquet via :func:`_our_success_rate`; rows
+    are the *intersection* of the two policies' envs with episodes on
+    disk (a paired comparison needs the same env on both sides). Left is
+    the WM planner, right is the VLA baseline; the chip keys on
+    ``|right - left|``.
+
+    v1 has no WM rows, so this returns the canonical-column empty frame
+    until a WM policy lands in ``results.parquet``.
+    """
+    if not wm_policy or not vla_policy or results_df is None or results_df.empty:
+        return pd.DataFrame({c: [] for c in COMPARE_COLUMNS})
+    if "env" not in results_df.columns or "policy" not in results_df.columns:
+        return pd.DataFrame({c: [] for c in COMPARE_COLUMNS})
+
+    wm_envs = set(results_df[results_df["policy"] == wm_policy]["env"].unique())
+    vla_envs = set(results_df[results_df["policy"] == vla_policy]["env"].unique())
+    shared = sorted(wm_envs & vla_envs)
+
+    rows: list[dict[str, Any]] = []
+    for env in shared:
+        wm_val = _our_success_rate(results_df, policy=wm_policy, env=env)
+        vla_val = _our_success_rate(results_df, policy=vla_policy, env=env)
+        left = f"{wm_val:.3f}" if wm_val is not None else STAT_PLACEHOLDER
+        right = f"{vla_val:.3f}" if vla_val is not None else STAT_PLACEHOLDER
+        # delta_chip(paper=vla, ours=wm) gives ours-paper == wm-vla; the
+        # chip colour keys on |delta| (symmetric), so the subtraction
+        # direction only sets the printed sign.
+        delta_cell, chip = delta_chip(vla_val, wm_val)
+        rows.append({"env": env, "left": left, "right": right, "delta": delta_cell, "": chip})
+    return pd.DataFrame(rows, columns=list(COMPARE_COLUMNS))
+
+
+def wm_policy_names(results_df: pd.DataFrame | None) -> list[str]:
+    """Policy names in the parquet that are NOT v1 leaderboard policies.
+
+    Heuristic stand-in for "world-model planners run as policies" until a
+    real ``kind`` column lands: any policy present that is outside
+    :data:`V1_POLICIES`. In v1 this is empty (the parquet is filtered to
+    v1 policies on load), which is why WM-vs-VLA shows an empty state.
+    PROVISIONAL -- see docs/MONITORING.md.
+    """
+    if results_df is None or results_df.empty or "policy" not in results_df.columns:
+        return []
+    present = list(dict.fromkeys(str(p) for p in results_df["policy"].tolist()))
+    return [p for p in present if p not in set(V1_POLICIES)]
+
+
+# --------------------------------------------------------------------- #
+# Failure drill-down (monitoring layer, item 3)                         #
+# --------------------------------------------------------------------- #
+#
+# The parquet has NO ``failure_mode`` column yet (a real one is a future
+# schema bump -- see docs/MONITORING.md and docs/FAILURE_TAXONOMY.md).
+# The drill-down degrades GRACEFULLY: it shows what the per-episode rows
+# DO carry -- success / length (n_steps) distributions and the cap-hit
+# rate (failed episodes that ran to the env ``max_steps``, the closest
+# label-free proxy to a "timeout" failure mode) -- plus MP4 links via
+# the flat video naming.
+
+FAILURE_DISTRIBUTION_COLUMNS: tuple[str, ...] = ("metric", "value")
+
+
+@dataclass(frozen=True)
+class CellFailureSummary:
+    """Label-free failure drill-down for one ``(policy, env)`` cell.
+
+    Computed entirely from columns the v1 parquet already carries
+    (``success``, ``n_steps``); ``cap_hit_rate`` is the fraction of
+    *failed* episodes whose ``n_steps`` reached the env ``max_steps``.
+    ``None`` fields mean the column was absent -- the renderer shows
+    :data:`STAT_PLACEHOLDER` rather than inventing a number.
+    """
+
+    n_episodes: int
+    n_failures: int
+    success_rate: float
+    mean_steps: float | None
+    median_steps: float | None
+    max_steps: int | None
+    cap_hit_failures: int | None
+    cap_hit_rate: float | None
+
+
+def compute_cell_failure_summary(
+    results_df: pd.DataFrame | None,
+    *,
+    policy: str,
+    env: str,
+    max_steps: int | None = None,
+) -> CellFailureSummary | None:
+    """Summarise the label-free failure signals for one cell.
+
+    ``max_steps`` is the env's step cap (from the :class:`EnvSpec`); when
+    supplied, a *failed* episode whose ``n_steps >= max_steps`` is a
+    cap-hit (timeout proxy). ``None`` when the cell has no rows -- the
+    drill-down then renders a "no episodes for this cell" empty state.
+    """
+    if results_df is None or results_df.empty:
+        return None
+    if not {"policy", "env", "success"}.issubset(results_df.columns):
+        return None
+    cell = results_df[(results_df["policy"] == policy) & (results_df["env"] == env)]
+    n = len(cell)
+    if n == 0:
+        return None
+
+    outcomes = cell["success"].astype(bool)
+    n_success = int(outcomes.sum())
+    n_failures = n - n_success
+    success_rate = n_success / n
+
+    mean_steps = median_steps = None
+    cap_hit_failures = cap_hit_rate = None
+    if "n_steps" in cell.columns:
+        steps = cell["n_steps"].astype(float)
+        mean_steps = float(steps.mean())
+        median_steps = float(steps.median())
+        if max_steps is not None and max_steps > 0:
+            failed = cell[~outcomes]
+            if not failed.empty:
+                failed_steps = failed["n_steps"].astype(float)
+                cap_hit_failures = int((failed_steps >= max_steps).sum())
+                cap_hit_rate = cap_hit_failures / len(failed)
+            else:
+                cap_hit_failures = 0
+                cap_hit_rate = 0.0
+
+    return CellFailureSummary(
+        n_episodes=n,
+        n_failures=n_failures,
+        success_rate=float(success_rate),
+        mean_steps=mean_steps,
+        median_steps=median_steps,
+        max_steps=max_steps,
+        cap_hit_failures=cap_hit_failures,
+        cap_hit_rate=cap_hit_rate,
+    )
+
+
+def failure_summary_table(summary: CellFailureSummary | None) -> pd.DataFrame:
+    """Project a :class:`CellFailureSummary` into a 2-column metric table.
+
+    Empty (canonical-column) frame on ``None`` so the Gradio Dataframe
+    renders cleanly when the cell has no episodes yet.
+    """
+    if summary is None:
+        return pd.DataFrame({c: [] for c in FAILURE_DISTRIBUTION_COLUMNS})
+
+    def _opt(value: float | None, fmt: str) -> str:
+        return format(value, fmt) if value is not None else STAT_PLACEHOLDER
+
+    rows: list[dict[str, str]] = [
+        {"metric": "Episodes", "value": str(summary.n_episodes)},
+        {"metric": "Failures", "value": str(summary.n_failures)},
+        {"metric": "Success rate", "value": f"{summary.success_rate:.1%}"},
+        {"metric": "Mean steps", "value": _opt(summary.mean_steps, ".0f")},
+        {"metric": "Median steps", "value": _opt(summary.median_steps, ".0f")},
+        {
+            "metric": "Env step cap",
+            "value": (
+                str(summary.max_steps) if summary.max_steps is not None else STAT_PLACEHOLDER
+            ),
+        },
+        {
+            "metric": "Cap-hit failures (timeout proxy)",
+            "value": (
+                str(summary.cap_hit_failures)
+                if summary.cap_hit_failures is not None
+                else STAT_PLACEHOLDER
+            ),
+        },
+        {
+            "metric": "Cap-hit rate (of failures)",
+            "value": _opt(summary.cap_hit_rate, ".1%"),
+        },
+    ]
+    return pd.DataFrame(rows, columns=list(FAILURE_DISTRIBUTION_COLUMNS))
+
+
+def cell_max_steps(env: str, *, registry: EnvRegistry | None = None) -> int | None:
+    """Look up the env's ``max_steps`` for the cap-hit (timeout) proxy.
+
+    ``None`` for an unknown env so the drill-down omits the cap-hit
+    metric rather than crashing.
+    """
+    reg = registry if registry is not None else load_env_registry()
+    try:
+        return int(reg.get(env).max_steps)
+    except (KeyError, AttributeError, TypeError, ValueError):
+        return None
+
+
+def failed_episode_video_links(
+    index: VideoIndex,
+    results_df: pd.DataFrame | None,
+    *,
+    policy: str,
+    env: str,
+    limit: int = 12,
+) -> list[tuple[str, Path]]:
+    """Return ``(label, path)`` for failed-episode MP4s of one cell.
+
+    Joins the failed rows of the parquet against the on-disk video index
+    (flat naming ``{policy}__{env}__seed{seed}__ep{NNN}.mp4``). Labels
+    read ``seed{S} ep{E}``. Capped at ``limit`` so a many-failure cell
+    doesn't render a wall of links. ``[]`` when no failed episode has a
+    video on disk.
+    """
+    if results_df is None or results_df.empty:
+        return []
+    if not {"policy", "env", "seed", "episode_index", "success"}.issubset(results_df.columns):
+        return []
+    cell = results_df[
+        (results_df["policy"] == policy)
+        & (results_df["env"] == env)
+        & (~results_df["success"].astype(bool))
+    ]
+    if cell.empty:
+        return []
+    cell = cell.sort_values(["seed", "episode_index"], kind="stable")
+    links: list[tuple[str, Path]] = []
+    for row in cell.itertuples(index=False):
+        path = find_video_path(
+            index,
+            policy=policy,
+            env=env,
+            seed=int(row.seed),
+            episode=int(row.episode_index),
+        )
+        if path is not None:
+            links.append((f"seed{int(row.seed)} ep{int(row.episode_index):03d}", path))
+        if len(links) >= limit:
+            break
+    return links
+
+
+# --------------------------------------------------------------------- #
+# Slow-lane training visibility (monitoring layer, item 4)              #
+# --------------------------------------------------------------------- #
+#
+# A WM/JEPA training run on a single offline laptop has no wandb. The
+# PROPOSED contract (docs/MONITORING.md, pending user confirmation) is a
+# per-run append-only JSONL at ``results/wm-runs/<run_id>/progress.jsonl``
+# whose records are minimal: {ts, run_id, step, metric, value}. The
+# Training tab tails the *latest* such file if present; absent => a
+# friendly empty state. ``scripts/wm_run_log.py`` is the tiny offline-
+# first writer (it imports nothing from this module).
+
+WM_RUNS_SUBDIR = "wm-runs"
+WM_PROGRESS_FILENAME = "progress.jsonl"
+
+# Columns surfaced in the Training tab's tail table.
+WM_PROGRESS_COLUMNS: tuple[str, ...] = ("step", "metric", "value", "ts")
+
+
+def wm_runs_root(results_root: Path | None = None) -> Path:
+    """Directory holding per-run training-progress subdirs.
+
+    ``results/wm-runs/<run_id>/progress.jsonl``. Anchored on the same
+    env-resolved results dir as the sweep state.
+    """
+    root = results_root if results_root is not None else env_dashboard_results_dir()
+    return root / WM_RUNS_SUBDIR
+
+
+def discover_wm_progress_files(results_root: Path | None = None) -> list[Path]:
+    """List every ``wm-runs/*/progress.jsonl``, newest mtime first.
+
+    ``[]`` when the ``wm-runs`` dir is absent -- the common v1 case
+    (no WM training has run), which the Training tab renders as a
+    friendly empty state.
+    """
+    root = wm_runs_root(results_root)
+    if not root.exists():
+        return []
+    files = [p / WM_PROGRESS_FILENAME for p in root.iterdir() if p.is_dir()]
+    files = [f for f in files if f.is_file()]
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return files
+
+
+def read_wm_progress(path: Path, *, limit: int = 500) -> list[dict[str, Any]]:
+    """Parse the last ``limit`` JSONL records of a training-progress file.
+
+    Each line is one ``{ts, run_id, step, metric, value}`` record;
+    malformed lines are skipped silently (a half-written final line is
+    expected mid-append). ``[]`` on a missing file. Newest records last,
+    capped to ``limit`` from the tail.
+    """
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        logger.warning("wm progress %s unreadable: %s", path, exc)
+        return []
+    records: list[dict[str, Any]] = []
+    for line in raw[-limit:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict):
+            records.append(rec)
+    return records
+
+
+def wm_progress_table(records: list[dict[str, Any]]) -> pd.DataFrame:
+    """Project training-progress records into the Training-tab table.
+
+    Canonical-column empty frame on no records. Missing keys render
+    :data:`STAT_PLACEHOLDER` so a partially-written record still shows
+    its step/metric without crashing.
+    """
+    if not records:
+        return pd.DataFrame({c: [] for c in WM_PROGRESS_COLUMNS})
+    rows = [
+        {
+            "step": rec.get("step", STAT_PLACEHOLDER),
+            "metric": str(rec.get("metric", STAT_PLACEHOLDER)),
+            "value": rec.get("value", STAT_PLACEHOLDER),
+            "ts": str(rec.get("ts", STAT_PLACEHOLDER)),
+        }
+        for rec in records
+    ]
+    return pd.DataFrame(rows, columns=list(WM_PROGRESS_COLUMNS))
+
+
+def wm_progress_summary(records: list[dict[str, Any]], *, run_id: str = "") -> str:
+    """One-line markdown summary above the Training-tab table.
+
+    States run id, latest step, and which metrics are present. Empty
+    records yield a friendly "no records yet" line.
+    """
+    label = f"`{run_id}` — " if run_id else ""
+    if not records:
+        return f"{label}_no progress records yet (the file is empty or just created)._"
+    steps = [r.get("step") for r in records if isinstance(r.get("step"), (int, float))]
+    metrics = sorted({str(r.get("metric")) for r in records if r.get("metric") is not None})
+    last_step = max(steps) if steps else STAT_PLACEHOLDER
+    metric_str = ", ".join(f"`{m}`" for m in metrics) if metrics else STAT_PLACEHOLDER
+    return (
+        f"{label}**{len(records)}** record(s) · latest step **{last_step}** · metrics: {metric_str}"
+    )
