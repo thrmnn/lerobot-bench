@@ -23,7 +23,9 @@ configs:
 
 # LeRobot Multi-Policy Benchmark — Results (v1)
 
-Public, reproducible evaluation of pretrained [LeRobot](https://github.com/huggingface/lerobot) policies on standard simulation environments. One row per episode; videos for browsable failure analysis.
+Public, reproducible evaluation of pretrained [LeRobot](https://github.com/huggingface/lerobot) policies on standard simulation environments. One row per episode; videos for browsable failure analysis. This is **v1.0.2**.
+
+The headline cell is **`act` × `aloha_transfer_cube` = 0.824 [0.772, 0.866]** (Wilson 95% CI, N=250, Hub-default inference). This supersedes the earlier v1.0.0 reading of **0.016**, which was a normalization bug *in our own eval harness* — image observations were fed to ACT un-normalized — fixed in PR #51 and confirmed by a controlled 2×2 ablation (the recovery is 100% the normalization fix, 0% temporal ensembling). See `docs/MODEL_CARDS.md` § ACT and `docs/INFERENCE_AUDIT.md` for the full account.
 
 - **Code**: <https://github.com/thrmnn/lerobot-bench>
 - **Live leaderboard (HF Space)**: <https://huggingface.co/spaces/thrmnn/lerobot-bench>
@@ -34,6 +36,18 @@ Public, reproducible evaluation of pretrained [LeRobot](https://github.com/huggi
 ## Policy scope (v1)
 
 The published v1 set is **`act`, `diffusion_policy`, `smolvla_libero`, `no_op`, `random`**. `xvla_libero` is **excluded** from this dataset — its rows and its MP4s are filtered out at publish time and it is deferred to v1.1 (unresolved Hub-JSON processor wiring). Do not expect any `xvla` rows or videos here.
+
+| Policy | Checkpoint (repo_id) | Weights license | Envs in v1 | Source |
+|---|---|---|---|---|
+| `act` | `lerobot/act_aloha_sim_transfer_cube_human` | apache-2.0 | `aloha_transfer_cube` | Zhao et al. 2023 ([arXiv:2304.13705](https://arxiv.org/abs/2304.13705)) |
+| `diffusion_policy` | `lerobot/diffusion_pusht` | apache-2.0 | `pusht` | Chi et al. 2023 ([arXiv:2303.04137](https://arxiv.org/abs/2303.04137)) |
+| `smolvla_libero` | `lerobot/smolvla_libero` | apache-2.0 | `libero_spatial`, `libero_object`, `libero_goal`, `libero_10` | Shukor et al. 2025 ([arXiv:2506.01844](https://arxiv.org/abs/2506.01844)) |
+| `no_op` | n/a (weights-free) | MIT (this repo) | all six v1 envs | baseline (zero action) |
+| `random` | n/a (weights-free) | MIT (this repo) | all six v1 envs | baseline (uniform action) |
+
+Per-policy provenance (revision SHAs, parameter scale, calibrated ms/step, paper-vs-measured deltas) is in `docs/MODEL_CARDS.md`. Upstream weights keep their own licenses; this dataset's CC-BY-4.0 covers only the *evaluation artifacts produced here*.
+
+**Success criterion**: a binary per-episode `success = final_reward >= env.success_threshold`. Each (policy, env) cell is 5 seeds × 50 episodes = **N=250** binary outcomes, except `diffusion_policy × pusht`, auto-downscoped to 25 episodes/seed (N=125) by the cost-budget rule (its iterative-denoising p95 tail crossed the threshold).
 
 ## What's in this dataset
 
@@ -66,6 +80,26 @@ The published v1 set is **`act`, `diffusion_policy`, `smolvla_libero`, `no_op`, 
 ## Methodology in one paragraph
 
 5 seeds × 50 episodes per (policy, env) cell, giving N=250 binary success outcomes per cell. The full v1 dispatch was 22 cells (18 published) × 5 seeds = 110 cell-seed runs, 0 failures. Two cells were auto-downscoped to 25 episodes/seed (N=125) by the cost-budget rule in `docs/DESIGN.md` § Methodology — `diffusion_policy × pusht` (published) and `xvla_libero × libero_10`; the latter is excluded from this dataset regardless (see Policy scope), and its downscope was dispatch-time only. The on-disk parquet holds 5250 rows = (20 cells × 250) + (2 downscoped × 125); after the xvla strip the *published* set is 18 cells (the published downscope is `diffusion_policy × pusht` only). Per-cell aggregation uses the Wilson 95% CI; pairwise policy comparisons use the percentile bootstrap (10,000 resamples) and paired Wilcoxon, with Cohen's h for effect size. The "inconclusive at this N" band is `2 × Wilson half-width @ p=0.5,N=250 = 0.123` — any |Δp̂| smaller than this is reported as inconclusive rather than ranked. Per-cell seeding is `numpy.random.seed(seed*1000) + torch.manual_seed(...)` once at cell start; per-episode seeding is `env.reset(seed=seed*1000+episode_index)`. Cell-boundary resume only — mid-cell crashes restart from episode 0 to preserve byte-identical reproducibility.
+
+## How to load
+
+```python
+from datasets import load_dataset
+
+ds = load_dataset("thrmnn/lerobot-bench-v1", "results", split="train")
+df = ds.to_pandas()  # one row per episode; columns per the schema above
+
+# Per-cell success rate (matches the leaderboard aggregation):
+df.groupby(["policy", "env"])["success"].mean()
+```
+
+Or read the parquet directly without `datasets`:
+
+```python
+import pandas as pd
+
+df = pd.read_parquet("hf://datasets/thrmnn/lerobot-bench-v1/results.parquet")
+```
 
 ## Reproducibility
 
