@@ -143,8 +143,9 @@ the locked SHAs that carry forward.
   coverage figure against any binary success rate.
 - **Paper vs. measured (v1.0.1 audit, PR #89)**: lerobot-bench v1
   measures `diffusion_policy × pusht` = **0.816** [0.739, 0.874]
-  (N=125 after auto-downscope), within 1.4 pp of the Hub-card 0.83
-  reference. The audit flags this match as **soft**: our success rule
+  (N=125 after auto-downscope), **+16.2 pp above** the 0.654
+  Hub-card reference. The audit flags this gap as a **success-rule
+  over-count**, not a genuine performance lift: our success rule
   is `final_reward >= 0.95` (≡ coverage ≥ 0.9025), while the
   PushT Hub card uses `any(coverage > 0.95)` over the rollout
   (sticky-true). 34.4% of our `diffusion_policy × pusht` episodes hit
