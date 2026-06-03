@@ -1,5 +1,5 @@
 ---
-license: mit
+license: cc-by-4.0
 language:
 - en
 tags:
@@ -31,14 +31,18 @@ Public, reproducible evaluation of pretrained [LeRobot](https://github.com/huggi
 - **Statistical rigor doc**: see `docs/MDE_TABLE.md` for minimum-detectable-difference analysis at N=250.
 - **Failure taxonomy**: see `docs/FAILURE_TAXONOMY.md` for the six-mode rollout labeling rubric.
 
+## Policy scope (v1)
+
+The published v1 set is **`act`, `diffusion_policy`, `smolvla_libero`, `no_op`, `random`**. `xvla_libero` is **excluded** from this dataset — its rows and its MP4s are filtered out at publish time and it is deferred to v1.1 (unresolved Hub-JSON processor wiring). Do not expect any `xvla` rows or videos here.
+
 ## What's in this dataset
 
 | File | Contents |
 |---|---|
-| `results.parquet` | Flat per-episode outcome table (12 columns; one row per episode across all (policy, env, seed) cells) |
+| `results.parquet` | Flat per-episode outcome table (one row per episode across all v1 (policy, env, seed) cells) |
 | `sweep_manifest.json` | Per-cell run metadata: status (`completed` / `failed` / `skipped`), exit codes, stderr tails, started/finished UTC |
 | `_provenance.json` | Audit trail: code SHA, lerobot version, n_cells, n_episodes, total_video_bytes, published_utc |
-| `videos/<policy>/<env>/seed<N>/episode<E>.mp4` | Per-episode rollout videos (256×256, 10 fps, H.264, ≤2 MiB; adaptive encoder ladder for long episodes) |
+| `videos/{policy}__{env}__seed{seed}__ep{episode:03d}.mp4` | Per-episode rollout videos, **flat-named** (256×256, 10 fps, H.264, ≤2 MiB; adaptive encoder ladder for long episodes). Example: `diffusion_policy__pusht__seed3__ep042.mp4`. |
 
 ## Schema (`results.parquet`)
 
@@ -56,10 +60,12 @@ Public, reproducible evaluation of pretrained [LeRobot](https://github.com/huggi
 | `code_sha` | str | git SHA of the lerobot-bench commit that produced the row |
 | `lerobot_version` | str | lerobot version (e.g., `0.5.1`) |
 | `timestamp_utc` | str | ISO 8601 UTC timestamp of the row write |
+| `errored` | bool | True if the episode crashed (OOM / env death) rather than failing the task. Back-filled `false` for rows written before the column existed. |
+| `eval_run_id` | str | Per-sweep-invocation provenance handle. Empty string for rows written before the column existed. |
 
 ## Methodology in one paragraph
 
-5 seeds × 50 episodes per (policy, env) cell, giving N=250 binary success outcomes per cell. Per-cell aggregation uses the Wilson 95% CI; pairwise policy comparisons use the percentile bootstrap (10,000 resamples) and paired Wilcoxon, with Cohen's h for effect size. The "inconclusive at this N" band is `2 × Wilson half-width @ p=0.5,N=250 = 0.123` — any |Δp̂| smaller than this is reported as inconclusive rather than ranked. Per-cell seeding is `numpy.random.seed(seed*1000) + torch.manual_seed(...)` once at cell start; per-episode seeding is `env.reset(seed=seed*1000+episode_index)`. Cell-boundary resume only — mid-cell crashes restart from episode 0 to preserve byte-identical reproducibility.
+5 seeds × 50 episodes per (policy, env) cell, giving N=250 binary success outcomes per cell. Two cells were auto-downscoped to 125 episodes (25 per seed) by the cost-budget rule in `docs/DESIGN.md` § Methodology — `diffusion_policy × pusht` and `xvla_libero × libero_10`; the latter is excluded from this dataset regardless (see Policy scope). Per-cell aggregation uses the Wilson 95% CI; pairwise policy comparisons use the percentile bootstrap (10,000 resamples) and paired Wilcoxon, with Cohen's h for effect size. The "inconclusive at this N" band is `2 × Wilson half-width @ p=0.5,N=250 = 0.123` — any |Δp̂| smaller than this is reported as inconclusive rather than ranked. Per-cell seeding is `numpy.random.seed(seed*1000) + torch.manual_seed(...)` once at cell start; per-episode seeding is `env.reset(seed=seed*1000+episode_index)`. Cell-boundary resume only — mid-cell crashes restart from episode 0 to preserve byte-identical reproducibility.
 
 ## Reproducibility
 
@@ -97,4 +103,17 @@ The sweep is resumable cell-by-cell; killing it mid-cell restarts that cell from
 
 ## License
 
-MIT. Per-policy weights are subject to their upstream licenses (apache-2.0 for the lerobot/* checkpoints in v1; see `docs/MODEL_CARDS.md` for the per-policy table).
+This dataset (the parquet tables, manifests, and rendered MP4 rollouts) is released under **[CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/)** — attribute the LeRobot Multi-Policy Benchmark (see Citation). This covers the *evaluation artifacts produced by this benchmark*, not the upstream policy weights or environments, which keep their own licenses.
+
+Per-policy weights are subject to their upstream licenses (apache-2.0 for the `lerobot/*` checkpoints in v1; see `docs/MODEL_CARDS.md` for the per-policy table).
+
+## Attribution / NOTICE
+
+This dataset is derived from running third-party open-source policies and simulation environments. The benchmark code and these artifacts build on:
+
+- **[LeRobot](https://github.com/huggingface/lerobot)** (Hugging Face) — Apache-2.0. Policy implementations, pretrained `lerobot/*` checkpoints, and evaluation harness primitives.
+- **[gym-pusht](https://github.com/huggingface/gym-pusht)** — Apache-2.0. The PushT environment.
+- **[gym-aloha](https://github.com/huggingface/gym-aloha)** — Apache-2.0. The Aloha (transfer-cube) environment.
+- **[LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO)** — the Libero environment suite (libero_10, etc.), under its upstream license.
+
+See the `NOTICE` file at the root of the [source repository](https://github.com/thrmnn/lerobot-bench) for the full third-party attribution text. Upstream Apache-2.0 components retain their original copyright notices and license terms; nothing here relicenses them.
