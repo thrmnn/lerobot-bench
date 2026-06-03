@@ -2,8 +2,8 @@
 
 | Field   | Value |
 | ------- | ----- |
-| Status  | Open |
-| Date    | 2026-05-26 |
+| Status  | Resolved (audit + canonical-criterion infra + cap-600 probe; v1.1 residue tracked in §7) |
+| Date    | 2026-05-26 (audit) · 2026-06-02 (gate close) |
 | Auditor | researcher (audit/v1.0.1-success-criterion) |
 | Pipeline-roadmap item | §1.3 |
 | Companion audits | `docs/CLAIM_AUDIT_SMOLVLA.md` (PR #84, §1.1) · `docs/INFERENCE_AUDIT.md` (PR #86, §1.2) |
