@@ -8,6 +8,7 @@ baseline.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -149,6 +150,31 @@ def test_seed_everything_returns_base_seed() -> None:
     assert seed_everything(2) == 2000
     assert seed_everything(0) == 0
     assert seed_everything(4) == 4000
+
+
+def test_seed_everything_sets_cublas_workspace_env() -> None:
+    """CUBLAS_WORKSPACE_CONFIG is set even when torch is absent (audit C3)."""
+    os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
+    seed_everything(0)
+    assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+
+
+def test_seed_everything_respects_preset_cublas_workspace() -> None:
+    """setdefault: an operator-exported value is left untouched."""
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+    try:
+        seed_everything(0)
+        assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":16:8"
+    finally:
+        os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
+
+
+def test_seed_everything_pins_torch_determinism() -> None:
+    """cuDNN deterministic on / benchmark off after seeding (audit C3)."""
+    torch = pytest.importorskip("torch")
+    seed_everything(1)
+    assert torch.backends.cudnn.deterministic is True
+    assert torch.backends.cudnn.benchmark is False
 
 
 # --------------------------------------------------------------------- #
@@ -534,6 +560,54 @@ def test_cell_result_to_rows_carries_metadata() -> None:
     assert (df["code_sha"] == "abc123").all()
     assert (df["lerobot_version"] == "0.5.1").all()
     assert (df["timestamp_utc"] == "2026-05-01T00:00:00+00:00").all()
+
+
+def test_cell_result_to_rows_errored_column_reflects_episode_error() -> None:
+    """The optional ``errored`` column is True iff the episode crashed (audit H3)."""
+    good = _make_episode(0, success=False)  # legit failure, error=None
+    crashed = EpisodeResult(
+        episode_index=1,
+        success=False,
+        return_=0.0,
+        n_steps=0,
+        wallclock_s=0.1,
+        frames=(),
+        final_reward=0.0,
+        error="RuntimeError: CUDA out of memory",
+    )
+    cell = CellResult(
+        policy="mock",
+        env="mock_env",
+        seed=0,
+        episodes=(good, crashed),
+        code_sha="abc123",
+        lerobot_version="0.5.1",
+        timestamp_utc="2026-05-01T00:00:00+00:00",
+    )
+    df = cell.to_rows()
+    assert df["errored"].tolist() == [False, True]
+
+
+def test_cell_result_to_rows_eval_run_id_defaults_empty() -> None:
+    cell = _make_cell(successes=1, total=2)
+    df = cell.to_rows()
+    assert (df["eval_run_id"] == "").all()
+
+
+def test_cell_result_to_rows_eval_run_id_threaded() -> None:
+    eps = (_make_episode(0, success=True),)
+    cell = CellResult(
+        policy="mock",
+        env="mock_env",
+        seed=0,
+        episodes=eps,
+        code_sha="abc123",
+        lerobot_version="0.5.1",
+        timestamp_utc="2026-05-01T00:00:00+00:00",
+        eval_run_id="2026-05-01T00:00:00+00:00-abc12345",
+    )
+    df = cell.to_rows()
+    assert (df["eval_run_id"] == "2026-05-01T00:00:00+00:00-abc12345").all()
     assert (df["policy"] == "mock").all()
     assert (df["env"] == "mock_env").all()
     assert (df["seed"] == 0).all()

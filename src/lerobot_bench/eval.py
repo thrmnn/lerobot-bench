@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 import subprocess
 import time
 from collections.abc import Sequence
@@ -162,6 +163,7 @@ class CellResult:
     code_sha: str
     lerobot_version: str
     timestamp_utc: str
+    eval_run_id: str = ""
 
     @property
     def success_rate(self) -> float:
@@ -204,6 +206,13 @@ class CellResult:
                 "code_sha": self.code_sha,
                 "lerobot_version": self.lerobot_version,
                 "timestamp_utc": self.timestamp_utc,
+                # OPTIONAL columns (audit H3 / M5). ``errored`` flags a
+                # crashed episode (OOM, env death) so plan_resume re-runs
+                # the cell instead of treating the crash as a legit
+                # failure. ``eval_run_id`` is the per-sweep provenance
+                # handle (empty for single-cell/back-compat callers).
+                "errored": ep.error is not None,
+                "eval_run_id": self.eval_run_id,
             }
             for i, ep in enumerate(self.episodes)
         ]
@@ -222,7 +231,19 @@ def seed_everything(seed_idx: int) -> int:
     its CPU + CUDA generators if importable. Logs a warning (does not
     raise) if torch is unavailable -- that's a "no GPU work happens"
     condition, not necessarily fatal for tests using mocks.
+
+    Beyond seeding (audit C3), this also pins torch into deterministic
+    mode: cuDNN deterministic + benchmark-off, the cuBLAS workspace
+    env var required for deterministic GEMMs, and
+    ``use_deterministic_algorithms(..., warn_only=True)``. ``warn_only``
+    is deliberate -- an upstream kernel without a deterministic
+    implementation should log a warning, not crash a multi-hour sweep
+    mid-cell.
     """
+    # Must be set before the first cuBLAS handle is created; setdefault so
+    # an operator who exported a different value keeps theirs.
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
     base_seed = seed_idx * 1000
     np.random.seed(base_seed)
 
@@ -238,6 +259,10 @@ def seed_everything(seed_idx: int) -> int:
     torch.manual_seed(base_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(base_seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
     return base_seed
 
 
@@ -1332,6 +1357,7 @@ def run_cell(
     videos_dir: Path | None = None,
     code_sha: str | None = None,
     lerobot_version: str | None = None,
+    eval_run_id: str = "",
 ) -> CellResult:
     """Run ``n_episodes`` for one ``(policy, env, seed_idx)`` cell.
 
@@ -1422,6 +1448,7 @@ def run_cell(
         code_sha=code_sha,
         lerobot_version=lerobot_version,
         timestamp_utc=timestamp_utc,
+        eval_run_id=eval_run_id,
     )
 
 
@@ -1582,6 +1609,7 @@ def run_cell_from_specs(
     device: str = "cuda",
     record_video: bool = True,
     videos_dir: Path | None = None,
+    eval_run_id: str = "",
 ) -> CellResult:
     """Convenience: load policy + env from specs, then :func:`run_cell`.
 
@@ -1617,4 +1645,5 @@ def run_cell_from_specs(
         n_episodes=n_episodes,
         record_video=record_video,
         videos_dir=videos_dir,
+        eval_run_id=eval_run_id,
     )

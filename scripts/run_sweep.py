@@ -120,6 +120,13 @@ class SubprocessOutcome:
     stderr: str
 
 
+# Seconds to wait after SIGTERM before escalating to SIGKILL on a timed-out
+# child's process group (audit H1). Short, because the point of the kill is to
+# free VRAM a hung CUDA/MuJoCo child is holding -- we do not wait long for a
+# graceful shutdown that may never come.
+_TERM_GRACE_S = 10.0
+
+
 def _default_run_subprocess(
     argv: list[str],
     *,
@@ -127,42 +134,87 @@ def _default_run_subprocess(
 ) -> SubprocessOutcome:
     """Real subprocess invocation. Tests replace this via :data:`_run_subprocess`.
 
-    ``timeout_s`` is intentionally **soft**: we pass it to
-    ``subprocess.run`` only for surfacing a TimeoutExpired warning in
-    the dispatch loop -- never SIGTERM. CUDA cleanup on signal is
-    fragile; if a cell overruns, we log and let it finish.
+    The child is launched in its own session/process group
+    (``start_new_session=True``) so that on timeout we can SIGTERM the
+    whole group, wait a short grace, then SIGKILL it (audit H1). A hung
+    CUDA/MuJoCo child that is never killed orphans and holds the 8GB
+    VRAM slab, starving every subsequent cell; the old "soft" timeout
+    only logged and let the orphan linger. Semantics for the dispatch
+    loop are unchanged: a timeout is still recorded as exit 124 and the
+    sweep continues to the next cell.
 
     Notes:
-      * Uses ``capture_output=True`` so stdout/stderr can be tailed
-        into the manifest.
-      * ``check=False`` because non-zero exits are normal here.
+      * Uses pipes so stdout/stderr can be tailed into the manifest.
+      * Non-zero exits are normal here and returned as-is.
     """
+    proc = subprocess.Popen(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
     try:
-        completed = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        # Soft timeout: log and treat as a failed cell with a clear
-        # marker. Do NOT terminate -- the operator can decide whether
-        # to kill the lingering process out-of-band.
+        stdout_blob, stderr_blob = proc.communicate(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
         logger.warning(
-            "cell exceeded soft timeout %.0fs (still running in background?): %s",
+            "cell exceeded timeout %.0fs; killing process group to free VRAM: %s",
             timeout_s or -1,
             " ".join(argv),
         )
-        stderr_blob = (exc.stderr or b"").decode("utf-8", errors="replace") if exc.stderr else ""
-        stdout_blob = (exc.stdout or b"").decode("utf-8", errors="replace") if exc.stdout else ""
-        return SubprocessOutcome(returncode=124, stdout=stdout_blob, stderr=stderr_blob)
+        _kill_process_group(proc)
+        # Drain whatever the child wrote before it died. communicate()
+        # after a kill returns promptly.
+        stdout_blob, stderr_blob = proc.communicate()
+        return SubprocessOutcome(
+            returncode=124,
+            stdout=stdout_blob or "",
+            stderr=stderr_blob or "",
+        )
 
     return SubprocessOutcome(
-        returncode=completed.returncode,
-        stdout=completed.stdout or "",
-        stderr=completed.stderr or "",
+        returncode=proc.returncode,
+        stdout=stdout_blob or "",
+        stderr=stderr_blob or "",
     )
+
+
+def _kill_process_group(proc: subprocess.Popen[str]) -> None:
+    """Escalate terminate -> grace -> kill on a child's process group.
+
+    ``proc`` must have been started with ``start_new_session=True`` so it
+    is the leader of its own process group (pgid == pid). We
+    ``os.killpg`` rather than ``proc.terminate()`` so grandchildren
+    (CUDA workers, MuJoCo render threads spawned by run_one) are reaped
+    too, not just the direct child. Missing-process races (the child
+    already exited) are swallowed -- there is nothing left to kill.
+    """
+    import signal
+
+    try:
+        pgid = os.getpgid(proc.pid)
+    except ProcessLookupError:
+        return
+
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+
+    try:
+        proc.wait(timeout=_TERM_GRACE_S)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    try:
+        proc.wait(timeout=_TERM_GRACE_S)
+    except subprocess.TimeoutExpired:
+        logger.error("process group %d did not die after SIGKILL", pgid)
 
 
 # Module-level injection point. Tests do
@@ -543,6 +595,7 @@ class SweepManifest:
     code_sha: str
     lerobot_version: str
     config_path: str
+    eval_run_id: str = ""
     cells: list[CellManifestEntry] = field(default_factory=list)
     finished_utc: str | None = None
 
@@ -552,6 +605,7 @@ class SweepManifest:
             "finished_utc": self.finished_utc,
             "code_sha": self.code_sha,
             "lerobot_version": self.lerobot_version,
+            "eval_run_id": self.eval_run_id,
             "config_path": self.config_path,
             "cells": [c.to_json() for c in self.cells],
         }
@@ -617,6 +671,18 @@ def _now_utc() -> str:
     return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 
 
+def _mint_eval_run_id(started_utc: str, code_sha: str) -> str:
+    """Mint one provenance handle per sweep invocation (audit M5).
+
+    Shape: ``f"{started_utc}-{code_sha[:8]}"``. Named ``eval_run_id`` to
+    avoid colliding with the WM-training JSONL ``run_id`` in
+    ``docs/MONITORING.md``. This is the foundation the future MLflow/DVC
+    layer keys off; this PR only mints + threads it, no tracking backend.
+    """
+    sha_part = (code_sha or "unknown")[:8]
+    return f"{started_utc}-{sha_part}"
+
+
 def _tail_lines(text: str, n: int) -> str:
     """Return the last ``n`` lines of ``text``, joined with newlines.
 
@@ -636,6 +702,7 @@ def _build_run_one_argv(
     cell: PlannedCell,
     *,
     config: SweepConfig,
+    eval_run_id: str = "",
     python_executable: str | None = None,
 ) -> list[str]:
     """Build the argv that dispatches one cell via ``scripts/run_one.py``.
@@ -676,6 +743,8 @@ def _build_run_one_argv(
         argv.append("--no-record-video")
     if config.criterion == "canonical":
         argv.append("--canonical")
+    if eval_run_id:
+        argv += ["--eval-run-id", eval_run_id]
     return argv
 
 
@@ -769,13 +838,19 @@ def _build_initial_manifest(
     shuffled by the caller). The manifest order is the dispatch order
     -- skimming the JSON shows what's done, what's next, what failed,
     in chronological dispatch order.
+
+    The ``eval_run_id`` provenance handle (audit M5) is minted from the
+    manifest's ``started_utc`` + ``code_sha`` and stored on the manifest;
+    the dispatch loop threads it into each cell's ``run_one`` argv.
     """
     skipped_set = {(c.policy, c.env, c.seed_idx) for c in skipped_at_plan}
     started_utc = _now_utc()
+    code_sha = _git_sha()
     manifest = SweepManifest(
         started_utc=started_utc,
-        code_sha=_git_sha(),
+        code_sha=code_sha,
         lerobot_version=_lerobot_version(),
+        eval_run_id=_mint_eval_run_id(started_utc, code_sha),
         config_path=str(config_path),
     )
     for cell in cells:
@@ -859,7 +934,8 @@ def run_sweep(
        each.
 
     The ``cell_timeout_s`` kwarg overrides the YAML's value -- CLI
-    wins. Both are soft; see :func:`_default_run_subprocess`.
+    wins. On expiry the child's whole process group is SIGTERM'd then
+    SIGKILL'd to free VRAM; see :func:`_default_run_subprocess`.
     """
     p_yaml = policies_yaml if policies_yaml is not None else config.policies_yaml
     e_yaml = envs_yaml if envs_yaml is not None else config.envs_yaml
@@ -974,7 +1050,7 @@ def run_sweep(
     n_failed = 0
 
     for i, cell in enumerate(to_dispatch, start=1):
-        argv = _build_run_one_argv(cell, config=config)
+        argv = _build_run_one_argv(cell, config=config, eval_run_id=manifest.eval_run_id)
         entry = _find_entry(manifest, cell)
         entry.started_utc = _now_utc()
         entry.status = STATUS_PENDING  # explicit -- in case the entry was reused
@@ -1138,7 +1214,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--cell-timeout-s",
         type=float,
         default=None,
-        help="Soft per-cell timeout in seconds (overrides YAML; warn-only, no kill).",
+        help=(
+            "Per-cell timeout in seconds (overrides YAML). On expiry the cell's "
+            "process group is SIGTERM'd then SIGKILL'd and the cell is recorded "
+            "as failed (exit 124); the sweep continues."
+        ),
     )
     parser.add_argument(
         "--max-parallel",
