@@ -36,8 +36,41 @@ gym-aloha
 LIBERO
   https://github.com/Lifelong-Robot-Learning/LIBERO
   Copyright (c) The LIBERO authors and contributors.
-  Licensed under its upstream license (see the LIBERO repository).
+  Licensed under its upstream license (see the LIBERO repository; not
+  independently verified here — confirm before redistribution).
   Used for: the Libero environment suite (e.g. libero_10).
+  Cite: Liu et al., "LIBERO: Benchmarking Knowledge Transfer for Lifelong
+  Robot Learning", NeurIPS 2023 (arXiv:2306.03310).
+
+--------------------------------------------------------------------------------
+Pretrained policy checkpoints (evaluated in v1)
+
+  The v1 sweep runs pretrained checkpoints mirrored under the `lerobot/*`
+  Hugging Face Hub org. Each checkpoint carries an apache-2.0 license tag
+  on its Hub card (see docs/MODEL_CARDS.md for repo IDs + locked revision
+  SHAs). The benchmark does not redistribute the weights themselves; only
+  the per-episode evaluation outcomes and rendered rollouts are published.
+
+  ACT (Action Chunking Transformer)
+    Checkpoint: lerobot/act_aloha_sim_transfer_cube_human (apache-2.0)
+    Cite: Zhao, Kumar, Levine, Finn, "Learning Fine-Grained Bimanual
+    Manipulation with Low-Cost Hardware", RSS 2023 (arXiv:2304.13705).
+    The Aloha (ALOHA) hardware/task family originates from the same work.
+
+  Diffusion Policy
+    Checkpoint: lerobot/diffusion_pusht (apache-2.0)
+    Cite: Chi, Feng, Du, Xu, Cousineau, Burchfiel, Song, "Diffusion
+    Policy: Visuomotor Policy Learning via Action Diffusion", RSS 2023
+    (arXiv:2303.04137). The PushT task originates from this work.
+
+  SmolVLA
+    Checkpoint: lerobot/smolvla_libero (apache-2.0)
+    Cite: Shukor, Aubakirova, Capuano, et al., "SmolVLA: A
+    Vision-Language-Action Model for Affordable and Efficient Robotics",
+    2025 (arXiv:2506.01844).
+
+  The no_op and random baselines have no upstream weights; their
+  implementations live in this repository under its MIT license.
 
 --------------------------------------------------------------------------------
 A copy of the Apache License, Version 2.0, may be obtained at:
