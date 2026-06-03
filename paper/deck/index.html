@@ -744,7 +744,7 @@ pre.code .v{color:var(--ink);}
       </tr>
       <tr>
         <td class="dim">best cell here</td>
-        <td class="v-fail"><span class="num">0.016</span><span class="lo">aloha</span></td>
+        <td class="v-ok"><span class="num">0.824</span><span class="lo">aloha</span></td>
         <td class="v-ok"><span class="num">0.816</span><span class="lo">pusht</span></td>
         <td class="v-ok"><span class="num">0.928</span><span class="lo">libero_goal</span></td>
         <td class="v-def">—<span class="lo">deferred</span></td>
@@ -933,10 +933,10 @@ pre.code .v{color:var(--ink);}
     <tr><td class="policy">smolvla · libero_object <span style="color:var(--warm);">⚠</span></td><td class="paper">0.96 <span style="color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured bad">0.528 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">−43.2 pp*</td></tr>
     <tr><td class="policy">smolvla · libero_spatial <span style="color:var(--warm);">⚠</span></td><td class="paper">0.90 <span style="color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured warn">0.776 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">−12.4 pp*</td></tr>
     <tr><td class="policy">smolvla · libero_goal <span style="color:var(--warm);">⚠</span></td><td class="paper">0.92 <span style="color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured ok">0.928 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">+0.8 pp*</td></tr>
-    <tr><td class="policy">act · aloha_transfer_cube <span style="color:var(--warm);">⚠</span></td><td class="paper">0.50 <span style="color:var(--mute);font-size:12px;">(human teleop)</span></td><td class="measured bad">0.016 <span style="color:var(--mute);font-size:12px;">(Hub default)</span><br><span style="color:var(--accent);font-weight:600;">→ 0.764</span> <span style="color:var(--mute);font-size:12px;">(paper settings**)</span></td><td class="delta">−48 pp<br><span style="color:var(--accent);">+26 pp**</span></td></tr>
+    <tr><td class="policy">act · aloha_transfer_cube</td><td class="paper">0.50 <span style="color:var(--mute);font-size:12px;">(human teleop)</span></td><td class="measured ok">0.824 <span style="color:var(--mute);font-size:12px;">[.772, .866]</span><br><span style="color:var(--mute);font-size:12px;">our norm bug fixed (#51)**</span></td><td class="delta">+32 pp</td></tr>
     <tr><td class="policy">diffusion_policy · pusht</td><td class="paper">0.654 <span class="lo" style="display:inline;color:var(--mute);font-size:12px;">(Hub card)</span></td><td class="measured ok">0.816</td><td class="delta">+16.2 pp†</td></tr>
   </table>
-  <div class="foot"><span>* smolvla scope · ** act default vs paper inference (temporal_ensemble_coeff=0.01, n_action_steps=1) — v1.0.2 probe · † our final_reward≥0.95 over-counts vs the Hub card's sticky any(is_success) — see SUCCESS_CRITERION_AUDIT</span><span class="src">results.parquet · PROBE_RESULTS_V1.0.1.md</span></div>
+  <div class="foot"><span>* smolvla scope · ** v1.0.0's 0.016 was OUR eval-harness normalization bug (skipped stats on observation.images.top); fixed in #51. 2×2 ablation: norm fix 0.016→0.812, inference settings a wash · † our final_reward≥0.95 over-counts vs the Hub card's sticky any(is_success) — see SUCCESS_CRITERION_AUDIT</span><span class="src">results.parquet · results/probes/act-norm-ablation/</span></div>
 </section>
 
 <!-- ===================================================================== -->
@@ -1178,9 +1178,9 @@ pre.code .v{color:var(--ink);}
     <div class="audit ok">
       <div class="glyph">✓</div>
       <div class="body-block">
-        <span class="lab">PR #86 · inference settings — ACT temporal ensembling · <span style="color:var(--accent);">v1.0.2 PROBE RESOLVED</span></span>
-        <h5>Hub ships <span class="mono">temporal_ensemble_coeff=None, n_action_steps=100</span>; Zhao 2023 Table I used <span class="mono">coeff=0.01, n=1</span>.</h5>
-        <p>Probe at paper settings: <span class="ink" style="font-weight:600;">0.764 [0.708, 0.812]</span> vs v1.0.0 default <span class="mono">0.016</span> — Wilson CIs disjoint by an order of magnitude. The 0.016 was Hub-default inference; the architecture clears paper on this env at correct settings. (See PROBE_RESULTS_V1.0.1.md.)</p>
+        <span class="lab">#51 · OUR normalization bug — ACT × aloha · <span style="color:var(--accent);">v1.0.2 ROOT-CAUSED</span></span>
+        <h5>Our eval harness silently skipped dataset norm stats on <span class="mono">observation.images.top</span>, feeding ACT un-normalized images. Our bug, fixed in #51.</h5>
+        <p>Controlled 2×2 (norm {buggy, fixed} × inference {Hub, paper}): <span class="mono">buggy=0.016</span> either way; <span class="mono">fixed=0.812</span> (Hub) / <span class="mono">0.768</span> (paper) — overlapping CIs. Recovery is 100% the norm fix, 0% temporal ensembling (a wash). Canonical: <span class="ink" style="font-weight:600;">0.824 [.772, .866]</span>. (results/probes/act-norm-ablation/.)</p>
       </div>
     </div>
     <div class="audit warn">
@@ -1193,9 +1193,9 @@ pre.code .v{color:var(--ink);}
     </div>
   </div>
   <div class="body" style="margin-top:14px;font-size:14px;color:var(--mute);">
-    <span class="warm">Net for the headline:</span> smolvla × libero_10 sits under <em>two compounding caveats</em> (scope + truncation); <span style="color:var(--accent);">ACT × aloha caveat RESOLVED — 0.016 → 0.764 at paper settings (v1.0.2 probe).</span> External replication + cross-hardware variance: see slide 18 limitations.
+    <span class="warm">Net for the headline:</span> smolvla × libero_10 sits under <em>two compounding caveats</em> (scope + truncation); <span style="color:var(--accent);">ACT × aloha root-caused — we found and fixed our OWN harness normalization bug (#51); canonical 0.824.</span> External replication + cross-hardware variance: see slide 18 limitations.
   </div>
-  <div class="foot"><span>4 of 6 §1 audits closed (incl. ACT probe RESOLVED) · §§1.4–1.6 holding</span><span class="src">docs/PIPELINE_ROADMAP.md</span></div>
+  <div class="foot"><span>4 of 6 §1 audits closed (incl. ACT norm bug root-caused) · §§1.4–1.6 holding</span><span class="src">docs/PIPELINE_ROADMAP.md</span></div>
 </section>
 
 <!-- ===================================================================== -->
@@ -1226,7 +1226,7 @@ pre.code .v{color:var(--ink);}
   </div>
   <div class="title-block" style="margin-top:32px;">
     <span class="eyebrow">classical heads on their home env</span>
-    <h2 class="h-2">One reproduces. The other <span class="accent">does not.</span></h2>
+    <h2 class="h-2">Both reproduce — once we fixed <span class="accent">our own bug.</span></h2>
   </div>
   <div class="pair">
     <div class="card">
@@ -1236,12 +1236,12 @@ pre.code .v{color:var(--ink);}
     </div>
     <div class="card">
       <div class="vid-wrap"><video src="../../docs/assets/rollouts/loops/act-aloha-fail.mp4" autoplay muted loop playsinline></video></div>
-      <div class="stat fail">0.016<span style="font-size:24px;color:var(--warm);vertical-align:super;margin-left:6px;">⚠</span></div>
-      <div class="meta">act · aloha_transfer_cube · 95% CI [.01, .04]</div>
+      <div class="stat ok">0.824</div>
+      <div class="meta">act · aloha_transfer_cube · 95% CI [.772, .866] · norm bug fixed (#51)</div>
     </div>
   </div>
   <div class="body" style="margin-top:14px;max-width:none;text-align:center;font-size:22px;">
-    Diffusion Policy on PushT measures 0.816 — +16.2 pp <em>above</em> the Hub card's 0.654, consistent with our lax final_reward≥0.95 over-counting the card's sticky rule. <span class="warm">ACT's 0.016 was a Hub-default inference artifact</span> (PR #86 audit) — resolved by the probe (PR #97): <strong>0.764 [0.708, 0.812]</strong> at paper settings, +26 pp over the paper's 0.50.
+    Diffusion Policy on PushT measures 0.816 — +16.2 pp <em>above</em> the Hub card's 0.654, consistent with our lax final_reward≥0.95 over-counting the card's sticky rule. <span class="warm">ACT's 0.016 was OUR eval-harness normalization bug</span> — we skipped dataset stats on the top camera, fixed in #51. Canonical: <strong>0.824 [.772, .866]</strong>. A 2×2 ablation confirms recovery is the norm fix (0.016→0.812), not temporal ensembling (a wash).
   </div>
   <div class="foot"><span>lerobot/diffusion_pusht · lerobot/act_aloha_sim_transfer_cube_human</span><span class="src">paper §4</span></div>
 </section>
@@ -1271,8 +1271,8 @@ pre.code .v{color:var(--ink);}
       <div class="body" style="font-size:19px;">
         The success threshold rewards <em>any</em> contact event.<br>
         A policy needs to <em>beat this number</em> to claim it learned the task.<br><br>
-        <span class="ink">ACT scores 1.6% on the same cell</span> — <em>at our default inference settings.</em><br>
-        <span style="color:var(--accent);font-weight:600;">✓ v1.0.2 probe at paper inference settings (coeff=0.01, n=1): 76.4% [70.8%, 81.2%].</span> The Hub-default reading was missing temporal ensembling; the architecture clears random-baseline by ~67 pp at correct settings.
+        <span class="ink">ACT scored 1.6% on the same cell</span> — <em>under our own normalization bug.</em><br>
+        <span style="color:var(--accent);font-weight:600;">✓ Fixed in #51: canonical 82.4% [77.2%, 86.6%].</span> The 1.6% was our harness skipping image norm stats — not the architecture. With norm fixed, ACT clears the random baseline by ~74 pp.
       </div>
     </div>
   </div>
