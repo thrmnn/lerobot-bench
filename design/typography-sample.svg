@@ -56,7 +56,7 @@
   <g transform="translate(64,714)">
     <text class="mono stack-label mute">mono · jetbrains mono 500 · 20px · tnum</text>
     <text y="48" class="mono ink" font-size="20" font-weight="500">smolvla · libero_10  <tspan class="mute">paper</tspan> 0.71  <tspan fill="#f87171" font-weight="700">measured</tspan> 0.252  <tspan class="mute">Δ</tspan> <tspan fill="#f87171">−45.8 pp</tspan></text>
-    <text y="78" class="mono ink" font-size="20" font-weight="500">diffusion · pusht     <tspan class="mute">paper</tspan> 0.83  <tspan fill="#34d399" font-weight="700">measured</tspan> 0.816  <tspan class="mute">Δ</tspan> <tspan class="mute">−1.4 pp</tspan></text>
+    <text y="78" class="mono ink" font-size="20" font-weight="500">diffusion · pusht     <tspan class="mute">ref</tspan> 0.654  <tspan fill="#34d399" font-weight="700">measured</tspan> 0.816  <tspan class="mute">Δ</tspan> <tspan class="mute">+16.2 pp (over-count)</tspan></text>
   </g>
 
   <!-- footer -->
