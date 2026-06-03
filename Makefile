@@ -61,7 +61,7 @@ calibrate:  ## Day 0b: per-policy step latency probe
 run-one:  ## Single-cell debug: pass `ARGS="--policy ... --env ... --seed N"`
 	$(PYTHON) scripts/run_one.py $(ARGS)
 
-reproduce:  ## Verify one published cell: pass `CELL=policy/env/seed` (e.g. act/pusht/0)
+reproduce:  ## Verify one published cell: pass `CELL=policy/env/seed` (e.g. diffusion_policy/pusht/0)
 	@test -n "$(CELL)" || { echo "usage: make reproduce CELL=policy/env/seed"; exit 2; }
 	$(PYTHON) scripts/reproduce_cell.py \
 		--policy $(word 1,$(subst /, ,$(CELL))) \
