@@ -13,12 +13,17 @@ from the v1 leaderboard** (see the xvla card below and
 [`DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md) for both deferrals and
 the locked SHAs that carry forward.
 
-> Fields populated only after the sweep completes (VRAM at inference,
-> calibrated ms/step, Day-7 failure modes) are marked **TBD** until the
-> corresponding artifact lands. Per `docs/CEO-PLAN.md`, a `repo_id` or
-> `revision_sha` left unknown at lock-in is a sweep blocker; those are
-> all resolved. Numbers below are pulled from `configs/policies.yaml`
-> and the cited primary sources — none are invented.
+> VRAM at inference and calibrated ms/step are back-filled from
+> `results/calibration-2026-05-12.json`; the per-cell success rates are
+> from `results/sweep-full/results.parquet`. Per-mode failure-taxonomy
+> labels (overshoot / slip / drift / …) are a Day-7 hand-labeling pass and
+> are **not yet in the parquet** — the cards report the label-free signal
+> already on disk (cap-hit-on-failures, the timeout proxy) and flag where
+> a per-mode breakdown still awaits labeling. Per `docs/CEO-PLAN.md`, a
+> `repo_id` or `revision_sha` left unknown at lock-in is a sweep blocker;
+> those are all resolved. Numbers below are pulled from
+> `configs/policies.yaml`, the cited primary sources, and the calibration
+> / sweep artifacts named above — none are invented.
 
 ---
 
@@ -46,8 +51,8 @@ the locked SHAs that carry forward.
   Aloha-trained; a PushT ACT variant would be a separate Hub entry and
   is not in the v1 roster.
 - **Inference precision**: fp32
-- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
-- **Mean ms/step (calibrated)**: TBD (Day 0b calibration)
+- **VRAM @ inference (RTX 4060 8GB)**: **≈266 MB peak** (`results/calibration-2026-05-12.json`, `act × aloha_transfer_cube`). The lightest cell in the matrix.
+- **Mean ms/step (calibrated)**: **≈18.4 ms/step** (p95 20.6 ms; 20-step probe on `aloha_transfer_cube`, same calibration JSON).
 - **Paper-reported success**: `aloha_transfer_cube` = **0.50**
   (Zhao et al. 2023, Table I, row "ACT (Ours)", Cube Transfer (sim) /
   Transfer subtask, human-teleop training column; 3 seeds × 50
@@ -56,7 +61,16 @@ the locked SHAs that carry forward.
   itself acknowledges the gap from the paper and attributes it to
   `gym-aloha` success heuristics. lerobot-bench re-runs at 5 seeds ×
   50 episodes per cell.
-- **Known failure modes**: TBD (Day 7 taxonomy)
+- **Known failure modes**: Per-mode taxonomy labels (overshoot / slip /
+  etc.) are a Day-7 hand-labeling pass and not yet in the parquet
+  (`failure_mode` is a future schema bump). The label-free signal on
+  disk: under **Hub-default inference settings** every failed
+  `aloha_transfer_cube` episode runs the full 400-step cap (cap-hit rate
+  100% on failures, `results/sweep-full/results.parquet`), i.e. the
+  **timeout** mode (taxonomy mode 3) by the on-disk proxy. The v1.0.2
+  probe shows this is an inference-config artefact, not an architecture
+  failure — see the audit row below; do not read the Hub-default cap-hits
+  as the policy's intrinsic failure signature.
 - **Source paper**: Zhao et al., "Learning Fine-Grained Bimanual
   Manipulation with Low-Cost Hardware", RSS 2023
   ([arXiv:2304.13705](https://arxiv.org/abs/2304.13705)).
@@ -122,8 +136,8 @@ the locked SHAs that carry forward.
   an Aloha Diffusion Policy variant would be a separate Hub entry and
   is not in the v1 roster.
 - **Inference precision**: fp32
-- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
-- **Mean ms/step (calibrated)**: TBD (Day 0b calibration)
+- **VRAM @ inference (RTX 4060 8GB)**: **≈1098 MB peak** (`results/calibration-2026-05-12.json`, `diffusion_policy × pusht`).
+- **Mean ms/step (calibrated)**: **≈228 ms/step**, but **p95 ≈1505 ms/step** (20-step probe on `pusht`, same calibration JSON). The heavy iterative-denoising tail (mean ≪ p95) is what tripped the `mean_step_ms > 100` auto-downscope rule — this cell ran at 25 episodes/seed (N=125), not 50.
 - **Paper-reported success**: `pusht` = **0.654** — from the LeRobot
   Hub model card for `lerobot/diffusion_pusht` (evaluation section):
   65.4% over 500 episodes on `gym-pusht`, where success := max overlap
@@ -134,7 +148,15 @@ the locked SHAs that carry forward.
   `gym-pusht` and lerobot-bench use. The Hub-card number is the
   apples-to-apples reference. lerobot-bench re-runs at 5 seeds × 50
   episodes per cell.
-- **Known failure modes**: TBD (Day 7 taxonomy)
+- **Known failure modes**: Per-mode taxonomy labels are a Day-7 pass and
+  not yet in the parquet. Label-free signal: at the bench's `final_reward
+  >= 0.95` rule the cell succeeds on 81.6% of episodes (N=125); its
+  failures are dominated by **timeout** (mode 3) — the T-block ends near
+  but below the coverage threshold at the 300-step cap. The audit below
+  records a 34.4% cap-hit rate among the bench's near-converged episodes,
+  which is the window the lax-vs-sticky success rule opens. Drift/overshoot
+  vs. genuine timeout cannot be separated until the rollouts are
+  hand-labeled in v1.0.2.
 - **Source paper**: Chi et al., "Diffusion Policy: Visuomotor Policy
   Learning via Action Diffusion", RSS 2023
   ([arXiv:2303.04137](https://arxiv.org/abs/2303.04137)).
@@ -179,10 +201,15 @@ the locked SHAs that carry forward.
 - **Envs supported**: `libero_spatial`, `libero_object`, `libero_goal`,
   `libero_10`.
 - **Inference precision**: bf16
-- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
-- **Mean ms/step (calibrated)**: ~160 ms/step measured on a smoke run
-  (12.75s wallclock / 79 steps for `libero_spatial` seed 0). Full
-  per-cell calibration deferred to Day 0b.
+- **VRAM @ inference (RTX 4060 8GB)**: **≈921 MB peak** across all four
+  LIBERO suites (`results/calibration-2026-05-12.json`; `libero_10` 920 MB,
+  the other three 922 MB). Smallest GPU footprint of the three VLAs.
+- **Mean ms/step (calibrated)**: **≈20–21 ms/step** on `libero_spatial`,
+  `libero_object`, `libero_goal`; **≈42.5 ms/step** on `libero_10`
+  (longer chunks / horizon), per `results/calibration-2026-05-12.json`.
+  All four stayed under the `mean_step_ms > 100` downscope threshold, so
+  every SmolVLA cell ran the full 50 episodes/seed (N=250). (Supersedes
+  the earlier ~160 ms/step smoke-run estimate.)
 - **Paper-reported success** (Shukor et al. 2025, Table 2, row
   "SmolVLA (0.45B), VLA Pt. = No"; protocol: 10 trials per task,
   binary scoring — 1 only if the task is fully completed):
@@ -193,7 +220,17 @@ the locked SHAs that carry forward.
 
   lerobot-bench re-runs at 5 seeds × 50 episodes per cell, ~5× more
   rollouts than the paper, so CI widths should be tighter.
-- **Known failure modes**: TBD (Day 7 taxonomy)
+- **Known failure modes**: Per-mode taxonomy labels are a Day-7 pass and
+  not yet in the parquet. Label-free signal from the audit cap-hit-on-
+  failures rates (`docs/SUCCESS_CRITERION_AUDIT.md`): `libero_spatial`
+  22.4%, `libero_object` 47.2%, `libero_goal` 7.2%, `libero_10` **74.8%**.
+  The low-cap-hit suites (`goal` especially) fail *early* — overshoot /
+  slip / premature-release territory — while `libero_10` failures are
+  cap-bound. The v1.0.2 probe characterised the `libero_10` cap-bound
+  failures as **drift** (mode 6): re-running at canonical cap=600 recovered
+  no successes (74.4% cap-hit even at 600), so the policy is stuck-while-
+  drifting mid-task, not slow-but-eventually-correct. Per-mode counts on
+  the other suites await the Day-7 labeling pass.
 - **Source paper**: Shukor et al., "SmolVLA: A Vision-Language-Action
   Model for Affordable and Efficient Robotics", 2025
   ([arXiv:2506.01844](https://arxiv.org/abs/2506.01844)).
@@ -276,8 +313,16 @@ the locked SHAs that carry forward.
 - **Envs supported**: `libero_spatial`, `libero_object`, `libero_goal`,
   `libero_10`.
 - **Inference precision**: bf16
-- **VRAM @ inference (RTX 4060 8GB)**: TBD (Day 0b calibration)
-- **Mean ms/step (calibrated)**: TBD (Day 0b calibration)
+- **VRAM @ inference (RTX 4060 8GB)**: **≈3522 MB peak** across the four
+  LIBERO suites (`results/calibration-2026-05-12.json`). The heaviest GPU
+  footprint in the matrix — ~3.8× SmolVLA's.
+- **Mean ms/step (calibrated)**: **≈53–77 ms/step** on `libero_spatial` /
+  `libero_object` / `libero_goal`; **≈164 ms/step** on `libero_10`
+  (`results/calibration-2026-05-12.json`). The `libero_10` mean crossed
+  the `mean_step_ms > 100` threshold, so that cell was auto-downscoped to
+  25 episodes/seed (N=125) at dispatch. NB: these are *load-and-step*
+  latencies; xvla still produces 0/10 successful rollouts (see below), so
+  the numbers measure inference cost, not useful work.
 - **Paper-reported success** (Bu et al. 2025, Table 2, "X-VLA (Ours),
   0.9B" row, full-finetune LIBERO columns; the paper does not state an
   explicit episode count for the LIBERO eval — the underlying LIBERO
@@ -288,7 +333,16 @@ the locked SHAs that carry forward.
   - `libero_10`      = **0.976**  (paper's "Long" suite; Avg 98.1)
 
   lerobot-bench re-runs at 5 seeds × 50 episodes per cell.
-- **Known failure modes**: TBD (Day 7 taxonomy)
+- **Known failure modes**: **Not taxonomy-classifiable.** xvla scores
+  **0/10 across all four LIBERO suites** in our rollouts (success rate
+  0.000 on every cell), and that 0% is attributed to an unresolved
+  Hub-artifact / inference-pipeline wiring bug (see the deferral driver
+  below), not to a policy-level failure mode. Assigning overshoot / slip /
+  drift labels to rollouts produced by a mis-wired loader would be
+  meaningless, so the failure-mode field is left explicitly **unmeasurable
+  until the wiring is fixed** (v1.1) rather than back-filled. The cell is
+  excluded from the published leaderboard for the same reason. See
+  [`docs/DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md).
 - **Source paper**: Bu et al., "X-VLA: Soft-Prompted Transformer as
   Scalable Cross-Embodiment Vision-Language-Action Model", 2025
   ([arXiv:2510.10274](https://arxiv.org/abs/2510.10274)).
