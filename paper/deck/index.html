@@ -934,9 +934,9 @@ pre.code .v{color:var(--ink);}
     <tr><td class="policy">smolvla · libero_spatial <span style="color:var(--warm);">⚠</span></td><td class="paper">0.90 <span style="color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured warn">0.776 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">−12.4 pp*</td></tr>
     <tr><td class="policy">smolvla · libero_goal <span style="color:var(--warm);">⚠</span></td><td class="paper">0.92 <span style="color:var(--mute);font-size:12px;">(10-task avg)</span></td><td class="measured ok">0.928 <span style="color:var(--mute);font-size:12px;">(task 0)</span></td><td class="delta">+0.8 pp*</td></tr>
     <tr><td class="policy">act · aloha_transfer_cube <span style="color:var(--warm);">⚠</span></td><td class="paper">0.50 <span style="color:var(--mute);font-size:12px;">(human teleop)</span></td><td class="measured bad">0.016 <span style="color:var(--mute);font-size:12px;">(Hub default)</span><br><span style="color:var(--accent);font-weight:600;">→ 0.764</span> <span style="color:var(--mute);font-size:12px;">(paper settings**)</span></td><td class="delta">−48 pp<br><span style="color:var(--accent);">+26 pp**</span></td></tr>
-    <tr><td class="policy">diffusion_policy · pusht</td><td class="paper">0.83</td><td class="measured ok">0.816</td><td class="delta">−1.4 pp</td></tr>
+    <tr><td class="policy">diffusion_policy · pusht</td><td class="paper">0.654 <span class="lo" style="display:inline;color:var(--mute);font-size:12px;">(Hub card)</span></td><td class="measured ok">0.816</td><td class="delta">+16.2 pp†</td></tr>
   </table>
-  <div class="foot"><span>* smolvla scope · ** act default vs paper inference (temporal_ensemble_coeff=0.01, n_action_steps=1) — v1.0.2 probe</span><span class="src">results.parquet · PROBE_RESULTS_V1.0.1.md</span></div>
+  <div class="foot"><span>* smolvla scope · ** act default vs paper inference (temporal_ensemble_coeff=0.01, n_action_steps=1) — v1.0.2 probe · † our final_reward≥0.95 over-counts vs the Hub card's sticky any(is_success) — see SUCCESS_CRITERION_AUDIT</span><span class="src">results.parquet · PROBE_RESULTS_V1.0.1.md</span></div>
 </section>
 
 <!-- ===================================================================== -->
@@ -1032,7 +1032,7 @@ pre.code .v{color:var(--ink);}
         ⚠ Coverage is <em>skewed toward SmolVLA</em> (4 of the 6 non-baseline cells) because LIBERO publishes 4 per-suite fine-tunes. ACT and Diffusion Policy each have only one home env.
       </div>
       <div class="body" style="font-size:20px;color:var(--dim);">
-        <em>22 runnable cells.</em> 110 dispatched (each baseline splits per env; 107 planned + 3 xvla re-sanity). 0 failures over 25 hours.
+        <em>22 runnable cells.</em> 110 dispatched (each baseline splits per env). 0 failures over 25 hours. Two slow cells — <span class="mono">diffusion_policy × pusht</span> and <span class="mono">xvla × libero_10</span> — were auto-downscoped to 125 episodes by the calibration latency rule.
       </div>
       <div class="matrix-key" style="margin-top:4px;">
         <span><span class="sw" style="background:var(--ok);"></span>rate &gt; .70</span>
@@ -1098,7 +1098,7 @@ pre.code .v{color:var(--ink);}
       </div>
     </div>
     <div class="body-lg" style="margin-top:32px;font-size:24px;">
-      <span class="warm">⚠ Two compounding caveats.</span> The 0.252 is (a) a <em>single task</em> vs the paper's <em>10-task average</em> (audit PR #84), and (b) <em>truncated at 520 steps</em> while the canonical LIBERO protocol allows 600 — and <span class="ink">74.8% of our episodes hit the cap</span> (audit PR #89).<br>
+      <span class="warm">⚠ Two compounding caveats.</span> The 0.252 is (a) a <em>single task</em> vs the paper's <em>10-task average</em> (audit PR #84), and (b) <em>truncated at 520 steps</em> while the canonical LIBERO protocol allows 600 — and <span class="ink">74.8% of our <em>failed</em> libero_10 episodes hit the cap</span> (audit PR #89).<br>
       The number is statistically tight (Wilson 95% CI <span class="mono ink">[.202, .309]</span>, MDE <span class="mono">12.3 pp</span>) but is a <em>lower bound</em> on this checkpoint's true single-task success rate. <em>Not</em> a paper-replication gap until v1.1 fixes both.
     </div>
   </div>
@@ -1188,7 +1188,7 @@ pre.code .v{color:var(--ink);}
       <div class="body-block">
         <span class="lab">PR #89 · success criterion + step cap — under-count</span>
         <h5>LIBERO <span class="mono">max_steps={280, 280, 300, 520}</span> vs canonical <span class="mono">600</span>. PushT + Aloha success rules also non-canonical.</h5>
-        <p>74.8% of <span class="mono">smolvla × libero_10</span> episodes hit our 520-step cap → the 0.252 is a <em>lower bound</em>. Aloha accepts <span class="mono">reward ∈ {1..4}</span> vs ACT paper's <span class="mono">reward == 4</span>. v1.1 adopts canonical (PR #90 lands selectable rules).</p>
+        <p>74.8% of <em>failed</em> <span class="mono">smolvla × libero_10</span> episodes hit our 520-step cap → the 0.252 is a <em>lower bound</em>. Aloha accepts <span class="mono">reward ∈ {1..4}</span> vs ACT paper's <span class="mono">reward == 4</span>. v1.1 adopts canonical (PR #90 lands selectable rules).</p>
       </div>
     </div>
   </div>
@@ -1241,7 +1241,7 @@ pre.code .v{color:var(--ink);}
     </div>
   </div>
   <div class="body" style="margin-top:14px;max-width:none;text-align:center;font-size:22px;">
-    Diffusion Policy on PushT reproduces. <span class="warm">ACT's 0.016 was a Hub-default inference artifact</span> (PR #86 audit) — resolved by the probe (PR #97): <strong>0.764 [0.708, 0.812]</strong> at paper settings, +26 pp over the paper's 0.50.
+    Diffusion Policy on PushT measures 0.816 — +16.2 pp <em>above</em> the Hub card's 0.654, consistent with our lax final_reward≥0.95 over-counting the card's sticky rule. <span class="warm">ACT's 0.016 was a Hub-default inference artifact</span> (PR #86 audit) — resolved by the probe (PR #97): <strong>0.764 [0.708, 0.812]</strong> at paper settings, +26 pp over the paper's 0.50.
   </div>
   <div class="foot"><span>lerobot/diffusion_pusht · lerobot/act_aloha_sim_transfer_cube_human</span><span class="src">paper §4</span></div>
 </section>
