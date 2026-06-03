@@ -441,6 +441,120 @@ def act_probe_bar(
 
 
 # --------------------------------------------------------------------- #
+# Figure 4 — ACT normalization 2x2 ablation heatmap                     #
+# --------------------------------------------------------------------- #
+
+# Canonical published cells for the ACT x aloha_transfer_cube controlled
+# 2x2 ablation (paper Table tab:act-ablation, paper/main.tex L354-377).
+# Rows = normalization {Buggy (v1.0.0), Fixed (PR #51)}; columns =
+# inference {Hub-default (coeff=None, n_steps=100), Paper (coeff=0.01,
+# n_steps=1)}. Each cell is N=250 (5 seeds x 50 episodes). Wilson 95%
+# CIs are the doc-published values. HARDCODED — these are stable canonical
+# numbers and are NOT read from parquet (see PROBE_RESULTS / paper).
+_ACT_NORM_ABLATION: dict[tuple[int, int], dict[str, Any]] = {
+    # (row, col): row 0 = buggy, row 1 = fixed; col 0 = hub, col 1 = paper.
+    (0, 0): {"rate": 0.016, "ci": (0.006, 0.040)},  # buggy + hub
+    (0, 1): {"rate": 0.016, "ci": (0.006, 0.040)},  # buggy + paper
+    (1, 0): {"rate": 0.812, "ci": (0.759, 0.856)},  # fixed + hub
+    (1, 1): {"rate": 0.768, "ci": (0.712, 0.816)},  # fixed + paper
+}
+_ACT_NORM_ROW_LABELS: tuple[str, str] = ("Buggy\n(v1.0.0)", "Fixed\n(PR #51)")
+_ACT_NORM_COL_LABELS: tuple[str, str] = (
+    "Hub-default\ncoeff=None, n_steps=100",
+    "Paper\ncoeff=0.01, n_steps=1",
+)
+
+
+def act_norm_ablation_2x2(*, style: Style, out_dir: Path) -> list[Path]:
+    """ACT x aloha_transfer_cube controlled 2x2 normalization ablation.
+
+    A 2x2 heatmap crossing normalization {Buggy (v1.0.0), Fixed (PR #51)}
+    against inference settings {Hub-default (coeff=None, n_steps=100),
+    Paper (coeff=0.01, n_steps=1)}. Cells are colored by success rate on a
+    red (0) -> green (1) ramp and annotated with the pooled rate and its
+    Wilson 95% CI. The figure makes the headline finding visual:
+    normalization is the load-bearing variable (rows differ by ~0.8), while
+    the inference setting / temporal ensembling is a wash (columns agree
+    within overlapping CIs).
+
+    This supersedes ``act_probe_bar`` conceptually but does not replace it;
+    both ship. Source: canonical published cells (paper
+    Table~\\ref{tab:act-ablation}, ``scripts/probes/probe_act_normalization_ablation.py``),
+    HARDCODED here as ``_ACT_NORM_ABLATION``. N=250/cell (5 seeds x 50 ep).
+    """
+    s = apply_style(style)
+    # Square-ish heatmap: widen the paper default slightly so the two
+    # column headers (each two lines) don't collide.
+    base_w, base_h = s["figsize"]
+    fig, ax = plt.subplots(figsize=(base_w, base_h))
+
+    grid = np.array(
+        [[_ACT_NORM_ABLATION[(r, c)]["rate"] for c in (0, 1)] for r in (0, 1)],
+        dtype=float,
+    )
+    # RdYlGn: red at 0 -> green at 1. vmin/vmax pinned to [0, 1] so the
+    # color encodes absolute success rate, not the data's own range.
+    im = ax.imshow(grid, cmap="RdYlGn", vmin=0.0, vmax=1.0, aspect="auto")
+
+    ann_fs = max(6, s["font_size"] - 1)
+    ci_fs = max(5, s["font_size"] - 3)
+    for r in (0, 1):
+        for c in (0, 1):
+            cell = _ACT_NORM_ABLATION[(r, c)]
+            rate = cell["rate"]
+            lo, hi = cell["ci"]
+            # Black text on light/green cells, white on dark-red cells, so
+            # annotations stay legible across the whole ramp.
+            txt_color = "#111111" if rate > 0.30 else "#ffffff"
+            ax.text(
+                c,
+                r - 0.10,
+                f"{rate * 100:.1f}%",
+                ha="center",
+                va="center",
+                fontsize=ann_fs,
+                fontweight="bold",
+                color=txt_color,
+            )
+            ax.text(
+                c,
+                r + 0.14,
+                f"[{lo * 100:.1f}, {hi * 100:.1f}]",
+                ha="center",
+                va="center",
+                fontsize=ci_fs,
+                color=txt_color,
+            )
+
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(_ACT_NORM_COL_LABELS, fontsize=max(6, s["font_size"] - 2))
+    ax.set_yticks([0, 1])
+    ax.set_yticklabels(_ACT_NORM_ROW_LABELS, fontsize=max(6, s["font_size"] - 2))
+    ax.set_xlabel("inference settings", fontsize=max(6, s["font_size"] - 1))
+    ax.set_ylabel("normalization", fontsize=max(6, s["font_size"] - 1))
+    ax.tick_params(length=0)
+    ax.set_xticks(np.arange(-0.5, 2, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, 2, 1), minor=True)
+    ax.grid(which="minor", color=s["bg"] if s["bg"] != "transparent" else "white", linewidth=2)
+    ax.tick_params(which="minor", length=0)
+
+    ax.set_title(
+        "ACT x aloha: normalization is load-bearing; inference is a wash",
+        fontsize=s["font_size"],
+        pad=6,
+    )
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("success rate", fontsize=max(6, s["font_size"] - 2))
+    cbar.ax.tick_params(labelsize=max(5, s["font_size"] - 3), length=0)
+
+    _apply_bg(fig, s)
+    # Reserve headroom for the title and a left strip for the row labels +
+    # y-label so bbox_inches="tight" in _save_all doesn't crop them.
+    fig.tight_layout(rect=(0.02, 0.0, 1.0, 0.96))
+    return _save_all(fig, "act_norm_ablation", style, out_dir)
+
+
+# --------------------------------------------------------------------- #
 # Figure 3 — paper-vs-measured replication scatter                      #
 # --------------------------------------------------------------------- #
 
@@ -641,8 +755,13 @@ def replication_scatter(
 FIGURES: dict[str, Any] = {
     "forest_plot": forest_plot,
     "act_probe_bar": act_probe_bar,
+    "act_norm_ablation_2x2": act_norm_ablation_2x2,
     "replication_scatter": replication_scatter,
 }
+
+# Figures that render without the results parquet (no ``df`` argument).
+# The render driver and CLI key off this set to pass the right kwargs.
+PARQUET_FREE_FIGURES: frozenset[str] = frozenset({"act_probe_bar", "act_norm_ablation_2x2"})
 
 
 def _as_style(name: str) -> Style:

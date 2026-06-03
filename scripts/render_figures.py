@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Render the three canonical lerobot-bench figures at the three target styles.
+"""Render the canonical lerobot-bench figures at the three target styles.
 
 Usage::
 
-    render-figures                              # all 9 (3 figures x 3 styles)
-    render-figures --style paper                # all 3 figures at paper style
+    render-figures                              # every figure x every style
+    render-figures --style paper                # all figures at paper style
     render-figures --figure act_probe_bar       # 1 figure at all 3 styles
     render-figures --style deck --figure forest_plot --out-dir /tmp/check
 
@@ -35,7 +35,7 @@ matplotlib.use("Agg")
 
 import pandas as pd
 
-from lerobot_bench.figures import FIGURES, STYLES, Style, _as_style
+from lerobot_bench.figures import FIGURES, PARQUET_FREE_FIGURES, STYLES, Style, _as_style
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_RESULTS = _REPO_ROOT / "results" / "sweep-full" / "results.parquet"
@@ -76,12 +76,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _load_results(path: Path, figure: str) -> pd.DataFrame:
     """Load parquet, or return an empty frame for figures that don't need it."""
-    if figure == "act_probe_bar":
+    if figure in PARQUET_FREE_FIGURES:
         return pd.DataFrame()
     if not path.exists():
         raise SystemExit(
             f"results parquet not found: {path}\n"
-            "  (act_probe_bar can render without it; the other figures cannot.)"
+            "  (act_probe_bar / act_norm_ablation_2x2 can render "
+            "without it; the other figures cannot.)"
         )
     return pd.read_parquet(path)
 
@@ -89,7 +90,7 @@ def _load_results(path: Path, figure: str) -> pd.DataFrame:
 def _render_one(figure: str, style: Style, df: pd.DataFrame, out_dir: Path) -> list[Path]:
     fn = FIGURES[figure]
     kwargs: dict[str, Any] = {"style": style, "out_dir": out_dir}
-    if figure == "act_probe_bar":
+    if figure in PARQUET_FREE_FIGURES:
         return list(fn(**kwargs))
     return list(fn(df, **kwargs))
 
@@ -103,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Load parquet once and reuse — read_parquet is the dominant cost
     # for the leaderboard figures.
-    needs_df = any(f != "act_probe_bar" for f in figures)
+    needs_df = any(f not in PARQUET_FREE_FIGURES for f in figures)
     df = _load_results(args.results, figure="forest_plot" if needs_df else "act_probe_bar")
 
     t0 = time.perf_counter()

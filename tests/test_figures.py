@@ -27,6 +27,7 @@ from lerobot_bench import figures as fig_mod  # noqa: E402
 from lerobot_bench.figures import (  # noqa: E402
     MDE_BAND,
     STYLES,
+    act_norm_ablation_2x2,
     act_probe_bar,
     apply_style,
     forest_plot,
@@ -140,6 +141,27 @@ def test_act_probe_bar_falls_back_to_hardcoded(tmp_path: Path) -> None:
     assert data["v1_default"]["rate"] == pytest.approx(0.016)
 
 
+def test_act_norm_ablation_2x2_produces_file_per_format(tmp_path: Path) -> None:
+    for style in STYLES:
+        paths = act_norm_ablation_2x2(style=style, out_dir=tmp_path)
+        assert len(paths) == len(STYLES[style]["formats"])
+        for p in paths:
+            assert p.exists()
+            assert p.stat().st_size > 0
+            assert p.parent == tmp_path / style
+            assert p.stem == "act_norm_ablation"
+
+
+def test_act_norm_ablation_2x2_uses_canonical_cells() -> None:
+    cells = fig_mod._ACT_NORM_ABLATION
+    assert cells[(0, 0)]["rate"] == pytest.approx(0.016)  # buggy + hub
+    assert cells[(0, 1)]["rate"] == pytest.approx(0.016)  # buggy + paper
+    assert cells[(1, 0)]["rate"] == pytest.approx(0.812)  # fixed + hub
+    assert cells[(1, 1)]["rate"] == pytest.approx(0.768)  # fixed + paper
+    assert cells[(1, 0)]["ci"] == (0.759, 0.856)
+    assert cells[(1, 1)]["ci"] == (0.712, 0.816)
+
+
 def test_replication_scatter_filters_xvla(tmp_path: Path) -> None:
     df = _synthetic_df()
     assert (df["policy"] == "xvla_libero").any()
@@ -194,12 +216,19 @@ def test_cli_renders_all_9_with_defaults(tmp_path: Path) -> None:
         text=True,
         env={**__import__("os").environ, **env},
     )
+    fig_names = (
+        "forest_plot",
+        "act_probe_bar",
+        "act_norm_ablation",
+        "replication_scatter",
+    )
     expected: list[Path] = []
-    for fig_name in ("forest_plot", "act_probe_bar", "replication_scatter"):
+    for fig_name in fig_names:
         for style, style_dict in STYLES.items():
             for ext in style_dict["formats"]:
                 expected.append(out_dir / style / f"{fig_name}.{ext}")
     for p in expected:
         assert p.exists(), f"missing: {p}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         assert p.stat().st_size > 0
-    assert len(expected) == 12  # 3 figs x (paper(2) + deck(1) + web(1)) = 12 files
+    # 4 figs x (paper(2) + deck(1) + web(1)) = 16 files
+    assert len(expected) == len(fig_names) * 4
