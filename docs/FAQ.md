@@ -54,10 +54,12 @@ the v1 scope matrix in [`README.md`](../README.md) § v1 scope.
 Two reasons. First, CI width depends on the success rate itself — a
 Wilson interval is widest near p=0.5 and tightest near 0 or 1, so a
 mid-range cell is intrinsically less precise than a saturated one at the
-same N. Second, a few cells were **auto-downscoped** to fewer episodes
-(N=50 or N=100 instead of 250) when calibration flagged slow inference;
+same N. Second, two cells were **auto-downscoped** to 25 episodes/seed
+(N=125 instead of 250) when calibration flagged slow inference —
+`diffusion_policy × pusht` (published) and `xvla × libero_10` (deferred);
 fewer episodes means a wider interval. The exact half-widths at every
-`(p, N)` combination are tabulated in [`docs/MDE_TABLE.md`](MDE_TABLE.md).
+`(p, N)` combination, including the realised N=125 row, are tabulated in
+[`docs/MDE_TABLE.md`](MDE_TABLE.md).
 
 ### What does an "inconclusive at N=250" pair mean?
 
@@ -68,6 +70,25 @@ neutral grey and excludes them from the headline finding rather than
 implying an ordering that the data does not support. The threshold is
 per-cell (it scales with the success rate); see
 [`docs/MDE_TABLE.md`](MDE_TABLE.md) § The "inconclusive at this N" rule.
+
+### Why does ACT/SmolVLA differ from its source paper?
+
+Because a paper number and a bench number are usually not measuring the
+same quantity, and the audits make every gap explicit rather than calling
+it a replication failure. The recurring causes are: (1) **inference-config
+mismatch** — the Hub checkpoint ships different defaults than the paper's
+eval (e.g. ACT's temporal-ensemble settings); (2) **success-rule
+mismatch** — the bench's reward threshold vs. the paper's task-complete
+or coverage rule; (3) **step-cap mismatch** — lerobot's per-suite caps
+vs. canonical LIBERO 600; (4) **task-coverage mismatch** — a single-task
+envelope vs. a paper's suite average over 10 tasks. Each is quantified
+with a re-run probe where one resolved. Start with
+[`docs/PROBE_RESULTS_V1.0.1.md`](PROBE_RESULTS_V1.0.1.md), then the four
+audit docs: [`docs/INFERENCE_AUDIT.md`](INFERENCE_AUDIT.md),
+[`docs/CLAIM_AUDIT_SMOLVLA.md`](CLAIM_AUDIT_SMOLVLA.md),
+[`docs/SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md), and
+[`docs/CANONICAL_CRITERIA.md`](CANONICAL_CRITERIA.md). The per-policy
+paper-vs-measured rows live in [`docs/MODEL_CARDS.md`](MODEL_CARDS.md).
 
 ### Why are the baseline policies (`no_op`, `random`) on the leaderboard?
 
@@ -199,10 +220,12 @@ in [`docs/API.md`](API.md).
 A 20-step calibration probe measures per-cell step latency and VRAM. If
 a cell is too slow (`mean_step_ms > 100`) or VRAM-pressured
 (`vram_peak_mb > 5500`), its episode budget is trimmed so the full sweep
-fits the compute window — N drops from 250 toward 100 or 50. The
-downscope is recorded as a methodology footnote, never hidden; the
-down-scoped N variants are tabulated in
-[`docs/MDE_TABLE.md`](MDE_TABLE.md) § 3.
+fits the compute window — episodes/seed drop from 50 toward a floor. In
+the executed v1 sweep this fired on exactly two cells, both landing at
+25 episodes/seed (N=125): `diffusion_policy × pusht` (published) and
+`xvla × libero_10` (deferred). The downscope is recorded as a methodology
+footnote, never hidden; the down-scoped N variants — including the
+realised N=125 — are tabulated in [`docs/MDE_TABLE.md`](MDE_TABLE.md) § 3.
 
 ### How is "success" defined for an episode?
 
@@ -255,6 +278,22 @@ moving it to GPU — which overflows the host budget. v1.1 will revisit
 them with quantized weights or an `accelerate device_map="auto"`
 streaming load. This is stated in [`README.md`](../README.md) § v1 scope
 and the paper's Limitations section, not papered over.
+
+### Why is xvla executed but not on the leaderboard?
+
+`xvla_libero` was **dispatched and executed** in the v1 sweep (it is part
+of the 110 cell-seed runs), but it is **deferred from the v1 leaderboard**
+and its 4 LIBERO cells are stripped from the published parquet and videos.
+Two upstream Hub-artifact wiring bugs were patched in our loader (a missing
+rotation-6D→axis-angle postprocessor step, PR #71; a skipped ImageNet image
+normalization, PR #74), and even with both patches confirmed firing the
+policy still scores 0/10 rollouts across all four suites — a third
+unresolved bug (suspected chunked-action layout or empty-camera handling)
+that is out of scope for the v1 window. Publishing a 0% cell we cannot
+attribute to the policy itself would be misleading, so the cell is held
+back rather than shown. Its `libero_10` cell was also auto-downscoped to
+N=125 at dispatch time. Full account and the v1.1 plan:
+[`docs/DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md).
 
 ### A `run_one.py` cell exits non-zero. What does the code mean?
 

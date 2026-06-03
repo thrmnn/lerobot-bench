@@ -21,7 +21,8 @@ clocks.
 Everything that ships under the `lerobot-bench` name and feeds the public
 leaderboard.
 
-- **Scope.** The 6×6 policy×env matrix (110 cells executed), the 5 public-leaderboard
+- **Scope.** The 6×6 policy×env matrix — 22 cells (18 published) × 5 seeds =
+  110 cell-seed runs dispatched, 0 failures — the 5 public-leaderboard
   policies (xvla deferred to v1.1), the eval contract
   `(policy, env, seed, n_eps) -> CellResult`, the statistics layer (Wilson +
   bootstrap CIs, MDE bounds, paired comparisons), the failure taxonomy, the HF

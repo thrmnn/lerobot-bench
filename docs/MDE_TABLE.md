@@ -7,9 +7,15 @@ cell 5, and the leaderboard "inconclusive" gate.
 
 The contracted sweep design is **5 seeds × 50 episodes = N=250 binary
 outcomes per cell**. Cells that the auto-downscope rule shrinks land at
-N ∈ {50, 100, 250} depending on per-step latency; the down-scoped
-variants are tabulated below so a slow VLA cell's CI half-width is
-visible at a glance before the writeup builds claims on it.
+a lower N depending on per-step latency. In the executed v1 sweep
+exactly **two cells were auto-downscoped to 25 episodes/seed (N=125)** —
+`diffusion_policy × pusht` (published; this is the replication-headline
+cell) and `xvla × libero_10` (excluded from publish, dispatch-time
+downscope only). The down-scoped variants — including the realised
+**N=125** row — are tabulated in §3 so a slow VLA cell's CI half-width is
+visible at a glance before the writeup builds claims on it. (The N=50 and
+N=100 rows are kept as design what-ifs for the floor the auto-downscope
+rule could in principle reach; no v1 cell ran at those N.)
 
 All numbers in this doc are produced by `lerobot_bench.stats.wilson_ci`
 and `lerobot_bench.stats.paired_delta_bootstrap` (no closed-form
@@ -133,12 +139,15 @@ Notes on the table:
   episode-level signal that the independence bound is meaningfully
   conservative.
 
-## 3. Down-scoped cell variants — Wilson half-width at N ∈ {50, 100, 250, 500}
+## 3. Down-scoped cell variants — Wilson half-width at N ∈ {50, 100, 125, 250, 500}
 
 If Day-0b calibration (`scripts/calibrate.py`) forces a per-policy
-auto-downscope below n_ep=50, the per-cell N drops accordingly. N=500
-is included as a what-if for a v2 design that doubles episodes per
-seed.
+auto-downscope below n_ep=50, the per-cell N drops accordingly. The
+**N=125** row is the one the v1 sweep actually realised (5 seeds × 25
+episodes) for `diffusion_policy × pusht` and `xvla × libero_10`; N=50 and
+N=100 are design what-ifs for the floor the rule could reach but no v1
+cell ran at. N=500 is included as a what-if for a v2 design that doubles
+episodes per seed.
 
 ### N=50 (5 seeds × 10 episodes — the absolute floor before a policy is dropped)
 
@@ -167,6 +176,28 @@ seed.
 | 0.90 | 0.0596 | 0.1191 |
 | 0.95 | 0.0451 | 0.0902 |
 | 0.98 | 0.0323 | 0.0645 |
+
+### N=125 (5 seeds × 25 episodes — the realised v1 auto-downscope)
+
+This is the actual N for the two downscoped cells, including the
+`diffusion_policy × pusht` replication-headline cell (observed
+p̂ = 0.816, N=125). At its observed p̂ the relevant half-width is the
+p=0.75–0.90 band below; the inconclusive band there is 0.108–0.150, so
+the +16.2 pp paper-vs-measured delta on that cell is **not** resolvable
+against a single near-saturated reference at this N and is reported with
+its Wilson CI [0.739, 0.874], not as a ranked gap.
+
+| p | half-width | inconclusive band (2·HW) |
+|---:|---:|---:|
+| 0.02 | 0.0260 | 0.0521 |
+| 0.05 | 0.0393 | 0.0786 |
+| 0.10 | 0.0523 | 0.1045 |
+| 0.25 | 0.0749 | 0.1499 |
+| 0.50 | 0.0863 | 0.1727 |
+| 0.75 | 0.0749 | 0.1499 |
+| 0.90 | 0.0540 | 0.1080 |
+| 0.95 | 0.0393 | 0.0786 |
+| 0.98 | 0.0300 | 0.0600 |
 
 ### N=250 (the contract; reprised from §1 for easy comparison)
 
@@ -198,8 +229,10 @@ seed.
 
 Going from N=250 to N=500 buys roughly a 1.4× tightening on every
 cell — meaningful for the p ≈ 0.5 cells, marginal for the saturated
-ones. Going from N=250 to N=100 widens by 1.56× and a 5-pp delta in
-the middle of the success-rate range stops being resolvable.
+ones. Going from N=250 to the realised downscope N=125 widens the p=0.5
+half-width by ~1.40× (0.0615 → 0.0863); going on down to the N=100
+what-if widens by 1.56× and a 5-pp delta in the middle of the
+success-rate range stops being resolvable.
 
 ## 4. The "inconclusive at this N" rule
 
@@ -243,8 +276,8 @@ uses the per-cell threshold; the paper text quotes the worst-case
 
 ## 4a. Family-wise correction for cross-cell claims (v1.1)
 
-Sections 1–4 size a *single* comparison. The v1.1 cell matrix has 22
-runnable cells across 5 policies; any figure or paragraph that quotes
+Sections 1–4 size a *single* comparison. The cell matrix has 22 cells
+(18 published) across 5 policies; any figure or paragraph that quotes
 per-cell p-values across more than one cell is implicitly running a
 family of tests and the per-cell α=0.05 threshold no longer controls
 the false-positive rate at the family level.
@@ -290,7 +323,7 @@ The Wilson tables (§1, §3) are deterministic — re-run
 ```python
 from lerobot_bench.stats import wilson_ci
 for p in [0.02, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.98]:
-    for N in [50, 100, 250, 500]:
+    for N in [50, 100, 125, 250, 500]:
         s = round(p * N)
         lo, hi = wilson_ci(s, N)
         print(p, N, lo, hi, (hi - lo) / 2)

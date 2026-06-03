@@ -1,11 +1,12 @@
 # Documentation index
 
 `lerobot-bench` is a public, reproducible benchmark of pretrained LeRobot
-manipulation policies — a 6×6 policy×env matrix executed (110 cells), with
-5 policies on the public leaderboard and xvla deferred to v1.1, run under a
-multi-seed contract with Wilson and bootstrap confidence intervals, minimum
-detectable difference (MDE) bounds, paired comparisons, and a hand-labeled
-failure taxonomy.
+manipulation policies — a 6×6 policy×env matrix of 22 cells (18 published)
+× 5 seeds = 110 cell-seed runs dispatched, 0 failures; with 5 policies on
+the public leaderboard and xvla deferred to v1.1, run under a multi-seed
+contract with Wilson and bootstrap confidence intervals, minimum detectable
+difference (MDE) bounds, paired comparisons, and a hand-labeled failure
+taxonomy.
 
 This page is the map of the `docs/` directory. Find the group that matches
 why you are here, then follow the link. If you only want to *look* at results,
@@ -50,6 +51,26 @@ dataset, or building on the leaderboard.
 - [`API.md`](API.md) — hand-authored reference for the public `lerobot_bench`
   Python API (registries, eval core, stats helpers, renderer, checkpointing).
 
+## Audits & probes
+
+The methodology-audit trail behind the numbers: where a measured cell
+diverges from its source paper, which divergences were re-run as probes,
+and which policies are deferred and why. Read these before quoting any
+paper-vs-measured delta.
+
+- [`PROBE_RESULTS_V1.0.1.md`](PROBE_RESULTS_V1.0.1.md) — the re-run probes
+  (ACT temporal-ensemble, `libero_10` canonical cap) and what each resolved.
+- [`INFERENCE_AUDIT.md`](INFERENCE_AUDIT.md) — Hub-default vs. paper inference
+  settings; the source of the ACT default-vs-paper gap.
+- [`CLAIM_AUDIT_SMOLVLA.md`](CLAIM_AUDIT_SMOLVLA.md) — the single-task vs.
+  suite-average scope mismatch behind the SmolVLA paper-vs-measured deltas.
+- [`SUCCESS_CRITERION_AUDIT.md`](SUCCESS_CRITERION_AUDIT.md) — success-rule and
+  step-cap mismatches (Aloha reward bands, PushT sticky-coverage, LIBERO 600).
+- [`CANONICAL_CRITERIA.md`](CANONICAL_CRITERIA.md) — the canonical per-env
+  success and step-cap definitions the audits measure against.
+- [`DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md) — why `xvla` and the `pi0`
+  family are executed-but-deferred, with the locked SHAs that carry to v1.1.
+
 ## Contributing
 
 For anyone adding a policy, fixing a bug, or sending a PR.
@@ -58,6 +79,10 @@ For anyone adding a policy, fixing a bug, or sending a PR.
   and how to submit a PR.
 - [`MODEL_CARDS.md`](MODEL_CARDS.md) — one card per v1 policy, with locked repo
   IDs and revision SHAs; the template a new policy entry must follow.
+- [`ENV_CONTRIBUTION_GUIDE.md`](ENV_CONTRIBUTION_GUIDE.md) — how to add a new
+  simulated environment to the matrix under the eval/seeding contract.
+- [`POLICY_DIAGRAM_GUIDE.md`](POLICY_DIAGRAM_GUIDE.md) — conventions for the
+  per-policy architecture diagrams used in the cards and the writeup.
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — failure modes you are likely to
   hit running the benchmark, each with a copy-paste fix.
 
@@ -72,6 +97,10 @@ For anyone running, resuming, or publishing the full benchmark sweep.
 - [`PATH_B_INTEGRATION_SMOKE.md`](PATH_B_INTEGRATION_SMOKE.md) — the one-time
   smoke test that proves the synthetic test mocks match real lerobot/gym
   shapes; run once when the sim environment is first installed.
+- [`ORCHESTRATION.md`](ORCHESTRATION.md) — how the sweep is dispatched and
+  scheduled across cells: the cell-seed run units, queueing, and resume logic.
+- [`MONITORING.md`](MONITORING.md) — the operator dashboard (progress, RAM
+  watchdog, and the Failures tab that pre-distinguishes timeouts before labels).
 
 ## Project and meta
 
@@ -90,8 +119,6 @@ want the *why* behind the project or are preparing a release.
   single gated adapter PR that is the only write from research into the bench.
 - [`WM_RESEARCH_TRACK.md`](WM_RESEARCH_TRACK.md) — the world-model / JEPA planner
   research track: scope, repo split, and how a planner is evaluated as a policy.
-- [`NEXT_STEPS.md`](NEXT_STEPS.md) — live execution checklist tracking what
-  lands in the next PR.
 - [`SECURITY.md`](SECURITY.md) — security policy: how to report a vulnerability
   and what to expect.
 - [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md) — the supply-chain and code-level

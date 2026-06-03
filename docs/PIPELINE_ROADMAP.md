@@ -186,7 +186,7 @@ Goal: address the "smolvla coverage skew" critique. Currently 4 of 6 non-baselin
 
 ### 2.3 Multi-comparison correction
 
-- The matrix is now 22+ cells across 5 policies — frequentist hypothesis-testing on the family needs Holm-Bonferroni correction.
+- The matrix is now 22 cells (18 published) across 5 policies — frequentist hypothesis-testing on the family needs Holm-Bonferroni correction.
 - Add `scripts/family_correction.py` that emits `(per-cell p_raw, per-cell p_adj, family α)`.
 - Add a "significance after correction" column to the dashboard.
 
