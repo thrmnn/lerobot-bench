@@ -1,0 +1,47 @@
+lerobot-bench
+Copyright (c) 2026 Théo Hermann
+
+The lerobot-bench source code is licensed under the MIT License (see LICENSE).
+The published evaluation artifacts (the thrmnn/lerobot-bench-v1 Hub dataset:
+parquet tables, manifests, and rendered MP4 rollouts) are released under
+CC-BY-4.0 (see docs/HUB_DATASET_README.md).
+
+This product includes, depends on, or produces artifacts derived from the
+following third-party open-source projects. Each retains its own copyright and
+license; nothing in this repository relicenses them.
+
+--------------------------------------------------------------------------------
+LeRobot
+  https://github.com/huggingface/lerobot
+  Copyright (c) The HuggingFace Inc. team and contributors.
+  Licensed under the Apache License, Version 2.0.
+  Used for: policy implementations, pretrained lerobot/* checkpoints, and
+  evaluation harness primitives.
+
+--------------------------------------------------------------------------------
+gym-pusht
+  https://github.com/huggingface/gym-pusht
+  Copyright (c) The HuggingFace Inc. team and contributors.
+  Licensed under the Apache License, Version 2.0.
+  Used for: the PushT simulation environment.
+
+--------------------------------------------------------------------------------
+gym-aloha
+  https://github.com/huggingface/gym-aloha
+  Copyright (c) The HuggingFace Inc. team and contributors.
+  Licensed under the Apache License, Version 2.0.
+  Used for: the Aloha (transfer-cube) simulation environment.
+
+--------------------------------------------------------------------------------
+LIBERO
+  https://github.com/Lifelong-Robot-Learning/LIBERO
+  Copyright (c) The LIBERO authors and contributors.
+  Licensed under its upstream license (see the LIBERO repository).
+  Used for: the Libero environment suite (e.g. libero_10).
+
+--------------------------------------------------------------------------------
+A copy of the Apache License, Version 2.0, may be obtained at:
+  https://www.apache.org/licenses/LICENSE-2.0
+
+The xvla_libero policy is NOT shipped in the v1 dataset; it is deferred to
+v1.1 and excluded from both the parquet and the published MP4 corpus.

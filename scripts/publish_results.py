@@ -64,7 +64,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lerobot_bench.checkpointing import RESULT_SCHEMA, load_results
+from lerobot_bench.checkpointing import (
+    OPTIONAL_COLUMNS,
+    REQUIRED_COLUMNS,
+    load_results,
+)
+from lerobot_bench.leaderboard_filter import V1_POLICIES, filter_to_v1_policies
 
 logger = logging.getLogger("publish-results")
 
@@ -75,6 +80,12 @@ logger = logging.getLogger("publish-results")
 DEFAULT_HUB_REPO = "thrmnn/lerobot-bench-v1"
 DEFAULT_REVISION = "main"
 DEFAULT_MAX_VIDEO_MIB = 2.0  # mirrors the render ladder cap in DESIGN.md
+
+# The single parquet we are allowed to publish. The sweep dir carries
+# stale siblings (results-act-rerun.parquet, results-xvla-sanity*.parquet)
+# from debug re-runs; pinning the canonical name here is a hard guard so
+# `--results-path` can never point the publish at one of them by mistake.
+CANONICAL_RESULTS_NAME = "results.parquet"
 
 # Glob patterns we ship to the Hub. Anything outside this set is left
 # behind on disk -- the publish step is opt-in per file class. Order
@@ -216,16 +227,40 @@ def _preflight(
     proceed.
 
     Strategy:
-      1. parquet exists and matches :data:`RESULT_SCHEMA` exactly
-         (schema-drift is the kind of failure that wastes a sweep night
-         if it surfaces later).
-      2. manifest JSON parses.
-      3. unless ``skip_videos``, every non-empty ``video_sha256`` row
-         must have its corresponding MP4 on disk under ``videos_dir``.
-         The MP4 filename is derived from the parquet row's
-         ``(policy, env, seed, episode_index)`` -- the canonical naming
-         documented in :func:`scripts.run_one.render_episodes_to_videos`.
+      0. ``results_path`` must be the canonical ``results.parquet`` --
+         the sweep dir carries stale debug siblings
+         (``results-act-rerun.parquet``, ``results-xvla-sanity*.parquet``)
+         that must never be published. We reject anything else by name.
+      1. parquet loads under the REQUIRED/OPTIONAL schema split
+         (:data:`REQUIRED_COLUMNS` must all be present; only columns in
+         REQUIRED ∪ OPTIONAL are allowed; absent OPTIONAL columns are
+         back-filled by ``load_results``). This lets the existing parquet
+         -- written before ``errored``/``eval_run_id`` existed -- publish.
+      2. xvla rows are dropped via
+         :func:`lerobot_bench.leaderboard_filter.filter_to_v1_policies`
+         BEFORE any counting or MP4-reference check, so xvla cells +
+         their MP4s are neither staged nor required on disk (xvla is
+         deferred to v1.1 and excluded from the published dataset).
+      3. manifest JSON parses.
+      4. unless ``skip_videos``, every non-empty ``video_sha256`` row
+         (v1 policies only) must have its corresponding MP4 on disk under
+         ``videos_dir``. The MP4 filename is derived from the parquet
+         row's ``(policy, env, seed, episode_index)`` -- the canonical
+         naming documented in :func:`scripts.run_one.render_episodes_to_videos`.
     """
+    if results_path.name != CANONICAL_RESULTS_NAME:
+        return _PreflightResult(
+            n_cells=0,
+            n_episodes=0,
+            referenced_video_shas=(),
+            error=(
+                f"refusing to publish non-canonical parquet {results_path.name!r}: "
+                f"only {CANONICAL_RESULTS_NAME!r} is publishable (stale debug "
+                "siblings such as results-act-rerun.parquet / "
+                "results-xvla-sanity*.parquet must never be staged)"
+            ),
+        )
+
     if not results_path.exists():
         return _PreflightResult(
             n_cells=0,
@@ -244,18 +279,29 @@ def _preflight(
             error=f"results parquet schema mismatch: {exc}",
         )
 
-    # Sanity: schema columns line up. ``load_results`` already enforces
-    # this; the extra assertion guards against a future refactor where
-    # the loader is loosened.
-    if set(df.columns) != set(RESULT_SCHEMA):
+    # Schema gate (audit C2 -- REQUIRED/OPTIONAL split): ``load_results``
+    # already rejects a parquet missing a REQUIRED column or carrying an
+    # unknown extra, and back-fills absent OPTIONAL columns. We re-derive
+    # the same contract here as a belt-and-braces guard against a future
+    # loader loosening -- reject only on a missing REQUIRED column or an
+    # unknown extra (outside REQUIRED ∪ OPTIONAL); tolerate optionals.
+    cols = set(df.columns)
+    missing_required = sorted(set(REQUIRED_COLUMNS) - cols)
+    unknown_extra = sorted(cols - set(REQUIRED_COLUMNS) - set(OPTIONAL_COLUMNS))
+    if missing_required or unknown_extra:
         return _PreflightResult(
             n_cells=0,
             n_episodes=0,
             referenced_video_shas=(),
             error=(
-                f"parquet schema drift: expected {sorted(RESULT_SCHEMA)}, got {sorted(df.columns)}"
+                f"parquet schema mismatch: missing required {missing_required}, "
+                f"unknown extra {unknown_extra}"
             ),
         )
+
+    # xvla strip: drop non-v1 policies before counting or checking MP4s so
+    # xvla cells + their ~875 MP4s are never staged/uploaded (v1.1 defer).
+    df = filter_to_v1_policies(df)
 
     if not manifest_path.exists():
         return _PreflightResult(
@@ -282,11 +328,11 @@ def _preflight(
     referenced_shas = tuple(s for s in df["video_sha256"].tolist() if s)
 
     if not skip_videos and len(df):
-        # Every non-empty video_sha256 row must have its MP4 on disk.
+        # Every non-empty video_sha256 row (v1 policies only, post-filter)
+        # must have its MP4 on disk.
         missing: list[str] = []
         for _, row in df.iterrows():
-            sha = row["video_sha256"]
-            if not sha:
+            if not row["video_sha256"]:
                 continue
             expected = videos_dir / _video_filename(
                 policy=str(row["policy"]),
@@ -322,6 +368,19 @@ def _video_filename(*, policy: str, env: str, seed: int, episode_index: int) -> 
     Documented as a hard contract in DESIGN.md § Architecture sketch.
     """
     return f"{policy}__{env}__seed{seed}__ep{episode_index:03d}.mp4"
+
+
+def _policy_from_video_name(name: str) -> str:
+    """Extract the ``policy`` prefix from a canonical MP4 filename.
+
+    Inverse of :func:`_video_filename` for the leading field only:
+    ``{policy}__{env}__seed{seed}__ep{NNN}.mp4`` -> ``policy``. Used by
+    staging to drop non-v1 (xvla) MP4s by policy without re-joining to the
+    parquet. Returns the whole stem if the name doesn't carry the ``__``
+    separator, so a malformed file is treated as its own policy (and thus
+    excluded, since it won't be in :data:`V1_POLICIES`).
+    """
+    return name.split("__", 1)[0]
 
 
 # --------------------------------------------------------------------- #
@@ -388,11 +447,18 @@ def _stage_upload(
     from the staging dir (and therefore from the upload patterns).
     The render ladder already caps clips at 2 MiB; this is the last
     line of defense against an edited / mis-rendered file slipping in.
+
+    xvla strip: the staged parquet is the v1-filtered frame (xvla rows
+    dropped), and MP4s whose policy prefix is not in
+    :data:`V1_POLICIES` are excluded -- so neither xvla rows nor their
+    ~875 MP4s reach the Hub. xvla is deferred to v1.1.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. parquet -- always required.
-    shutil.copy2(results_path, target_dir / "results.parquet")
+    # 1. parquet -- always required. Write the v1-filtered frame rather
+    # than copying the raw on-disk parquet, so xvla rows never ship.
+    filtered = filter_to_v1_policies(load_results(results_path))
+    filtered.to_parquet(target_dir / "results.parquet", index=False, engine="pyarrow")
 
     # 2. manifest -- always required.
     shutil.copy2(manifest_path, target_dir / "sweep_manifest.json")
@@ -418,7 +484,14 @@ def _stage_upload(
     # We deliberately walk the on-disk dir rather than the parquet's
     # video_sha256 list -- this catches orphan MP4s (rendered but never
     # joined to a row) so the operator sees them in the skipped log.
+    n_excluded_non_v1 = 0
     for mp4 in sorted(videos_dir.glob("*.mp4")):
+        # xvla strip: drop any MP4 whose policy prefix is not a v1 policy
+        # BEFORE the size check, so xvla clips are silently excluded (not
+        # logged as a size-cap "skip") and never staged.
+        if _policy_from_video_name(mp4.name) not in V1_POLICIES:
+            n_excluded_non_v1 += 1
+            continue
         size = mp4.stat().st_size
         if size > max_video_bytes:
             n_skipped += 1
@@ -444,6 +517,11 @@ def _stage_upload(
             "%d MP4 file(s) staged; %d unique video_sha256 referenced in parquet",
             n_uploaded,
             len(set(referenced_video_shas)),
+        )
+    if n_excluded_non_v1:
+        logger.info(
+            "excluded %d non-v1 (e.g. xvla) MP4(s) from staging; deferred to v1.1",
+            n_excluded_non_v1,
         )
 
     return _StagedUpload(

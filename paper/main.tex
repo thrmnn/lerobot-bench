@@ -451,8 +451,11 @@ half-width on every cell, and 110~cells dispatched with zero failures
 over 25~hours unattended. Second, inference settings dominate:
 ACT$\times$aloha's $0.016\to0.764$ swing on a single config change
 exceeds any cross-architecture gap in the matrix, while
-diffusion$\times$pusht reproduces its Hub-card number to within 1.4~pp
-(0.816 vs.\ 0.83). Third, SmolVLA$\times$\texttt{libero\_10}'s 0.252 vs.\
+diffusion$\times$pusht measures $\hat{p}{=}0.816$ against the
+$0.654$ Hub-card reference~\cite{chi2023diffusion} ($+16.2$\,pp), an
+over-count consistent with our last-step success criterion being more
+permissive than the card's stricter sticky-\texttt{any(is\_success)}
+rule (\texttt{docs/SUCCESS\_CRITERION\_AUDIT.md}). Third, SmolVLA$\times$\texttt{libero\_10}'s 0.252 vs.\
 the paper's 0.71 is a scope mismatch
 (Section~\ref{sec:results-audit}), not a replication failure. The
 contribution we stand behind without qualification is the protocol

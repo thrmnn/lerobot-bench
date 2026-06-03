@@ -102,7 +102,7 @@ The v1.0 sweep produced strong, quotable numbers:
 
 - SmolVLA on `libero_10`: paper **0.71** → measured **0.252** (Δ −45.8 pp, Wilson 95% CI [.202, .309])
 - SmolVLA on `libero_object`: paper **0.94** → measured **0.528** (Δ −41.2 pp)
-- Diffusion Policy on `pusht`: paper **0.83** → measured **0.816** (Δ −1.4 pp, replicates)
+- Diffusion Policy on `pusht`: 0.654 Hub-card reference → measured **0.816** (+16.2 pp; success-rule over-count, not a genuine lift)
 - ACT on `aloha_transfer_cube`: paper rate not given → measured **0.016** (does not beat random)
 
 These claims are **statistically tight** (N=250 puts MDE ≈ 12.3 pp; the largest gaps are 4× that). They are **deterministically reproducible** on our hardware (seed triple → bit-identical parquet rows). The XVLA debugging effort (PRs #71, #74) gave us direct evidence that **Hub processor wiring is a real failure mode**, and SmolVLA passed that audit.
