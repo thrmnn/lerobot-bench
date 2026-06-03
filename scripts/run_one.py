@@ -351,7 +351,8 @@ def run_one(
             out_parquet=None,
             videos_dir=None,
             log_message=(
-                f"[run-one] aborted: {err}. Install: pip install -e /home/theo/projects/lerobot"
+                f"[run-one] aborted: {err}. Install lerobot, e.g. "
+                "pip install -e <path-to-lerobot-checkout> (or `pip install lerobot`)"
             ),
         )
 

@@ -24,4 +24,4 @@ numpy>=2.0,<3.0
 # commit reachable from main (an ancestor of HEAD) so it survives branch
 # deletion — never pin a feature-branch SHA, which 404s once the branch is
 # squash-merged and deleted.
-git+https://github.com/thrmnn/lerobot-bench.git@41cc5a862fa5ffd2ddf13ab39ddb564ee3e971db
+git+https://github.com/thrmnn/lerobot-bench.git@807ac7f4daddd9023bb5c8e639d85bc758a9f095
