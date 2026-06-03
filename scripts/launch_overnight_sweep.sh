@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-PY="${PY:-/home/theo/miniforge3/envs/lerobot/bin/python}"
+PY="${PY:-python}"
 MEM_CAP="${MEM_CAP:-16G}"
 TS="$(date +%Y%m%d-%H%M%S)"
 LOG="logs/sweep-${TS}.log"
