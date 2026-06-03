@@ -63,14 +63,14 @@ the locked SHAs that carry forward.
   50 episodes per cell.
 - **Known failure modes**: Per-mode taxonomy labels (overshoot / slip /
   etc.) are a Day-7 hand-labeling pass and not yet in the parquet
-  (`failure_mode` is a future schema bump). The label-free signal on
-  disk: under **Hub-default inference settings** every failed
-  `aloha_transfer_cube` episode runs the full 400-step cap (cap-hit rate
-  100% on failures, `results/sweep-full/results.parquet`), i.e. the
-  **timeout** mode (taxonomy mode 3) by the on-disk proxy. The v1.0.2
-  probe shows this is an inference-config artefact, not an architecture
-  failure — see the audit row below; do not read the Hub-default cap-hits
-  as the policy's intrinsic failure signature.
+  (`failure_mode` is a future schema bump). Caveat on any pre-#51 run:
+  the original `act × aloha_transfer_cube` = 0.016 row was produced by a
+  normalization bug *in our own harness* (image observations were fed
+  un-normalized; see PR #51 and the audit row below), under which every
+  failed episode ran the full step cap. That 100%-cap-hit signature is an
+  artefact of the bug, **not** the policy's intrinsic failure mode — do
+  not read it as ACT's failure signature. The corrected run
+  (normalization fixed) succeeds the large majority of episodes.
 - **Source paper**: Zhao et al., "Learning Fine-Grained Bimanual
   Manipulation with Low-Cost Hardware", RSS 2023
   ([arXiv:2304.13705](https://arxiv.org/abs/2304.13705)).
@@ -78,25 +78,39 @@ the locked SHAs that carry forward.
   same nominal task — a head-to-head against any other number requires
   matching the success heuristic and episode budget, which is exactly
   the comparability gap lerobot-bench exists to close.
-- **Paper vs. measured (v1.0.1 audit, PR #86; v1.0.2 probe PR #97 RESOLVED)**:
-  lerobot-bench v1 measures `act × aloha_transfer_cube` = **0.016**
-  [0.006, 0.040] (Wilson 95% CI, N=250) under the **Hub-default
-  inference settings**: the pinned
-  `lerobot/act_aloha_sim_transfer_cube_human` `config.json` ships
-  `temporal_ensemble_coeff=None` and `n_action_steps=100`, so the
-  policy executes plain 100-step action chunks with no inter-chunk
-  smoothing. Zhao et al. 2023's Table I uses `coeff=0.01,
-  n_action_steps=1` (one action per step from an exponentially-smoothed
-  mean over overlapping chunk predictions). The **v1.0.2 probe**
-  (`scripts/probes/probe_act_temporal_ensemble.py`, 5 seeds × 50 ep at
-  paper settings) measures **0.764** [0.708, 0.812] — Wilson 95% CIs
-  disjoint from the Hub-default reading by an order of magnitude.
-  Per-seed: 0.92 / 0.80 / 0.76 / 0.66 / 0.68. **Conclusion: the
-  Hub-default 0.016 is an inference-config artefact, not architecture
-  failure. The architecture clears the paper's 0.50 number by +26 pp
-  at correct settings.** The v1.0.0 leaderboard row stays as "at Hub
-  defaults" for audit-trail integrity; v1.0.2 framing leads with the
-  0.764 number and reports the 0.016 as the default-inference reading.
+- **Paper vs. measured (v1.0.2 correction — supersedes the v1.0.1
+  "temporal ensembling" framing)**: the canonical leaderboard number is
+  `act × aloha_transfer_cube` = **0.824** [0.772, 0.866] (Wilson 95% CI,
+  N=250, Hub-default inference, normalization fixed; `results.parquet`),
+  comfortably above Zhao et al. 2023's Table I value of 0.50. The earlier
+  v1.0.0 reading of **0.016** was **a normalization bug on our end**, not
+  an inference-config story: our eval harness silently skipped applying
+  dataset normalization stats to `observation.images.top`, feeding ACT
+  un-normalized image observations. We caught and fixed it in PR #51
+  (`_recover_dataset_stats_from_safetensors`; see the wiring caveat
+  below). A controlled 2×2 ablation
+  (`scripts/probes/probe_act_normalization_ablation.py`, each cell
+  N=250 = 5 seeds × 50 ep,
+  `results/probes/act-norm-ablation/`) isolates the cause:
+
+  | normalization | inference     | success |
+  | ------------- | ------------- | ------- |
+  | buggy         | Hub-default   | 0.016   |
+  | buggy         | paper-settings| 0.016   |
+  | fixed         | Hub-default   | 0.812   |
+  | fixed         | paper-settings| 0.768   |
+
+  **Verdict: the recovery is 100% the normalization fix, 0% temporal
+  ensembling.** On broken normalization, switching to paper inference
+  settings does nothing (0.016 → 0.016). On fixed normalization,
+  Hub-default vs. paper settings are statistically indistinguishable
+  (0.812 vs. 0.768, overlapping Wilson CIs) — temporal ensembling is a
+  **wash**, not the cause. (The earlier "0.764 probe" ran on post-#51
+  code, so it already had the norm fix; it wrongly attributed the gain to
+  the inference-setting change.) The ablation's fixed+Hub cell (0.812) is
+  the same condition as the canonical 0.824, measured in a separate N=250
+  run and consistent within CI. The v1.0.0 leaderboard row stays as the
+  pre-#51 reading for audit-trail integrity.
   Full audit: [`docs/INFERENCE_AUDIT.md`](INFERENCE_AUDIT.md),
   [`docs/PROBE_RESULTS_V1.0.1.md`](PROBE_RESULTS_V1.0.1.md);
   Aloha success-rule audit (the bench accepts reward ∈ {1..4} while the
