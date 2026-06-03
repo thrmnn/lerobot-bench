@@ -55,11 +55,16 @@ $N{=}250$ binary outcomes) with Wilson and bootstrap 95\% confidence
 intervals plus paired comparisons under explicit
 minimum-detectable-effect (MDE) bounds, and every entry is pinned to a
 fixed revision SHA so a parquet row is replayable bit-for-bit. The
-headline finding is that \emph{inference settings, not architecture, are
-the load-bearing variable}: ACT on Aloha-transfer-cube reads
-0.016~[0.006, 0.040] at Hub-default settings but 0.764~[0.708, 0.812] at
-the paper's settings (disjoint 95\% CIs), so the apparent ``ACT fails''
-is a config artefact. Likewise, SmolVLA on LIBERO-10 measures
+headline finding is a bug we caught in our \emph{own} harness: an early
+build silently skipped dataset normalization on \texttt{observation.images.top},
+feeding ACT un-normalized images and pinning ACT on Aloha-transfer-cube at
+0.016~[0.006, 0.040] --- below the env's random floor. After we fixed the
+normalization (PR~\#51) the same checkpoint reads 0.824~[0.772, 0.866]; a
+controlled $2{\times}2$ ablation (normalization $\times$ inference settings)
+shows the recovery is entirely the norm fix, while temporal ensembling is a
+wash. The lesson is that the harness itself, not the architecture, was the
+load-bearing variable, and that an eval suite must be audited as carefully as
+the policies it scores. SmolVLA on LIBERO-10 measures
 $\hat{p}{=}0.252$~[0.202, 0.309] under our v1 default protocol vs.\ the
 0.71 reported~\cite{shukor2025smolvla}, but a v1.0.1 audit bounds the
 gap by scope mismatch: the paper averages 10~tasks $\times$ 10~trials,
@@ -323,32 +328,53 @@ band at $N{=}250$, $\hat{p}{=}0.5$ is $0.123$; 22~runnable cells; XVLA
 deferred.}
 \end{table}
 
-\paragraph{Headline: inference settings, not architecture, are the
-load-bearing variable.}
-The single most consequential v1 result is that ACT's apparent failure
-on \texttt{aloha\_transfer\_cube} is an inference-config artefact. At
-Hub-default settings (\texttt{temporal\_ensemble\_coeff=None},
-\texttt{n\_action\_steps=100}) ACT reads $\hat{p}{=}0.016$~[0.006, 0.040]
---- below the env's random floor. At the paper's settings
-(\texttt{coeff=0.01}, \texttt{n\_action\_steps=1};
-Figure~\ref{fig:probe}) the same checkpoint reads
-\textbf{0.764~[0.708, 0.812]} --- the two Wilson 95\% CIs are disjoint by
-an order of magnitude, the Hub default was hiding ${\sim}75$\,pp of
-competence, and the architecture beats the paper number (0.50,
-human-teleop column) by $+26$\,pp. The lesson generalises across the
-matrix: a head-to-head leaderboard must control inference settings, not
-just architectures and checkpoints (Section~\ref{sec:results-audit}).
+\paragraph{Headline: the harness, not the architecture, was the
+load-bearing variable --- a normalization bug we caught in our own eval.}
+The single most consequential v1 result began as ACT's apparent failure
+on \texttt{aloha\_transfer\_cube} ($\hat{p}{=}0.016$~[0.006, 0.040], below
+the env's random floor) and ended as a bug in \emph{our} harness. An early
+build of the eval loop silently failed to apply dataset normalization stats
+to \texttt{observation.images.top}, feeding ACT un-normalized image
+observations; PR~\#51 fixed it
+(\texttt{\_recover\_dataset\_stats\_from\_safetensors} now disambiguates
+buffer names against the config's \texttt{feature\_keys}). After the fix the
+same checkpoint reads the canonical \textbf{0.824~[0.772, 0.866]}
+(Table~\ref{tab:breakdown}). To attribute the recovery cleanly we ran a
+controlled $2{\times}2$ ablation crossing normalization \{buggy, fixed\}
+with inference \{Hub-default, paper-settings\}, each cell $N{=}250$
+(Table~\ref{tab:act-ablation}). The recovery is 100\% the normalization fix:
+on broken normalization, switching to the paper's inference settings does
+nothing ($0.016 \to 0.016$), and on fixed normalization, Hub-default vs.\
+paper settings are statistically indistinguishable (0.812 vs.\ 0.768,
+overlapping Wilson CIs). \emph{Temporal ensembling is a wash, not the
+cause.} The lesson generalises: an eval suite must be audited --- normalization,
+buffer wiring, observation plumbing --- as carefully as the policies it
+scores (Section~\ref{sec:results-audit}).
 
-\begin{figure}[t]
+\begin{table}[t]
 \centering
-\includegraphics[height=4.0cm]{figures/paper/act_probe_bar.pdf}
-\caption{ACT $\times$ \texttt{aloha\_transfer\_cube} at Hub-default
-inference settings (0.016~[0.006, 0.040]) vs.\ the paper's settings
-(0.764~[0.708, 0.812]); error bars are Wilson 95\% intervals at
-$N{=}250$. The disjoint CIs make the apparent ``ACT fails on aloha'' an
-inference-config artefact.}
-\label{fig:probe}
-\end{figure}
+\small
+\begin{tabular}{lll}
+\toprule
+& Hub-default inference & Paper-settings inference \\
+\midrule
+Normalization buggy & 0.016 & 0.016 \\
+Normalization fixed & 0.812 & 0.768 \\
+\bottomrule
+\end{tabular}
+\caption{ACT $\times$ \texttt{aloha\_transfer\_cube}, controlled
+$2{\times}2$ ablation (normalization $\times$ inference settings), each
+cell $N{=}250$ (5~seeds $\times$ 50~episodes). The entire recovery is the
+normalization fix (PR~\#51): broken normalization stays at 0.016
+regardless of inference settings, and once normalization is fixed the
+Hub-default and paper inference settings are statistically
+indistinguishable (overlapping Wilson CIs), so temporal ensembling is a
+wash. The fixed+Hub-default cell (0.812) is the same condition as the
+canonical leaderboard number 0.824~[0.772, 0.866] (Table~\ref{tab:breakdown})
+measured in a separate $N{=}250$ run; the two agree within CI. Source:
+\texttt{scripts/probes/probe\_act\_normalization\_ablation.py}.}
+\label{tab:act-ablation}
+\end{table}
 
 \paragraph{SmolVLA on LIBERO under our protocol.}
 SmolVLA's pooled rate across the four LIBERO suites is
@@ -390,15 +416,18 @@ headline cells mean without invalidating the measurements.
 Table~2 averages 10~tasks $\times$ 10~trials per suite; v1 runs
 \texttt{task\_id=0} $\times$ 5~seeds $\times$ 50~episodes, so every
 SmolVLA paper-vs-measured delta is a single-task envelope claim, not a
-replication (PR~\#84). (2)~\emph{ACT temporal ensembling (probe
-resolved).} The pinned
-\texttt{lerobot/act\_aloha\_sim\_transfer\_cube\_human} config defaults
-\texttt{coeff=None}, \texttt{n\_action\_steps=100}; Zhao et
-al.~\cite{zhao2023learning} Table~I used \texttt{coeff=0.01},
-\texttt{n\_action\_steps=1}. At paper settings the probe measures
-\textbf{0.764~[0.708, 0.812]} vs.\ the Hub-default \textbf{0.016~[0.006,
-0.040]} (disjoint Wilson CIs; ${\sim}75$\,pp hidden, $+26$\,pp over the
-paper's 0.50) --- Figure~\ref{fig:probe}, PRs~\#86/\#97. (3)~\emph{LIBERO
+replication (PR~\#84). (2)~\emph{ACT normalization bug (self-caught,
+fixed).} An early build of our eval loop silently skipped applying
+dataset normalization stats to \texttt{observation.images.top}, feeding
+ACT un-normalized images and pinning it at \textbf{0.016~[0.006, 0.040]}.
+PR~\#51 fixed it. The controlled $2{\times}2$ ablation
+(Table~\ref{tab:act-ablation}) attributes the entire recovery to the
+normalization fix --- on broken normalization, paper inference settings
+change nothing ($0.016 \to 0.016$); on fixed normalization, Hub-default
+and paper settings are indistinguishable (0.812 vs.\ 0.768, overlapping
+Wilson CIs) --- so temporal ensembling is a wash, not the cause. We had
+earlier attributed the recovery to inference settings; the ablation
+corrects that. (3)~\emph{LIBERO
 step caps (probe resolved for \texttt{libero\_10}).} Canonical
 LIBERO~\cite{liu2023libero} uses 600~steps for all four suites; v1
 inherited lerobot's caps \{280,280,300,520\}, with failed-episode
@@ -448,9 +477,10 @@ object subset, consistent with the structural cap above.
 Three things, in order of confidence. First, the protocol works: every
 row is bit-replayable, Wilson and bootstrap CIs agree to within one
 half-width on every cell, and 110~cells dispatched with zero failures
-over 25~hours unattended. Second, inference settings dominate:
-ACT$\times$aloha's $0.016\to0.764$ swing on a single config change
-exceeds any cross-architecture gap in the matrix, while
+over 25~hours unattended. Second, harness correctness dominates:
+ACT$\times$aloha's $0.016\to0.824$ swing came entirely from fixing a
+normalization bug in our own eval (Table~\ref{tab:act-ablation}), a gap
+that dwarfs any cross-architecture difference in the matrix, while
 diffusion$\times$pusht measures $\hat{p}{=}0.816$ against the
 $0.654$ Hub-card reference~\cite{chi2023diffusion} ($+16.2$\,pp), an
 over-count consistent with our last-step success criterion being more
@@ -481,15 +511,18 @@ CI-vs-MDE bookkeeping that flags sub-threshold deltas as inconclusive.
     LIBERO suites). $N{=}250$ is a GPU-budget choice ($N{=}500$ would
     tighten CIs $\sim1.4\times$); headline claims cite only deltas above
     the per-cell MDE.
-    \item \textbf{Protocol-vs-paper and multiple comparisons.} Three
-    audit mismatches (Section~\ref{sec:results-audit}) make SmolVLA/ACT
-    cells protocol-vs-paper, not replication failures; cross-policy
+    \item \textbf{Harness bugs and protocol-vs-paper.} A normalization bug
+    in our own eval (self-caught, fixed in PR~\#51;
+    Section~\ref{sec:results-audit}) underscores that a harness can be the
+    dominant error source; the SmolVLA scope and LIBERO cap mismatches make
+    those cells protocol-vs-paper, not replication failures. Cross-policy
     paired tests defer to v1.1 when XVLA returns.
 \end{itemize}
 
 \paragraph{Future work.}
-Four paths: (1)~close the audit caveats via PR~\#90's
-\texttt{--canonical} criterion and ACT temporal-ensembling settings;
+Four paths: (1)~close the remaining audit caveats via PR~\#90's
+\texttt{--canonical} criterion (cap=600 reruns of the three provisional
+LIBERO suites);
 (2)~onboard the $\pi_0$ family via quantized/streaming load (four
 learned policies $\to$ seven); (3)~add the remaining LIBERO task
 variants (10 per suite) and new Hub policies via the single-PR path;
