@@ -1,7 +1,6 @@
 # Architecture
 
-> Source of truth: [`docs/DESIGN.md`](DESIGN.md) (technical design) and
-> [`docs/CEO-PLAN.md`](CEO-PLAN.md) (strategic framing).
+> Source of truth: [`docs/DESIGN.md`](DESIGN.md) (technical design).
 > This file is the short index — links and diagrams only.
 
 ## High-level dataflow

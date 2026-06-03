@@ -1,10 +1,9 @@
 # Failure taxonomy — labeling template
 
-Status: TEMPLATE (filled in on Day 7 of `docs/CEO-PLAN.md`, after the
+Status: TEMPLATE (filled in on Day 7 of the sweep timeline, after the
 full sweep produces real rollouts).
 Owner: researcher-writeup agent + the human.
-Source: `docs/DESIGN.md` § Failure modes (six modes), `docs/CEO-PLAN.md`
-§ Scope decisions § D1.
+Source: `docs/DESIGN.md` § Failure modes (six modes).
 
 ## Why this exists
 
@@ -171,7 +170,7 @@ near-zero. The arms remain in roughly the same pose for the remaining
 
 ## When this happens
 
-Day 7 of `docs/CEO-PLAN.md` § Updated timeline. By that point the full
+Day 7 of the sweep timeline. By that point the full
 sweep (Day 5-6) has produced real rollouts, the Space (Day 4) is live
 with the Browse-Rollouts tab so the labeler can scrub through MP4s
 quickly, and the writeup (Day 8) needs the labeled CSV to render the
@@ -230,7 +229,6 @@ keyed on them):
 ## Cross-references
 
 * Failure modes catalogued in `docs/DESIGN.md` § Failure modes.
-* CEO-plan rationale in `docs/CEO-PLAN.md` § Scope decisions § D1.
 * Per-policy entries in `docs/MODEL_CARDS.md` § Failure modes — the
   per-policy section is populated from this taxonomy on Day 7.
 * The bar chart cell lives in `notebooks/01-write-finding.ipynb`

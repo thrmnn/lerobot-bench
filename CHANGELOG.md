@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **internal strategy docs pruned from the public tree** (#181) — `git rm`'d `docs/CEO-PLAN.md` (internal strategic-positioning plan, not appropriate for a public benchmark repo). Inbound links repointed: `docs/README.md` index entry dropped, `docs/ARCHITECTURE.md` source-of-truth header now points at `DESIGN.md` only, and prose references in `docs/FAILURE_TAXONOMY.md` + `docs/MODEL_CARDS.md` rewritten to drop the dead pointer. `docs/NEXT_STEPS.md` and `docs/AUDIT_2026_05_27.md` were already absent from the tree. Note: removed files persist in git history — a history scrub is a separate, user-gated step before the repo goes public.
+
 ## [1.0.2] - 2026-06-02
 
 > v1.0.1 + v1.0.2 audit + consolidation work has landed on `main` (pending a tagged release). The two reads on the v1 dataset that the audit changed:
