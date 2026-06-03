@@ -1,12 +1,16 @@
 # v1.0.1 audit probe results
 
-> **Status: BOTH probes RESOLVED.**
+> ⚠️ **CORRECTION (v1.0.2) — Probe 1's causal conclusion was WRONG and has been SUPERSEDED.**
 >
-> **Probe 1 — ACT temporal-ensembling:** Hub-default inference settings hide ~75 pp of ACT's competence on `aloha_transfer_cube`. Pooled rate **0.016 → 0.764** at paper settings (Wilson CIs disjoint by an order of magnitude). The v1.0.0 act-aloha cell is an inference-config artifact, not an architecture failure.
+> The original Probe 1 below concluded that "Hub-default inference settings hide ~75 pp of ACT's competence" and that **temporal ensembling** recovered the cell from 0.016 to 0.764. **That causal story is false.** A controlled 2×2 ablation (normalization {buggy, fixed} × inference {Hub-default, paper-settings}, each cell N=250) shows the recovery is **100% a normalization fix on our end, 0% temporal ensembling**. The 0.016 was a **bench-side normalization bug in our own eval harness** — it silently skipped applying dataset normalization stats to `observation.images.top`, feeding ACT un-normalized image observations. We caught and fixed it in #51. On the fixed harness, Hub-default vs. paper inference settings are statistically indistinguishable (0.812 vs. 0.768) — **ensembling is a wash, not the cause.** See the CORRECTION banner inside Probe 1 for the ablation table and the canonical number. The original Probe-1 text is preserved below for the historical record but its verdict no longer holds.
+>
+> **Status: BOTH probes RESOLVED** (Probe 1's *resolution* now reframed as the norm-fix story above).
+>
+> **Probe 1 — ACT × aloha (RE-FRAMED):** the v1.0.0 `0.016` was **our own normalization bug**, fixed in #51. Canonical number is **ACT × `aloha_transfer_cube` = 0.824 [0.772, 0.866]** (N=250, Hub-default inference, normalization fixed; from `results.parquet`). Temporal ensembling does not move the cell.
 >
 > **Probe 2 — SmolVLA × libero_10 at canonical cap=600:** essentially no change. Pooled rate **0.252 → 0.256** (Δ +0.4 pp, within Wilson half-width). Cap-hits stay high (74.4% at cap=600 vs. 74.8% at cap=520) — the policy is **stuck-while-still-trying**, not slow-but-eventually-correct. The v1.0.1 "lower bound at our cap" caveat was technically correct but the lower bound essentially equals the value; extending the cap does not recover successes. The smolvla scope caveat (single-task vs. paper 10-task) is **NOT** resolved by this probe and remains v1.1 work.
 >
-> Last update: 2026-05-27 15:55 UTC.
+> Last update: 2026-06-03 (Probe 1 reframed to the normalization-fix conclusion).
 
 ## What this doc is
 
@@ -20,15 +24,40 @@ The v1.0.1 methodology audit (PRs #84, #86, #89) identified three places where t
 
 The PR #84 scope mismatch can only be resolved by a 10-task sweep (deferred to v1.1) — there is no single setting to flip. The other two are runnable now on the v1 GPU and produce a parquet under `results/probes/<probe>/`.
 
-## Probe 1 — ACT × Aloha temporal-ensembling (task #121) ✅ RESOLVED
+## Probe 1 — ACT × Aloha (task #121) ✅ RESOLVED — ⚠️ CAUSAL CONCLUSION SUPERSEDED
+
+> ⚠️ **CORRECTION (v1.0.2): the temporal-ensembling interpretation in the original Probe-1 text below was WRONG. The recovery was a normalization bug we fixed on our end, not temporal ensembling.**
+>
+> **What was wrong.** The original Probe 1 framed `0.016 → 0.764` as a *temporal-ensembling* effect ("Hub default was hiding ACT's competence", "+26 pp over paper"). That causal claim is false. The original "0.764 probe" ran on **post-#51 code** — i.e., it already carried the normalization fix — so it conflated the norm fix with the inference-setting change and wrongly attributed the entire jump to ensembling.
+>
+> **The truth (ablation-backed).** The v1.0.0 `0.016` was a **bench-side normalization bug in our own eval harness**: it silently skipped applying dataset normalization stats to `observation.images.top`, feeding ACT un-normalized image observations. We caught and fixed it in **#51** (`_recover_dataset_stats_from_safetensors` now disambiguates buffer names against config `feature_keys`). A controlled 2×2 ablation isolates the cause — normalization {buggy, fixed} × inference {Hub-default, paper-settings}, each cell **N=250 (5 seeds × 50 ep)**:
+>
+> | normalization | inference settings | pooled success |
+> |---|---|---|
+> | **buggy** | Hub-default (`coeff=None`, `n_action_steps=100`) | **0.016** |
+> | **buggy** | paper (`coeff=0.01`, `n_action_steps=1`) | **0.016** |
+> | **fixed** | Hub-default (`coeff=None`, `n_action_steps=100`) | **0.812** |
+> | **fixed** | paper (`coeff=0.01`, `n_action_steps=1`) | **0.768** |
+>
+> Source: `results/probes/act-norm-ablation/{buggy_hub,buggy_paper,fixed_hub,fixed_paper}/summary.json`; probe script `scripts/probes/probe_act_normalization_ablation.py`.
+>
+> **Verdict: recovery is 100% the normalization fix, 0% temporal ensembling.** On **broken** normalization, switching to paper inference settings does **nothing** (0.016 → 0.016). On **fixed** normalization, Hub-default vs. paper settings are statistically **indistinguishable** (0.812 vs. 0.768, overlapping Wilson CIs) — **temporal ensembling is a wash**, not the cause.
+>
+> **Canonical number (UNCHANGED, headline):** **ACT × `aloha_transfer_cube` = 0.824 [0.772, 0.866]** (N=250, Hub-default inference, normalization fixed; from `results.parquet`). The ablation's `fixed + Hub-default` cell (0.812) is the same condition measured in a separate N=250 run — the two are consistent within CI.
+>
+> **Tone note for future reads:** this was a bug in *our* harness, not a bad Hub default. We caught it, fixed it (#51), and the leaderboard number stands.
+
+---
+
+_The remainder of this section is the **historical** Probe-1 record. Its methodology description is accurate; its **causal verdict** (attributing the jump to temporal ensembling) is **superseded** by the CORRECTION above and retained only for provenance._
 
 **Source paper:** Zhao et al., _Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware_ (RSS 2023). Table I shows ACT with overlapping action-chunk weighted averaging at `k=0.01` (`temporal_ensemble_coeff` in lerobot terms) and `n_action_steps=1`.
 
-**v1 sweep value:** **0.016** [0.006, 0.040] pooled across 5 seeds × 50 ep on `aloha_transfer_cube` (Hub default `temporal_ensemble_coeff=None`, `n_action_steps=100`).
+**v1 sweep value:** **0.016** [0.006, 0.040] pooled across 5 seeds × 50 ep on `aloha_transfer_cube`. _(Now known to be the bench-side normalization bug, not an inference-setting effect — see CORRECTION.)_
 
-**v1.0.2 probe value:** **0.764** [0.708, 0.812] pooled at paper inference settings (`coeff=0.01`, `n_action_steps=1`). Source: `results/probes/act-aloha-temporal-ensemble/summary.json`.
+**Original probe value (superseded interpretation):** **0.764** [0.708, 0.812] pooled — _at the time read as "paper inference settings," but this run was on post-#51 code and the jump was the normalization fix, not ensembling._
 
-| Seed | v1.0.0 default | v1.0.2 probe (paper settings) | Δ |
+| Seed | v1.0.0 reading | original probe run | Δ |
 |---|---|---|---|
 | 0 | 0.02 | **0.92** | +0.90 |
 | 1 | 0.04 | **0.80** | +0.76 |
@@ -39,15 +68,11 @@ The PR #84 scope mismatch can only be resolved by a 10-task sweep (deferred to v
 | **Wilson 95% CI** | [0.006, 0.040] | **[0.708, 0.812]** | — |
 | **across-seed stdev** | 0.018 | 0.104 | — |
 
-**Verdict: outcome (2) from the scaffold — Hub default was hiding ACT's competence.** The two Wilson 95% CIs are disjoint by an order of magnitude (probe lower bound 0.708 vs. v1 upper bound 0.040). At the v1 inference setting (`n_action_steps=100`, no temporal ensembling) the policy effectively re-queries every 100 steps and rolls a stale action-chunk to the env for the intervening steps; the paper setting (`n_action_steps=1`, `coeff=0.01`) re-queries every step and exponentially smooths overlapping predictions. This is a documented quirk of the ACT inference pipeline that the lerobot Hub checkpoint inherited the wrong default for.
+> ⚠️ **Superseded verdict (do not cite).** The original text concluded "Hub default was hiding ACT's competence" via temporal ensembling and called it "a documented quirk of the ACT inference pipeline." The controlled ablation refutes this: the jump is the normalization fix, and ensembling is a wash. See the CORRECTION banner above.
 
-**v1.0.2 framing implication.** The "act × aloha = 0.016" headline in the v1.0.0 release is best read as a Hub-default inference artifact, not an architecture limitation. The README + MODEL_CARDS should lead with:
+**Probe methodology (historical, accurate).** `scripts/probes/probe_act_temporal_ensemble.py` monkey-patches `lerobot.configs.policies.PreTrainedConfig.from_pretrained` to set `cfg.temporal_ensemble_coeff = 0.01` and `cfg.n_action_steps = 1` on ACT configs only, before the policy is instantiated. The rest of the pipeline — observation preprocessing, action postprocessing, render path — is identical to the v1 sweep. Seeds (0-4) and N=50/seed match the v1 contract for direct comparability. _(For the current causal evidence, see `scripts/probes/probe_act_normalization_ablation.py` and `results/probes/act-norm-ablation/`.)_
 
-> ACT × `aloha_transfer_cube` measures **0.764** [0.708, 0.812] at paper inference settings (`temporal_ensemble_coeff=0.01`, `n_action_steps=1`) — the v1.0.0 sweep reading of **0.016** was the Hub default `temporal_ensemble_coeff=None`, `n_action_steps=100` and does not reflect the architecture's competence on this env.
-
-**Probe methodology.** `scripts/probes/probe_act_temporal_ensemble.py` monkey-patches `lerobot.configs.policies.PreTrainedConfig.from_pretrained` to set `cfg.temporal_ensemble_coeff = 0.01` and `cfg.n_action_steps = 1` on ACT configs only, before the policy is instantiated. The rest of the pipeline — observation preprocessing, action postprocessing, render path — is identical to the v1 sweep. Seeds (0-4) and N=50/seed match the v1 contract for direct comparability.
-
-**Probe wall-clock.** ~50 minutes on 1× RTX 4060 (vs. ~12 minutes for the same cell at `n_action_steps=100`; the 4× wall-clock cost is the price of inference-every-step, which is exactly what the paper protocol requires).
+**Probe wall-clock.** ~50 minutes on 1× RTX 4060 (vs. ~12 minutes for the same cell at `n_action_steps=100`; the 4× wall-clock cost is the price of inference-every-step).
 
 ## Probe 2 — SmolVLA × LIBERO-10 canonical step cap (task #122) ✅ RESOLVED
 
@@ -86,8 +111,8 @@ The **scope** caveat (single-task vs. paper's 10-task average, PR #84) still sta
 
 Once both probe summaries land:
 
-- [ ] **README.md** — replace the "probe pending" sentences in the Methodology caveats table (rows 2 + 3) with the empirical numbers + a 1-line interpretation per probe.
-- [ ] **docs/MODEL_CARDS.md** — replace the "v1.0.2 probe pending" footnotes under the `act` and `smolvla_libero` paper-vs-measured paragraphs with the empirical numbers.
+- [ ] **README.md** — for ACT × aloha: lead with the canonical **0.824 [0.772, 0.866]** and the honest "we found and fixed our own normalization bug (#51)" framing; **do NOT** describe it as a temporal-ensembling recovery. For SmolVLA × libero_10: fill in the cap=600 number + 1-line interpretation.
+- [ ] **docs/MODEL_CARDS.md** — for `act`: replace any "temporal-ensembling / Hub-default inference artifact" framing with the normalization-fix story (#51) and the 2×2 ablation. For `smolvla_libero`: fill in the cap=600 empirical number.
 - [ ] **paper/main.tex** §sec:results-audit — same numeric fill-in.
 - [ ] **paper/deck/index.html** slide 06 (smolvla libero_10 careful read) — add the cap=600 number alongside the cap=520 number with the cap-hit count.
 - [ ] **dashboard / Space** — no change needed; v1 rows stay published; v1.0.2 is a doc-only refinement of the framing.

@@ -49,8 +49,8 @@ WARNING: 7 field(s) below disagree between the Hub-pinned config and the paper. 
 | policy | field | hub value | paper value | note |
 |---|---|---|---|---|
 | diffusion_policy | num_inference_steps | None | 100 | Hub config sets num_inference_steps=None which means lerobot falls back to the noise scheduler's training-time num_train_timesteps (100 in the Hub config's noise_scheduler block) -- so effectively 100 denoising steps. Matches. |
-| act | n_action_steps | 100 | 1 | MISMATCH: Hub ships n_action_steps=100 (re-plan every 100 steps, no overlap aggregation). See temporal_ensemble_coeff below. |
-| act | temporal_ensemble_coeff | None | 0.01 | MISMATCH: Hub ships temporal_ensemble_coeff=None, so ACT runs in plain chunk-execution mode. Paper's Table I numbers were produced WITH temporal ensembling enabled. |
+| act | n_action_steps | 100 | 1 | MISMATCH (config-only, NOT load-bearing): Hub ships n_action_steps=100 vs. paper 1. A controlled N=250/cell ablation showed flipping this does NOT move the cell (see temporal_ensemble_coeff note). |
+| act | temporal_ensemble_coeff | None | 0.01 | MISMATCH (config-only, NOT load-bearing): Hub ships temporal_ensemble_coeff=None vs. paper 0.01. The 2×2 normalization×inference ablation (`results/probes/act-norm-ablation/`) shows temporal ensembling is a **wash** here: on fixed normalization, Hub-default (0.812) vs. paper settings (0.768) are statistically indistinguishable. The real driver of the old 0.016 cell was a bench-side normalization bug on our end (fixed in #51), not this inference knob. |
 | pi0fast_libero | chunk_size | 10 | 50 | MISMATCH: Hub ships chunk_size=10 (and n_action_steps=10). Hub finetune shortened the executable horizon -- not the FAST tokenizer's compression window. Note this also means Pi0-FAST re-plans 5x more often than Pi0 / Pi0.5 in our v1 sweep. |
 | pi0fast_libero | n_action_steps | 10 | 50 | MISMATCH: Hub ships n_action_steps=10. |
 | xvla_libero | chunk_size | 30 | 50 | MISMATCH: Hub ships chunk_size=30 (and n_action_steps=30). The X-VLA LIBERO Hub checkpoint was trained with the shorter horizon -- our paper-reference 98.1% avg came from the 50-step chunk variant. |
@@ -72,7 +72,7 @@ For each load-bearing mismatch, the table below proposes a minimal probe: **1 se
 
 | policy | field | hub | probe value | env | expected signal |
 |---|---|---|---|---|---|
-| act | temporal_ensemble_coeff | None | 0.01 | aloha_transfer_cube | If temporal ensembling closes the bench-vs-paper gap, our ACT cell will move from current success rate toward the paper's 50% (human-teleop training data, Zhao et al. 2023 Table I). Pair with n_action_steps=1. |
+| act | temporal_ensemble_coeff | None | 0.01 | aloha_transfer_cube | ✅ RESOLVED (interpretation corrected). The controlled 2×2 ablation (normalization {buggy, fixed} × inference {Hub-default, paper}, N=250/cell) showed temporal ensembling does **NOT** close the gap — it is a **wash** (fixed-norm: Hub 0.812 vs. paper 0.768, overlapping CIs). The old 0.016 cell was a **bench-side normalization bug on our end**, fixed in #51; the canonical ACT × aloha number is **0.824 [0.772, 0.866]** (N=250, Hub-default inference, normalization fixed). See `docs/PROBE_RESULTS_V1.0.1.md` Probe 1 + `scripts/probes/probe_act_normalization_ablation.py`. |
 | pi0fast_libero | chunk_size | 10 | 50 | libero_10 | Pi0-FAST Hub finetune ships a 10-step chunk (re-plans 5x more often than Pi0 / Pi0.5). A 50-step probe tests whether the shorter chunk drags Pi0-FAST below its paper-reported peer. Same caveat as xvla: weights may not generalize to a longer chunk at inference. |
 | xvla_libero | chunk_size | 30 | 50 | libero_10 | Paper reports 97.6% on LIBERO-Long with chunk_size=50. If our xvla cell improves materially at the longer horizon, the Hub checkpoint's shorter chunk explains the gap. NOTE: weights were trained at chunk_size=30, so extending it at inference may not generalize -- this probe is mostly diagnostic, not a fix. |
 
