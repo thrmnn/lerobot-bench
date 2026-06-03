@@ -987,8 +987,7 @@ def render_v1_status(manifest: dict[str, Any] | None = None) -> str:
     """
     if manifest is None:
         return (
-            "**v1 status** · 6 policies × 6 envs · 22/22 cells calibrated · "
-            "sweep running · Pi0 family deferred to v1.1"
+            "**v1** · 5 policies × 6 envs · 18 published cells · xvla + Pi0 family deferred to v1.1"
         )
 
     cells = manifest.get("cells", [])
