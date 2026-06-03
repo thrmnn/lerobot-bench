@@ -87,6 +87,14 @@ DEFAULT_MAX_VIDEO_MIB = 2.0  # mirrors the render ladder cap in DESIGN.md
 # `--results-path` can never point the publish at one of them by mistake.
 CANONICAL_RESULTS_NAME = "results.parquet"
 
+# Minimum acceptable pooled act×aloha_transfer_cube success rate. The stale
+# pre-#51 (normalization bug) rows pool to ~0.016; the corrected re-run
+# (code_sha 7361d96) pools to ~0.824. A published parquet below this floor
+# means the stale rows were never merged -- see
+# scripts/merge_corrected_act_rows.py. Guarding here makes the regression
+# un-shippable.
+_ACT_ALOHA_MIN_RATE = 0.5
+
 # Glob patterns we ship to the Hub. Anything outside this set is left
 # behind on disk -- the publish step is opt-in per file class. Order
 # matters only for human-readability; HfApi treats these as a set.
@@ -302,6 +310,25 @@ def _preflight(
     # xvla strip: drop non-v1 policies before counting or checking MP4s so
     # xvla cells + their ~875 MP4s are never staged/uploaded (v1.1 defer).
     df = filter_to_v1_policies(df)
+
+    # Stale-rows gate (#51 normalization fix): the published parquet must
+    # carry the CORRECTED act×aloha_transfer_cube rows (pooled ~0.824), not
+    # the stale pre-#51 rows (pooled ~0.016). If the cell is present and
+    # below the floor, refuse to publish -- the regression is un-shippable.
+    act_aloha = df[(df["policy"] == "act") & df["env"].astype(str).str.contains("aloha")]
+    if len(act_aloha):
+        rate = float(act_aloha["success"].astype(float).mean())
+        if rate < _ACT_ALOHA_MIN_RATE:
+            return _PreflightResult(
+                n_cells=0,
+                n_episodes=0,
+                referenced_video_shas=(),
+                error=(
+                    f"Stale pre-#51 act×aloha rows detected (pooled={rate:.3f} < "
+                    f"{_ACT_ALOHA_MIN_RATE}); run scripts/merge_corrected_act_rows.py "
+                    "before publishing."
+                ),
+            )
 
     if not manifest_path.exists():
         return _PreflightResult(
