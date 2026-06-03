@@ -10,13 +10,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code_style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![CI](https://github.com/thrmnn/lerobot-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/thrmnn/lerobot-bench/actions/workflows/ci.yml)
-[![HF Space](https://img.shields.io/badge/%F0%9F%A4%97%20Space-lerobot--bench-yellow)](https://huggingface.co/spaces/thrmnn/lerobot-bench)
-[![HF Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-v1-yellow)](https://huggingface.co/datasets/thrmnn/lerobot-bench-v1)
+![HF Space](https://img.shields.io/badge/%F0%9F%A4%97%20Space-coming%20with%20v1.0.0-lightgrey)
+![HF Dataset](https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-coming%20with%20v1.0.0-lightgrey)
 
-**Quick links:** [Get started](docs/GETTING_STARTED.md) · [Live leaderboard](https://huggingface.co/spaces/thrmnn/lerobot-bench) · [Dataset](https://huggingface.co/datasets/thrmnn/lerobot-bench-v1) · [Paper](paper/main.tex) · [Contributing](CONTRIBUTING.md) · [Reproduce](docs/REPRODUCE.md)
-<!-- Hero image: the public HF Space leaderboard. Captured by the maintainer once the Space is live; see docs/assets/README.md. The repo renders fine while this file is absent. -->
+**Quick links:** [Get started](docs/GETTING_STARTED.md) · [Paper (LaTeX source)](paper/main.tex) · [Bring your own env](docs/ENV_CONTRIBUTION_GUIDE.md) · [Contributing](CONTRIBUTING.md) · [Reproduce](docs/REPRODUCE.md)
 <picture>
-  <img src="docs/assets/leaderboard.png" alt="lerobot-bench leaderboard: success rate with 95% confidence intervals for the 5 public-leaderboard LeRobot policies (xvla deferred to v1.1) across a 6×6 policy×env matrix executed in the v1 sweep" width="820">
+  <img src="docs/assets/fig-replication-scatter.png" alt="lerobot-bench replication scatter: lerobot-bench measured success rate vs. source-paper reported success rate for the v1 published policy×env cells, with 95% confidence intervals" width="820">
 </picture>
 
 </div>
@@ -26,7 +25,7 @@
 > Public multi-policy benchmark for pretrained LeRobot policies on PushT, Aloha, and LIBERO sim envs.
 > Multi-seed contract, bootstrap + Wilson CIs, MDE bounds, paired comparisons, failure taxonomy. Arxiv-grade writeup and upstream-ready eval module.
 
-**Status: v1 finalized (dataset version `v1.0.0`), with v1.0.1 methodology audit incorporated into framing.** Sweep complete: **110/110 cells dispatched, 0 failures** across 6 policies × 6 envs. Two cells were auto-downscoped to 125 episodes after calibration flagged slow inference: **`diffusion_policy × pusht`** and **`xvla × libero_10`**. Pi0 family deferred to v1.1 (~30 GB host-RAM cold-load spike — see [paper Limitations](paper/main.tex)). `xvla_libero` was executed but is **deferred from the v1 leaderboard and excluded from the published parquet and videos** — two upstream Hub-artifact wiring bugs were patched in our loader but a third unresolved issue still produces 0% rollouts; see [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
+**Status: v1 finalized (dataset version `v1.0.0`), with v1.0.1 methodology audit incorporated into framing.** Sweep complete: **22 cells (18 published) × 5 seeds = 110 cell-seed runs dispatched, 0 failures** across 6 policies × 6 envs (a cell is one (policy, env) pair). Two cells were auto-downscoped to **25 episodes/seed (N=125)** after calibration flagged slow inference: **`diffusion_policy × pusht`** (published) and **`xvla × libero_10`** (excluded from publish — its downscope was dispatch-time only). Pi0 family deferred to v1.1 (~30 GB host-RAM cold-load spike — see [paper Limitations](paper/main.tex)). `xvla_libero` was executed but is **deferred from the v1 leaderboard and excluded from the published parquet and videos** — two upstream Hub-artifact wiring bugs were patched in our loader but a third unresolved issue still produces 0% rollouts; see [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
 
 > **Headline finding — inference settings, not architecture, are the load-bearing variable.**
 > ACT × `aloha_transfer_cube` at paper inference settings (`temporal_ensemble_coeff=0.01`, `n_action_steps=1`) measures **0.764** [0.708, 0.812] — vs. **0.016** [0.006, 0.040] at the Hub-default `temporal_ensemble_coeff=None, n_action_steps=100`. The two Wilson 95% CIs are **disjoint by an order of magnitude**. The Hub default was hiding ~75 pp of ACT's published competence on this env; the architecture clears the Zhao et al. 2023 paper number (0.50) by +26 pp at correct settings. **The v1.0.0 "act fails on aloha" reading is a Hub-default inference artifact, not architecture failure.** Probe: [PR #97](https://github.com/thrmnn/lerobot-bench/pull/97) · audit: [PR #86](https://github.com/thrmnn/lerobot-bench/pull/86) · doc: [`docs/PROBE_RESULTS_V1.0.1.md`](docs/PROBE_RESULTS_V1.0.1.md).
@@ -40,7 +39,7 @@
 
 Three artifacts, all open:
 
-1. **Public leaderboard** — Hugging Face Space + Hub dataset `thrmnn/lerobot-bench-v1` (v1.0.0, 110 cells, 0 failures). Every per-episode outcome, every rollout MP4, queryable by `(policy, env, seed, episode)`.
+1. **Public leaderboard** — Hugging Face Space + Hub dataset `thrmnn/lerobot-bench-v1` (v1.0.0, 110 cell-seed runs, 0 failures; 18 published cells). Every per-episode outcome, every rollout MP4, queryable by `(policy, env, seed, episode)`.
 
 2. **4-page arxiv writeup** — `paper/main.tex`. Methodology, related work, results, limitations. Every figure regenerated from `notebooks/01-write-finding.ipynb`.
 3. **Upstream-ready eval pipeline** — `src/lerobot_bench/eval.py` extracted as `lerobot.eval.multi_seed` in a follow-up PR to `huggingface/lerobot`.
@@ -56,7 +55,7 @@ Two tools for running and inspecting it:
 
 ## v1 scope
 
-**5 leaderboard policies + xvla executed-but-deferred × 6 envs (110 cells dispatched after `env_compat` filter, 0 failures):**
+**5 leaderboard policies + xvla executed-but-deferred × 6 envs — 22 cells (18 published) × 5 seeds = 110 cell-seed runs dispatched after `env_compat` filter, 0 failures:**
 
 | | pusht | aloha_transfer_cube | libero_spatial | libero_object | libero_goal | libero_10 |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
@@ -69,7 +68,7 @@ Two tools for running and inspecting it:
 
 Legend: ✓ runnable cell in v1 leaderboard · 🅓 cell *executed* in the v1 sweep but **deferred from the leaderboard**; upstream Hub artifacts ship with wiring bugs (PR #71 + PR #74 patch two; a third manifestation remained unresolved in the v1 window). See [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
 
-**5 seeds × 50 episodes per cell** (N=250 binary outcomes per cell; two cells — `diffusion_policy × pusht` and `xvla × libero_10` — were auto-downscoped to 125 episodes after calibration flagged slow inference). Pi0 family (`pi0_libero`, `pi0fast_libero`, `pi05_libero_finetuned_v044`) **deferred to v1.1** — they overflow the 32 GB WSL2 host budget during `from_pretrained` cold load (~30 GB CPU RAM peak under HF Transformers' default weight-conversion path). v1.1 paths: quantized weights or `accelerate device_map="auto"` streaming load. The `xvla_libero` deferral is documented alongside the pi-family in [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
+**5 seeds × 50 episodes per cell** (N=250 binary outcomes per cell; two cells — `diffusion_policy × pusht` (published) and `xvla × libero_10` (excluded from publish, dispatch-time downscope only) — were auto-downscoped to **25 episodes/seed (N=125)** after calibration flagged slow inference). Pi0 family (`pi0_libero`, `pi0fast_libero`, `pi05_libero_finetuned_v044`) **deferred to v1.1** — they overflow the 32 GB WSL2 host budget during `from_pretrained` cold load (~30 GB CPU RAM peak under HF Transformers' default weight-conversion path). v1.1 paths: quantized weights or `accelerate device_map="auto"` streaming load. The `xvla_libero` deferral is documented alongside the pi-family in [`docs/DEFERRED_POLICIES.md`](docs/DEFERRED_POLICIES.md).
 
 ---
 
@@ -105,8 +104,9 @@ Full design: [`docs/DESIGN.md`](docs/DESIGN.md). Architecture: [`docs/ARCHITECTU
 These are **roadmap items, not v1 deliverables** — listed so you can see where the benchmark is heading. Full plan: [`docs/PIPELINE_ROADMAP.md`](docs/PIPELINE_ROADMAP.md).
 
 - **Coverage breadth (v1.1+).** All-10-task LIBERO sweep to close the SmolVLA single-task scope caveat; re-enable `xvla_libero` on the leaderboard once the upstream Hub-artifact bug is resolved; pi-family via streaming/quantized load.
+- **Bring your own env.** Adding a new sim env to the matrix is a documented contribution path — see [`docs/ENV_CONTRIBUTION_GUIDE.md`](docs/ENV_CONTRIBUTION_GUIDE.md) and the worked exemplar [`thrmnn/lerobot-env-so100-pickplace`](https://github.com/thrmnn/lerobot-env-so100-pickplace), a standalone SO-100 pick-and-place env wired to the bench's eval contract.
 - **Sim-to-real bridge (v1.3).** Re-run a subset of the matrix on physical Koch v1.1 / SO-100 hardware; the statistics infrastructure carries over unchanged.
-- **World-model / JEPA planner track (exploratory).** A separate, slow-lane research effort evaluates world-model planners *as policies* (`act(obs) -> action`) through the same eval contract. It runs in its own repo with its own toolchain and does **not** touch the production leaderboard: the only write into the bench is a gated adapter PR, held off the leaderboard until a planner is explicitly promoted. The two-speed operating model is documented in [`docs/TWO_SPEED.md`](docs/TWO_SPEED.md); the research track itself in [`docs/WM_RESEARCH_TRACK.md`](docs/WM_RESEARCH_TRACK.md).
+- **World-model / JEPA planner track (exploratory).** A separate, slow-lane research effort evaluates world-model planners *as policies* (`act(obs) -> action`) through the same eval contract. It runs in its own [research repo, `thrmnn/lerobot-wm-research`](https://github.com/thrmnn/lerobot-wm-research), with its own toolchain and does **not** touch the production leaderboard: the only write into the bench is a gated adapter PR, held off the leaderboard until a planner is explicitly promoted. The two-speed operating model is documented in [`docs/TWO_SPEED.md`](docs/TWO_SPEED.md); the research track itself in [`docs/WM_RESEARCH_TRACK.md`](docs/WM_RESEARCH_TRACK.md).
 
 This separation is deliberate: the production benchmark ships and stays stable (fast lane) while world-model research moves on its own clock (slow lane). See [`docs/TWO_SPEED.md`](docs/TWO_SPEED.md).
 
@@ -114,7 +114,7 @@ This separation is deliberate: the production benchmark ships and stays stable (
 
 ## Getting started
 
-From `git clone` to a real benchmark result in three commands. Run them from
+From `git clone` to a real benchmark result in two commands. Run them from
 an activated Python 3.12 conda env (`conda activate lerobot`):
 
 ```bash
@@ -122,7 +122,7 @@ an activated Python 3.12 conda env (`conda activate lerobot`):
 git clone https://github.com/thrmnn/lerobot-bench.git && cd lerobot-bench
 pip install -e ".[all]"
 
-# 2. Run a single (policy, env, seed) cell — a couple of minutes on a GPU
+# 2. Run a single (policy, env, seed) cell — a few minutes (model download + 5 rollouts)
 python scripts/run_one.py --policy act --env aloha_transfer_cube --seed 0 --n-episodes 5
 ```
 
@@ -169,7 +169,7 @@ tail -F logs/sweep-$(cat /tmp/lerobot-bench-sweep-ts).log
 ```
 lerobot-bench/
 ├── src/lerobot_bench/     # eval, stats, render, registries, checkpointing
-├── scripts/               # entrypoints: calibrate, run_sweep, run_one, publish,
+├── scripts/               # entrypoints: calibrate, run_sweep, run_one, publish_results,
 │                          #             merge_calibration, auto_downscope,
 │                          #             run_capped, watchdog, launch_overnight_sweep
 ├── configs/               # policies.yaml, envs.yaml, sweep_full.yaml, sweep_mini.yaml
@@ -177,7 +177,7 @@ lerobot-bench/
 ├── space/                 # public HF Space app (Gradio)
 ├── notebooks/             # 01-write-finding.ipynb (every paper figure)
 ├── paper/                 # main.tex + references.bib (4-page arxiv writeup)
-├── tests/                 # 360+ tests (lint + mypy + pytest, all green on CI)
+├── tests/                 # 570+ tests (lint + mypy + pytest, all green on CI)
 ├── docs/                  # DESIGN, ARCHITECTURE, MDE_TABLE, FAILURE_TAXONOMY, RUNBOOK
 └── results/               # gitignored — pushed to HF Hub dataset on publish
 ```
@@ -194,7 +194,7 @@ make typecheck    # mypy
 make test         # pytest fast tier
 make all          # lint + typecheck + test
 make dashboard    # launch the local operator dashboard
-make sweep        # run the full sweep (under the 18 GB cap, recommended)
+make sweep-full   # full sweep (no cap; for the capped overnight run use scripts/launch_overnight_sweep.sh)
 ```
 
 Pre-commit hooks run ruff and the typecheck/test fast tier on every commit. CI on every push and PR.
@@ -220,5 +220,5 @@ MIT. See [LICENSE](LICENSE).
 
 ## Citation
 
-The arxiv writeup pre-print lands alongside the v1.0.0 dataset upload. Citation guidance will appear here at that point. Until then, please link to this repo.
-<!-- TODO: replace with BibTeX once the arxiv ID is assigned (dataset is live at huggingface.co/datasets/thrmnn/lerobot-bench-v1). -->
+The arxiv writeup pre-print lands alongside the v1.0.0 dataset upload. Until the arXiv ID is assigned, cite this repository using [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository" widget reads it directly).
+<!-- TODO: add the arxiv BibTeX entry here once the ID is assigned (dataset is live at huggingface.co/datasets/thrmnn/lerobot-bench-v1). -->
