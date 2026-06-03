@@ -93,6 +93,7 @@ def _fake_cell_result(
     n: int = 3,
     n_success: int = 2,
     n_errors: int = 0,
+    eval_run_id: str = "",
 ) -> CellResult:
     """Build a CellResult with ``n_success`` successes, ``n_errors`` errored
     episodes, and the rest as failed-but-not-errored episodes. Frames are a
@@ -120,6 +121,7 @@ def _fake_cell_result(
         code_sha="deadbeef",
         lerobot_version="0.5.1",
         timestamp_utc="2026-05-01T00:00:00+00:00",
+        eval_run_id=eval_run_id,
     )
 
 
@@ -450,6 +452,47 @@ def test_run_one_partial_errors_returns_exit_2(
     df = pd.read_parquet(out_parquet)
     assert len(df) == 3
     assert "errors=1" in outcome.log_message
+    # The optional ``errored`` column distinguishes the crash row from the
+    # legit failure rows (audit H3).
+    assert df["errored"].sum() == 1
+
+
+def test_run_one_forwards_eval_run_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_one threads --eval-run-id into run_cell_from_specs and onto the rows (audit M5)."""
+    captured: dict[str, Any] = {}
+
+    def _stub(*_args: Any, **kwargs: Any) -> CellResult:
+        captured.update(kwargs)
+        return _fake_cell_result(n=2, n_success=2, eval_run_id=kwargs.get("eval_run_id", ""))
+
+    from lerobot_bench import eval as eval_mod
+
+    monkeypatch.setattr(eval_mod, "run_cell_from_specs", _stub)
+    _patch_lerobot_available(monkeypatch)
+
+    out_parquet = tmp_path / "results.parquet"
+    outcome = ro.run_one(
+        policy_name="random",
+        env_name="pusht",
+        seed=0,
+        n_episodes=2,
+        out_parquet=out_parquet,
+        videos_dir=tmp_path / "videos",
+        record_video=False,
+        device="cpu",
+        policies_yaml=DEFAULT_POLICIES_YAML,
+        envs_yaml=DEFAULT_ENVS_YAML,
+        dry_run=False,
+        eval_run_id="rid-xyz",
+    )
+
+    assert outcome.exit_code == 0
+    assert captured["eval_run_id"] == "rid-xyz"
+    df = pd.read_parquet(out_parquet)
+    assert (df["eval_run_id"] == "rid-xyz").all()
 
 
 # --------------------------------------------------------------------- #

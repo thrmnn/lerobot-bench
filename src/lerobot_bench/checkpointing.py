@@ -32,9 +32,11 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-# Schema columns required in every results.parquet row.
-# Order is canonical; mirrored in the DataFrame written to disk.
-RESULT_SCHEMA: tuple[str, ...] = (
+# Columns required in every results.parquet row. This is the strict
+# gate: a parquet missing any of these (or carrying an unknown extra) is
+# rejected by load_results. Order is canonical; mirrored in the
+# DataFrame written to disk.
+REQUIRED_COLUMNS: tuple[str, ...] = (
     "policy",
     "env",
     "seed",
@@ -48,6 +50,33 @@ RESULT_SCHEMA: tuple[str, ...] = (
     "lerobot_version",
     "timestamp_utc",
 )
+
+# Columns the loader tolerates as absent: a parquet predating their
+# introduction (the published Hub dataset, `make reproduce`, the live
+# Space) loads fine and the missing column is back-filled with the
+# sentinel in OPTIONAL_DEFAULTS. New optional columns MUST be appended
+# here (never to REQUIRED_COLUMNS) so old parquets stay loadable.
+#
+# * ``errored`` (audit H3) -- True for rows produced by a crashed
+#   episode (OOM, env death). Distinguishes a crash from a legit
+#   task failure and makes plan_resume re-run the cell.
+# * ``eval_run_id`` (audit M5) -- provenance handle minted once per
+#   sweep invocation; foundation for the future MLflow/DVC layer.
+#   Named to NOT collide with the WM-training JSONL 'run_id'.
+OPTIONAL_COLUMNS: tuple[str, ...] = (
+    "errored",
+    "eval_run_id",
+)
+
+# Sentinel back-fill value per optional column, used when an older
+# parquet is loaded without it.
+OPTIONAL_DEFAULTS: dict[str, bool | str] = {
+    "errored": False,
+    "eval_run_id": "",
+}
+
+# Full canonical column order = required followed by optional.
+RESULT_SCHEMA: tuple[str, ...] = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
 
 # Subset of RESULT_SCHEMA that uniquely identifies a row.
 _ROW_KEY: tuple[str, ...] = ("policy", "env", "seed", "episode_index")
@@ -105,7 +134,7 @@ def _dtype_for(col: str) -> str:
         return "int64"
     if col in {"return_", "wallclock_s"}:
         return "float64"
-    if col == "success":
+    if col in {"success", "errored"}:
         return "bool"
     return "object"
 
@@ -114,19 +143,34 @@ def load_results(parquet_path: Path) -> pd.DataFrame:
     """Read existing ``results.parquet``.
 
     Returns an empty DataFrame with exactly ``RESULT_SCHEMA`` columns if
-    the file is missing. Raises :class:`ValueError` if the file exists
-    but its columns don't match ``RESULT_SCHEMA``.
+    the file is missing.
+
+    Schema gate (audit C2 -- back-compat split): a file is rejected with
+    :class:`ValueError` only if it is **missing a REQUIRED column** or
+    carries an **unknown extra column** (not in REQUIRED ∪ OPTIONAL).
+    Missing OPTIONAL columns are tolerated and back-filled with their
+    :data:`OPTIONAL_DEFAULTS` sentinel, so a parquet written before an
+    optional column existed (the published Hub dataset, ``make
+    reproduce``, the live Space) still loads.
     """
     if not parquet_path.exists():
         return _empty_results_df()
 
     df = pd.read_parquet(parquet_path)
     actual = set(df.columns)
-    expected = set(RESULT_SCHEMA)
-    if actual != expected:
-        missing = sorted(expected - actual)
-        extra = sorted(actual - expected)
-        raise ValueError(f"unexpected columns in {parquet_path}: missing={missing}, extra={extra}")
+    missing_required = sorted(set(REQUIRED_COLUMNS) - actual)
+    extra = sorted(actual - set(RESULT_SCHEMA))
+    if missing_required or extra:
+        raise ValueError(
+            f"unexpected columns in {parquet_path}: missing={missing_required}, extra={extra}"
+        )
+
+    # Back-fill any absent optional columns with their sentinel so
+    # downstream code can rely on every RESULT_SCHEMA column existing.
+    for col in OPTIONAL_COLUMNS:
+        if col not in actual:
+            df[col] = OPTIONAL_DEFAULTS[col]
+
     # Reorder to canonical schema order so downstream code can rely on it.
     return df[list(RESULT_SCHEMA)]
 
@@ -140,11 +184,15 @@ def plan_resume(
     """Inspect the parquet and decide which cells to skip vs run.
 
     A cell is **completed** iff it has rows whose ``episode_index`` set
-    equals ``set(range(n_episodes))`` exactly. Any other non-zero row
-    count classifies the cell as **partial** — including the corruption
-    cases of a missing index inside the range or an unexpected
-    over-write past ``n_episodes - 1``. A cell with no rows is
-    **pending**.
+    equals ``set(range(n_episodes))`` exactly **and no row is flagged
+    ``errored``**. Any other non-zero row count classifies the cell as
+    **partial** — including the corruption cases of a missing index
+    inside the range, an unexpected over-write past ``n_episodes - 1``,
+    or a full-index cell that contains an errored row (audit H3: an
+    OOM/env-crash episode is indistinguishable from a legit failure on
+    ``success`` alone, so the ``errored`` flag forces a re-run instead
+    of silently treating the crashed cell as done). A cell with no rows
+    is **pending**.
 
     Cells in the existing parquet that are *not* in ``requested_cells``
     are ignored — this lets a sweep be re-shaped without losing prior
@@ -163,23 +211,29 @@ def plan_resume(
     if rows_loaded > 0:
         # Build a dict of cell -> set(episode_index) for O(1) lookup below.
         # Iterating zips directly avoids fighting groupby's loose Hashable types.
+        # `errored_cells` collects any cell with at least one crashed row so
+        # a full-index-but-errored cell still re-runs (audit H3).
         index_sets: dict[CellKey, set[int]] = {}
-        for policy, env, seed, ep in zip(
+        errored_cells: set[CellKey] = set()
+        for policy, env, seed, ep, errored in zip(
             df["policy"],
             df["env"],
             df["seed"],
             df["episode_index"],
+            df["errored"],
             strict=True,
         ):
             key = CellKey(policy=str(policy), env=str(env), seed=int(seed))
             index_sets.setdefault(key, set()).add(int(ep))
+            if bool(errored):
+                errored_cells.add(key)
 
         expected_indices = set(range(n_episodes))
         for cell in requested_set:
             seen = index_sets.get(cell)
             if seen is None:
                 continue
-            if seen == expected_indices:
+            if seen == expected_indices and cell not in errored_cells:
                 completed.add(cell)
             else:
                 partial.add(cell)
@@ -203,16 +257,28 @@ def append_cell_rows(parquet_path: Path, new_rows: pd.DataFrame) -> int:
     (atomic on POSIX). If ``new_rows`` is empty, this is a no-op and
     returns the existing row count.
 
-    Raises :class:`ValueError` if ``new_rows`` is missing schema columns
-    or if any row would duplicate an existing ``(policy, env, seed,
-    episode_index)`` tuple.
+    Schema gate mirrors :func:`load_results` (audit C2): ``new_rows``
+    must carry every REQUIRED column and no unknown extras; absent
+    OPTIONAL columns are back-filled with their
+    :data:`OPTIONAL_DEFAULTS` sentinel so a caller built against an
+    older schema still appends cleanly.
+
+    Raises :class:`ValueError` if ``new_rows`` is missing a required
+    column, carries an unknown extra, or if any row would duplicate an
+    existing ``(policy, env, seed, episode_index)`` tuple.
     """
     actual = set(new_rows.columns)
-    expected = set(RESULT_SCHEMA)
-    if actual != expected:
-        missing = sorted(expected - actual)
-        extra = sorted(actual - expected)
-        raise ValueError(f"new_rows has wrong columns: missing={missing}, extra={extra}")
+    missing_required = sorted(set(REQUIRED_COLUMNS) - actual)
+    extra = sorted(actual - set(RESULT_SCHEMA))
+    if missing_required or extra:
+        raise ValueError(f"new_rows has wrong columns: missing={missing_required}, extra={extra}")
+
+    # Back-fill absent optional columns before concat so the written
+    # parquet always has the full canonical schema.
+    new_rows = new_rows.copy()
+    for col in OPTIONAL_COLUMNS:
+        if col not in actual:
+            new_rows[col] = OPTIONAL_DEFAULTS[col]
 
     existing = load_results(parquet_path)
 

@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from lerobot_bench.checkpointing import (
+    REQUIRED_COLUMNS,
     RESULT_SCHEMA,
     CellKey,
     append_cell_rows,
@@ -41,6 +42,8 @@ def _row(
         "code_sha": "abc",
         "lerobot_version": "0.5.1",
         "timestamp_utc": "2026-05-01T00:00:00Z",
+        "errored": False,
+        "eval_run_id": "",
     }
     base.update(kw)
     return base
@@ -82,6 +85,42 @@ def test_load_results_wrong_columns_raises(tmp_path: Path) -> None:
     assert "extra=" in msg
     assert "policy" in msg
     assert "foo" in msg
+
+
+def _legacy_row(policy: str, env: str, seed: int, ep: int) -> dict[str, Any]:
+    """A row with ONLY the REQUIRED columns -- mirrors a parquet written
+    before the optional ``errored`` / ``eval_run_id`` columns existed
+    (the published Hub dataset, ``make reproduce``, the live Space)."""
+    full = _row(policy, env, seed, ep)
+    return {k: full[k] for k in REQUIRED_COLUMNS}
+
+
+def test_load_results_backcompat_missing_optional_columns(tmp_path: Path) -> None:
+    """A parquet WITHOUT the optional columns loads and is back-filled (audit C2)."""
+    path = tmp_path / "legacy.parquet"
+    rows = [_legacy_row("A", "env", 0, i) for i in range(3)]
+    pd.DataFrame(rows, columns=list(REQUIRED_COLUMNS)).to_parquet(path, index=False)
+
+    df = load_results(path)
+    # Strict gate passes despite the missing optional columns.
+    assert tuple(df.columns) == RESULT_SCHEMA
+    assert len(df) == 3
+    # Back-filled with the sentinels.
+    assert (~df["errored"]).all()
+    assert (df["eval_run_id"] == "").all()
+
+
+def test_append_cell_rows_backcompat_missing_optional_columns(tmp_path: Path) -> None:
+    """append_cell_rows tolerates rows missing optional columns, back-filling them."""
+    path = tmp_path / "r.parquet"
+    rows = [_legacy_row("A", "env", 0, i) for i in range(2)]
+    legacy_df = pd.DataFrame(rows, columns=list(REQUIRED_COLUMNS))
+
+    append_cell_rows(path, legacy_df)
+    df = load_results(path)
+    assert tuple(df.columns) == RESULT_SCHEMA
+    assert len(df) == 2
+    assert (~df["errored"]).all()
 
 
 # --------------------------------------------------------------------- #
@@ -147,6 +186,34 @@ def test_plan_resume_extra_episode_indices_treated_as_partial(tmp_path: Path) ->
     plan = plan_resume(path, requested_cells=[a], n_episodes=5)
     assert plan.partial_cells == frozenset({a})
     assert plan.completed_cells == frozenset()
+
+
+def test_plan_resume_errored_row_makes_full_cell_partial(tmp_path: Path) -> None:
+    """A full-index cell containing an errored row re-runs, not skipped (audit H3)."""
+    path = tmp_path / "r.parquet"
+    rows = [_row("A", "env", 0, i) for i in range(5)]
+    # One episode crashed (OOM / env death) -- success=False but the
+    # distinguishing signal is the errored flag, not success.
+    rows[3]["errored"] = True
+    rows[3]["success"] = False
+    _df(rows).to_parquet(path, index=False)
+
+    a = CellKey("A", "env", 0)
+    plan = plan_resume(path, requested_cells=[a], n_episodes=5)
+    assert plan.partial_cells == frozenset({a})
+    assert plan.completed_cells == frozenset()
+
+
+def test_plan_resume_full_clean_cell_still_completed(tmp_path: Path) -> None:
+    """Control for the errored test: no errored rows -> still completed."""
+    path = tmp_path / "r.parquet"
+    rows = [_row("A", "env", 0, i) for i in range(5)]
+    _df(rows).to_parquet(path, index=False)
+
+    a = CellKey("A", "env", 0)
+    plan = plan_resume(path, requested_cells=[a], n_episodes=5)
+    assert plan.completed_cells == frozenset({a})
+    assert plan.partial_cells == frozenset()
 
 
 def test_plan_resume_ignores_unrequested_cells(tmp_path: Path) -> None:

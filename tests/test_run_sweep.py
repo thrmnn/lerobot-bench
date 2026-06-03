@@ -424,6 +424,51 @@ def test_build_run_one_argv_no_record_video(tmp_path: Path) -> None:
     assert "--no-record-video" in argv
 
 
+def _basic_cell() -> Any:
+    return rs.PlannedCell(
+        policy="no_op",
+        env="pusht",
+        seed_idx=0,
+        n_episodes=3,
+        compatible=True,
+        runnable=True,
+    )
+
+
+def _basic_cfg(tmp_path: Path) -> Any:
+    return rs.SweepConfig.from_dict(
+        {
+            "policies": ["no_op"],
+            "envs": ["pusht"],
+            "seeds": [0],
+            "episodes_per_seed": 3,
+            "results_path": str(tmp_path / "r.parquet"),
+        }
+    )
+
+
+def test_build_run_one_argv_threads_eval_run_id(tmp_path: Path) -> None:
+    argv = rs._build_run_one_argv(
+        _basic_cell(), config=_basic_cfg(tmp_path), eval_run_id="2026-01-01T00:00:00+00:00-deadbeef"
+    )
+    assert argv[argv.index("--eval-run-id") + 1] == "2026-01-01T00:00:00+00:00-deadbeef"
+
+
+def test_build_run_one_argv_omits_empty_eval_run_id(tmp_path: Path) -> None:
+    argv = rs._build_run_one_argv(_basic_cell(), config=_basic_cfg(tmp_path))
+    assert "--eval-run-id" not in argv
+
+
+def test_mint_eval_run_id_shape() -> None:
+    rid = rs._mint_eval_run_id("2026-01-01T00:00:00+00:00", "abcdef1234567890")
+    assert rid == "2026-01-01T00:00:00+00:00-abcdef12"
+
+
+def test_mint_eval_run_id_handles_empty_sha() -> None:
+    rid = rs._mint_eval_run_id("2026-01-01T00:00:00+00:00", "")
+    assert rid.endswith("-unknown")
+
+
 # --------------------------------------------------------------------- #
 # 6. Manifest helpers                                                   #
 # --------------------------------------------------------------------- #
@@ -573,6 +618,35 @@ def test_main_results_path_override_takes_precedence(
     assert (new_path.parent / "sweep_manifest.json").exists()
 
 
+def test_sweep_mints_and_threads_eval_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_sweep mints one eval_run_id, stamps the manifest, and threads it into argv (audit M5)."""
+    import json
+
+    cfg_path = _minimal_yaml(tmp_path)
+    captured: list[str] = []
+
+    def fake(argv: list[str], *, timeout_s: float | None = None) -> rs.SubprocessOutcome:
+        # argv contains valueless flags (--no-record-video) so index-pairing
+        # is unsafe; read the value positionally after the flag.
+        idx = argv.index("--eval-run-id")
+        captured.append(argv[idx + 1])
+        return rs.SubprocessOutcome(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(rs, "_run_subprocess", fake)
+    rc = rs.main(["--config", str(cfg_path)])
+    assert rc == 0
+    assert captured, "no cells dispatched"
+
+    cfg = rs.load_sweep_config(cfg_path)
+    manifest = json.loads((cfg.results_path.parent / "sweep_manifest.json").read_text())
+    rid = manifest["eval_run_id"]
+    assert rid  # non-empty
+    # Every dispatched cell received the same minted id.
+    assert set(captured) == {rid}
+
+
 def test_main_max_parallel_gt_1_exits_3(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """v1: --max-parallel > 1 is rejected at the CLI."""
     cfg_path = _minimal_yaml(tmp_path)
@@ -645,3 +719,72 @@ def test_result_schema_used_in_preflight(tmp_path: Path) -> None:
     err = rs._preflight_results_path(bad)
     assert err is not None
     assert "missing" in err or "extra" in err
+
+
+# --------------------------------------------------------------------- #
+# 11. Timeout process-group kill (audit H1)                            #
+# --------------------------------------------------------------------- #
+
+
+def test_default_run_subprocess_kills_process_group_on_timeout(tmp_path: Path) -> None:
+    """A child that spawns a grandchild and hangs is killed group-wide on timeout.
+
+    The child writes its own and its grandchild's PIDs to a file, then
+    both sleep far past the timeout. After ``_default_run_subprocess``
+    returns exit 124 we assert (a) it returned promptly and (b) neither
+    PID survives -- proving the SIGTERM/SIGKILL hit the whole process
+    group, not just the direct child.
+    """
+    import os
+    import sys
+    import time
+
+    pidfile = tmp_path / "pids.txt"
+    child_src = tmp_path / "child.py"
+    child_src.write_text(
+        "import os, subprocess, sys, time\n"
+        f"pidfile = {str(pidfile)!r}\n"
+        "gc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
+        "open(pidfile, 'w').write(f'{os.getpid()}\\n{gc.pid}\\n')\n"
+        "time.sleep(300)\n"
+    )
+
+    t0 = time.perf_counter()
+    outcome = rs._default_run_subprocess([sys.executable, str(child_src)], timeout_s=1.0)
+    elapsed = time.perf_counter() - t0
+
+    assert outcome.returncode == 124
+    # Returned without waiting out the 300s sleep (1s timeout + ~10s grace ceiling).
+    assert elapsed < 30.0
+
+    # Give the OS a moment to reap, then assert both PIDs are gone.
+    deadline = time.perf_counter() + 5.0
+    pids = [int(x) for x in pidfile.read_text().split()]
+
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    while time.perf_counter() < deadline and any(_alive(p) for p in pids):
+        time.sleep(0.1)
+    assert not any(_alive(p) for p in pids), f"survivors: {[p for p in pids if _alive(p)]}"
+
+
+def test_default_run_subprocess_normal_exit_passes_through(tmp_path: Path) -> None:
+    """No timeout: returncode + captured stdout/stderr flow through unchanged."""
+    import sys
+
+    argv = [
+        sys.executable,
+        "-c",
+        "import sys; print('hi'); print('boom', file=sys.stderr); sys.exit(3)",
+    ]
+    outcome = rs._default_run_subprocess(argv, timeout_s=30.0)
+    assert outcome.returncode == 3
+    assert "hi" in outcome.stdout
+    assert "boom" in outcome.stderr
