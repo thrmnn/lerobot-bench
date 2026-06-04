@@ -32,10 +32,10 @@ to send a PR for whichever resolution path the maintainers prefer (see
 
 The probe script (5 seeds × 50 episodes on `aloha_transfer_cube`, otherwise
 identical to our v1.0.0 sweep) lives in
-[`thrmnn/embodimetry`](https://github.com/thrmnn/embodimetry):
+[`thrmnn/embodimetry`](https://github.com/thrmnn/lerobot-bench):
 
-- Script: <https://github.com/thrmnn/embodimetry/blob/main/scripts/probes/probe_act_temporal_ensemble.py>
-- Results doc: <https://github.com/thrmnn/embodimetry/blob/main/docs/PROBE_RESULTS_V1.0.1.md>
+- Script: <https://github.com/thrmnn/lerobot-bench/blob/main/scripts/probes/probe_act_temporal_ensemble.py>
+- Results doc: <https://github.com/thrmnn/lerobot-bench/blob/main/docs/PROBE_RESULTS_V1.0.1.md>
 
 The script monkey-patches
 `lerobot.configs.policies.PreTrainedConfig.from_pretrained` to override the two
@@ -108,14 +108,14 @@ already documents `0.01` as "the default value used by the original ACT work."
 ## Why we're filing this now
 
 We're publishing a multi-policy benchmark
-([embodimetry v1.0.0](https://github.com/thrmnn/embodimetry), 5 policies ×
+([embodimetry v1.0.0](https://github.com/thrmnn/lerobot-bench), 5 policies ×
 4 envs, 5 seeds × 50 episodes per cell, ~3,800 episodes total) that uses
 `lerobot` policies verbatim with their Hub defaults. Our v1.0.0 leaderboard
 reads ACT at 0.016 on `aloha_transfer_cube` — which made us doubt the
 architecture before we doubted the inference config. PR #86 in our repo
 identified the inference-defaults gap as the most plausible explanation; the
 probe in PR #92 / #97 confirmed it with disjoint CIs. The audit is documented
-in [`docs/PROBE_RESULTS_V1.0.1.md`](https://github.com/thrmnn/embodimetry/blob/main/docs/PROBE_RESULTS_V1.0.1.md).
+in [`docs/PROBE_RESULTS_V1.0.1.md`](https://github.com/thrmnn/lerobot-bench/blob/main/docs/PROBE_RESULTS_V1.0.1.md).
 
 We're surfacing this upstream so that other benchmark consumers (and reviewers
 of our paper) don't have to repeat the audit. The Hub default isn't malicious —
@@ -129,8 +129,8 @@ where the order-of-magnitude success-rate swing is hard to miss.
 - `lerobot` ACT config defaults: [`src/lerobot/policies/act/configuration_act.py#L120`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/configuration_act.py#L120) (`temporal_ensemble_coeff: float | None = None`)
 - `lerobot` ACT temporal ensembler note: [`src/lerobot/policies/act/modeling_act.py#L175`](https://github.com/huggingface/lerobot/blob/main/src/lerobot/policies/act/modeling_act.py#L175) ("The default value … used by the original ACT work is 0.01.")
 - Zhao et al. 2023, _Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware_, arXiv:[2304.13705](https://arxiv.org/abs/2304.13705) (Table I, "Cube Transfer (sim) / Transfer", human-teleop column = 0.50)
-- Our probe script: <https://github.com/thrmnn/embodimetry/blob/main/scripts/probes/probe_act_temporal_ensemble.py>
-- Our probe results doc: <https://github.com/thrmnn/embodimetry/blob/main/docs/PROBE_RESULTS_V1.0.1.md>
+- Our probe script: <https://github.com/thrmnn/lerobot-bench/blob/main/scripts/probes/probe_act_temporal_ensemble.py>
+- Our probe results doc: <https://github.com/thrmnn/lerobot-bench/blob/main/docs/PROBE_RESULTS_V1.0.1.md>
 
 ## Maintainer ask
 

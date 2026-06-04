@@ -48,7 +48,7 @@ extra is named `all` (it expands to `sim,viz,space,dev`, see
 `pyproject.toml`):
 
 ```bash
-git clone https://github.com/thrmnn/embodimetry.git
+git clone https://github.com/thrmnn/lerobot-bench.git
 cd embodimetry
 pip install -e ".[all]"
 ```

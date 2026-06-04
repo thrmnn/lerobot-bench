@@ -7,7 +7,7 @@ This is a personal portfolio project, but PRs and issues are welcome.
 Requires Python 3.12 and a recent CUDA-capable GPU for sim runs (CPU works for the leaderboard reader only).
 
 ```bash
-git clone https://github.com/thrmnn/embodimetry.git
+git clone https://github.com/thrmnn/lerobot-bench.git
 cd embodimetry
 conda activate lerobot          # Python 3.12 env with lerobot 0.5.1
 pip install -e ".[all]"
@@ -59,7 +59,7 @@ Onboarding a pretrained LeRobot policy is **one PR**: a single entry in
 copy the template, fill it, dry-run it, open the PR.
 
 If you only want to *suggest* a policy without doing the work, open a
-[Propose a policy](https://github.com/thrmnn/embodimetry/issues/new?template=propose-a-policy.yml)
+[Propose a policy](https://github.com/thrmnn/lerobot-bench/issues/new?template=propose-a-policy.yml)
 issue instead.
 
 ### 1. The `configs/policies.yaml` entry
@@ -172,7 +172,7 @@ admitted checkpoint is the one that was reviewed.
 
 ## Reporting issues
 
-Please use the [issue forms](https://github.com/thrmnn/embodimetry/issues/new/choose):
+Please use the [issue forms](https://github.com/thrmnn/lerobot-bench/issues/new/choose):
 **Bug report** for crashes, or **Result discrepancy** if a benchmark
 number disagrees with a published claim.
 

@@ -66,10 +66,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/thrmnn/embodimetry"
-Repository = "https://github.com/thrmnn/embodimetry"
-Issues = "https://github.com/thrmnn/embodimetry/issues"
-Changelog = "https://github.com/thrmnn/embodimetry/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/thrmnn/lerobot-bench"
+Repository = "https://github.com/thrmnn/lerobot-bench"
+Issues = "https://github.com/thrmnn/lerobot-bench/issues"
+Changelog = "https://github.com/thrmnn/lerobot-bench/blob/main/CHANGELOG.md"
 
 [project.scripts]
 embodimetry = "embodimetry.cli:main"

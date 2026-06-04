@@ -309,7 +309,7 @@ def test_methodology_md_contains_required_terms() -> None:
 
 def test_methodology_links_back_to_repo() -> None:
     md = render_methodology_md()
-    assert "github.com/thrmnn/embodimetry" in md
+    assert "github.com/thrmnn/lerobot-bench" in md
 
 
 # --------------------------------------------------------------------- #

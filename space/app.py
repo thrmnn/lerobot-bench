@@ -75,7 +75,7 @@ NO_DATA_MARKDOWN = (
     "_No published results yet — the dataset at_ "
     f"`{HUB_DATASET_REPO}` _is empty or unreachable. Re-check the_ "
     "_link in a few minutes, or browse the source repo at_ "
-    "<https://github.com/thrmnn/embodimetry>."
+    "<https://github.com/thrmnn/lerobot-bench>."
 )
 
 # Methodology blurb shown in the accordion above the Leaderboard table.
@@ -381,7 +381,7 @@ def build_app() -> gr.Blocks:
             "on simulated manipulation envs._\n"
             "\n"
             f"Source data: [`{HUB_DATASET_REPO}`](https://huggingface.co/datasets/{HUB_DATASET_REPO}). "
-            "Code: <https://github.com/thrmnn/embodimetry>."
+            "Code: <https://github.com/thrmnn/lerobot-bench>."
         )
         # v1 status badge — renders at top of every tab via the top-level
         # Markdown block. Hardcoded copy until the publish step starts

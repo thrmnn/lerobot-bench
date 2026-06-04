@@ -27,7 +27,7 @@ Public, reproducible evaluation of pretrained [LeRobot](https://github.com/huggi
 
 The headline cell is **`act` × `aloha_transfer_cube` = 0.824 [0.772, 0.866]** (Wilson 95% CI, N=250, Hub-default inference). This supersedes the earlier v1.0.0 reading of **0.016**, which was a normalization bug *in our own eval harness* — image observations were fed to ACT un-normalized — fixed in PR #51 and confirmed by a controlled 2×2 ablation (the recovery is 100% the normalization fix, 0% temporal ensembling). See `docs/MODEL_CARDS.md` § ACT and `docs/INFERENCE_AUDIT.md` for the full account.
 
-- **Code**: <https://github.com/thrmnn/embodimetry>
+- **Code**: <https://github.com/thrmnn/lerobot-bench>
 - **Live leaderboard (HF Space)**: <https://huggingface.co/spaces/thrmnn/embodimetry>
 - **Methodology**: see `docs/DESIGN.md` § Methodology in the GitHub repo.
 - **Statistical rigor doc**: see `docs/MDE_TABLE.md` for minimum-detectable-difference analysis at N=250.
@@ -104,7 +104,7 @@ df = pd.read_parquet("hf://datasets/thrmnn/embodimetry-v1/results.parquet")
 ## Reproducibility
 
 ```bash
-git clone https://github.com/thrmnn/embodimetry
+git clone https://github.com/thrmnn/lerobot-bench
 cd embodimetry
 pip install -e .[dev]
 pip install -e /path/to/lerobot                 # until lerobot==0.5.1 is on PyPI
@@ -131,7 +131,7 @@ The sweep is resumable cell-by-cell; killing it mid-cell restarts that cell from
   title  = {LeRobot Multi-Policy Benchmark: Open, Reproducible Evaluation of Pretrained Policies on PushT, Aloha, and Libero},
   author = {Hermann, Théo},
   year   = {2026},
-  url    = {https://github.com/thrmnn/embodimetry}
+  url    = {https://github.com/thrmnn/lerobot-bench}
 }
 ```
 
@@ -150,4 +150,4 @@ This dataset is derived from running third-party open-source policies and simula
 - **[gym-aloha](https://github.com/huggingface/gym-aloha)** — Apache-2.0. The Aloha (transfer-cube) environment.
 - **[LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO)** — the Libero environment suite (libero_10, etc.), under its upstream license.
 
-See the `NOTICE` file at the root of the [source repository](https://github.com/thrmnn/embodimetry) for the full third-party attribution text. Upstream Apache-2.0 components retain their original copyright notices and license terms; nothing here relicenses them.
+See the `NOTICE` file at the root of the [source repository](https://github.com/thrmnn/lerobot-bench) for the full third-party attribution text. Upstream Apache-2.0 components retain their original copyright notices and license terms; nothing here relicenses them.

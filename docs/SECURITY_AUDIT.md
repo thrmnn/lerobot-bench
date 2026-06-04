@@ -64,7 +64,7 @@ applied in this PR; the rest are recommendations.
 * **Severity:** MEDIUM · **Confidence:** 9/10 · **Status:** VERIFIED · **Phase:** 3 (Supply Chain)
 * **Category:** Supply chain — reproducibility / integrity
 * **Evidence:** `space/requirements.txt` last line —
-  `git+https://github.com/thrmnn/embodimetry.git@feat/space-app`
+  `git+https://github.com/thrmnn/lerobot-bench.git@feat/space-app`
 * **Description:** The deployed HF Space installs embodimetry from a Git **branch**
   ref. A branch is mutable: any future push to `feat/space-app` silently changes the
   code the live Space runs, and the Space is not reproducible from a fixed commit.
@@ -75,7 +75,7 @@ applied in this PR; the rest are recommendations.
   the Space side.
 * **Impact:** Non-reproducible Space; uncontrolled code change on a public endpoint.
 * **Recommendation:** Pin to a 40-char commit SHA of `main` once the Space PR merges:
-  `git+https://github.com/thrmnn/embodimetry.git@<sha>`. **Not fixed here** —
+  `git+https://github.com/thrmnn/lerobot-bench.git@<sha>`. **Not fixed here** —
   `space/` is outside this PR's file-ownership scope; flagged for the Space owner.
 
 ### Finding 4 — No SECURITY.md at repo root / not linked to GitHub advisories

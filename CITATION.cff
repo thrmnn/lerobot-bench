@@ -6,8 +6,8 @@ type: software
 version: 1.0.0
 date-released: 2026-05-26
 license: MIT
-repository-code: "https://github.com/thrmnn/embodimetry"
-url: "https://github.com/thrmnn/embodimetry"
+repository-code: "https://github.com/thrmnn/lerobot-bench"
+url: "https://github.com/thrmnn/lerobot-bench"
 authors:
   - family-names: Hermann
     given-names: Théo

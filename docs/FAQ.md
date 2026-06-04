@@ -179,7 +179,7 @@ admitted to a sweep. See [`CONTRIBUTING.md`](../CONTRIBUTING.md)
 
 ### I just want to suggest a policy, not do the work. Where do I go?
 
-Open a [Propose a policy](https://github.com/thrmnn/embodimetry/issues/new?template=propose-a-policy.yml)
+Open a [Propose a policy](https://github.com/thrmnn/lerobot-bench/issues/new?template=propose-a-policy.yml)
 issue. A maintainer or another contributor can pick it up.
 
 ---

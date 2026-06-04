@@ -26,7 +26,7 @@ Public surface of the **embodimetry** project. Five tabs:
 
 Data: [`thrmnn/embodimetry-v1`](https://huggingface.co/datasets/thrmnn/embodimetry-v1).
 
-Code: <https://github.com/thrmnn/embodimetry>.
+Code: <https://github.com/thrmnn/lerobot-bench>.
 
 This Space runs on the free CPU tier — no policy inference, no GPU.
 All numbers come from a pre-computed sweep on `lerobot==0.5.1`.

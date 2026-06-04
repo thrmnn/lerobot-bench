@@ -7,7 +7,7 @@ body:
     attributes:
       value: >
         Thanks for proposing a policy. If you are willing to open the PR
-        yourself, the [Add a policy walkthrough](https://github.com/thrmnn/embodimetry/blob/main/CONTRIBUTING.md#add-a-policy)
+        yourself, the [Add a policy walkthrough](https://github.com/thrmnn/lerobot-bench/blob/main/CONTRIBUTING.md#add-a-policy)
         is one `configs/policies.yaml` entry — no Python needed. Use this
         issue if you would rather suggest it for someone else to onboard.
   - type: input

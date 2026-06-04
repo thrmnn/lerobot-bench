@@ -462,7 +462,7 @@ def render_methodology_md() -> str:
         "\n"
         "### Reproducibility pointer\n"
         "\n"
-        "Code: <https://github.com/thrmnn/embodimetry>. Each parquet row\n"
+        "Code: <https://github.com/thrmnn/lerobot-bench>. Each parquet row\n"
         "carries `code_sha`, `lerobot_version`, and `video_sha256` so any\n"
         "row can be replayed end-to-end with `python scripts/run_one.py\n"
         "--policy <p> --env <e> --seed <n>`. See the repo's `docs/RUNBOOK.md`\n"
@@ -943,7 +943,7 @@ def render_failure_panel_markdown(
     if not categories:
         return (
             "_Failure taxonomy doc not found. See_ "
-            "<https://github.com/thrmnn/embodimetry/blob/main/docs/FAILURE_TAXONOMY.md>."
+            "<https://github.com/thrmnn/lerobot-bench/blob/main/docs/FAILURE_TAXONOMY.md>."
         )
 
     lines = ["### Categories", ""]
