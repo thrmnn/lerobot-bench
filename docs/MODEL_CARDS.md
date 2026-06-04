@@ -19,7 +19,7 @@ the locked SHAs that carry forward.
 > labels (overshoot / slip / drift / …) are a Day-7 hand-labeling pass and
 > are **not yet in the parquet** — the cards report the label-free signal
 > already on disk (cap-hit-on-failures, the timeout proxy) and flag where
-> a per-mode breakdown still awaits labeling. Per `docs/CEO-PLAN.md`, a
+> a per-mode breakdown still awaits labeling. A
 > `repo_id` or `revision_sha` left unknown at lock-in is a sweep blocker;
 > those are all resolved. Numbers below are pulled from
 > `configs/policies.yaml`, the cited primary sources, and the calibration

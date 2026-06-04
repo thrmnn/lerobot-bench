@@ -109,8 +109,6 @@ want the *why* behind the project or are preparing a release.
 
 - [`DESIGN.md`](DESIGN.md) — the technical design doc: scope, methodology, and
   reviewer concerns; the *what* and *why* of the benchmark.
-- [`CEO-PLAN.md`](CEO-PLAN.md) — strategic framing of the project as a triptych
-  artifact (benchmark + arxiv writeup + upstream PR).
 - [`PIPELINE_ROADMAP.md`](PIPELINE_ROADMAP.md) — how the benchmark evolves past
   v1.0: the publish chain, the methodology-audit gate, coverage breadth, the
   sim-to-real bridge, and the world-model research track (§6).
