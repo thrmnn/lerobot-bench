@@ -64,14 +64,24 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from lerobot_bench.checkpointing import (
     OPTIONAL_COLUMNS,
     REQUIRED_COLUMNS,
     load_results,
 )
 from lerobot_bench.leaderboard_filter import V1_POLICIES, filter_to_v1_policies
+from lerobot_bench.policies import PolicyRegistry
 
 logger = logging.getLogger("publish-results")
+
+# Repo root, used to resolve the registry + sweep config that define the
+# REQUIRED (policy, env) coverage set. Mirrors the resolution in
+# scripts/audit_inference_settings.py.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_POLICIES_YAML = _REPO_ROOT / "configs" / "policies.yaml"
+_SWEEP_FULL_YAML = _REPO_ROOT / "configs" / "sweep_full.yaml"
 
 # --------------------------------------------------------------------- #
 # Defaults                                                              #
@@ -221,6 +231,88 @@ class _PreflightResult:
     error: str | None = None
 
 
+def _v1_sweep_envs() -> tuple[tuple[str, ...], bool]:
+    """Return ``(envs, used_fallback)`` -- the env set the v1 sweep runs.
+
+    Primary source: the ``envs:`` list in ``configs/sweep_full.yaml``
+    (the cartesian-product axis the orchestrator actually iterates). If
+    that file is missing/malformed or doesn't yield a clean non-empty
+    list of env-name strings, ``used_fallback=True`` and the caller falls
+    back to the union of ``env_compat`` across the v1 policies.
+    """
+    try:
+        data = yaml.safe_load(_SWEEP_FULL_YAML.read_text())
+    except (OSError, yaml.YAMLError):
+        return (), True
+    if not isinstance(data, dict):
+        return (), True
+    envs = data.get("envs")
+    if not isinstance(envs, list) or not envs or not all(isinstance(e, str) for e in envs):
+        return (), True
+    return tuple(envs), False
+
+
+def _required_coverage_pairs(
+    registry: PolicyRegistry,
+) -> frozenset[tuple[str, str]]:
+    """Derive the REQUIRED ``(policy, env)`` pairs the published v1 dataset must cover.
+
+    For each policy whose name is in :data:`V1_POLICIES` *and* is runnable
+    (:meth:`PolicySpec.is_runnable`), expand its ``env_compat`` and
+    intersect with the v1 sweep env set read from
+    ``configs/sweep_full.yaml``. This deliberately avoids a dense
+    policy×env cross-product: ``act`` is aloha-only, ``smolvla_libero`` is
+    libero-only, etc. Pairs present in the data but NOT required are
+    OPTIONAL and never an error.
+
+    If ``sweep_full.yaml`` doesn't cleanly yield an env list we fall back
+    to the union of all ``env_compat`` across the v1 policies and log it.
+    """
+    sweep_envs, used_fallback = _v1_sweep_envs()
+    if used_fallback:
+        logger.warning(
+            "configs/sweep_full.yaml did not yield a clean env list; "
+            "falling back to the union of env_compat across v1 policies "
+            "for the REQUIRED coverage set"
+        )
+
+    sweep_env_set = set(sweep_envs)
+    pairs: set[tuple[str, str]] = set()
+    for name in V1_POLICIES:
+        if name not in registry:
+            continue
+        spec = registry.get(name)
+        if not spec.is_runnable():
+            continue
+        for env in spec.env_compat:
+            if used_fallback or env in sweep_env_set:
+                pairs.add((name, env))
+    return frozenset(pairs)
+
+
+def _default_required_coverage_pairs() -> frozenset[tuple[str, str]]:
+    """Derive the REQUIRED coverage set from the on-disk registry + sweep config.
+
+    Wrapper around :func:`_required_coverage_pairs` that loads the policy
+    registry from ``configs/policies.yaml``. Raises ``OSError`` /
+    ``ValueError`` on an unreadable / malformed registry; the caller in
+    :func:`_preflight` turns that into an exit-3 message.
+    """
+    registry = PolicyRegistry.from_yaml(_POLICIES_YAML)
+    return _required_coverage_pairs(registry)
+
+
+# Module-level injection point for the coverage gate, mirroring
+# :data:`_get_hf_api`. Tests
+# (``monkeypatch.setattr(publish_results, "_required_coverage_pairs_for_preflight", ...)``)
+# swap in a synthetic REQUIRED set so they can exercise the
+# missing-cell / extra-cell branches without depending on the live
+# configs. Production always uses the registry-derived default.
+_required_coverage_pairs_for_preflight: Callable[[], frozenset[tuple[str, str]]] = (
+    _default_required_coverage_pairs
+)
+
+
 def _preflight(
     *,
     results_path: Path,
@@ -329,6 +421,38 @@ def _preflight(
                     "before publishing."
                 ),
             )
+
+    # Coverage gate (#165): the published v1 dataset must carry every
+    # REQUIRED (policy, env) cell -- otherwise an entire policy or env can
+    # silently vanish from the leaderboard and still publish "clean". The
+    # REQUIRED set is derived from the runnable v1 policies x the sweep's
+    # env axis (see _required_coverage_pairs). Pairs present in the data
+    # but NOT required are OPTIONAL and allowed.
+    try:
+        required_pairs = _required_coverage_pairs_for_preflight()
+    except (OSError, ValueError) as exc:
+        return _PreflightResult(
+            n_cells=0,
+            n_episodes=0,
+            referenced_video_shas=(),
+            error=f"policy registry unreadable for coverage check: {_POLICIES_YAML}: {exc}",
+        )
+    present_pairs = {
+        (str(p), str(e)) for p, e in df[["policy", "env"]].drop_duplicates().itertuples(index=False)
+    }
+    missing_pairs = sorted(required_pairs - present_pairs)
+    if missing_pairs:
+        shown = missing_pairs[:10]
+        return _PreflightResult(
+            n_cells=0,
+            n_episodes=0,
+            referenced_video_shas=(),
+            error=(
+                f"missing REQUIRED (policy, env) cells (first {len(shown)} of "
+                f"{len(missing_pairs)}): {shown}; a v1 publish must cover every "
+                "runnable v1 policy x its sweep envs"
+            ),
+        )
 
     if not manifest_path.exists():
         return _PreflightResult(
