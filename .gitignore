@@ -78,6 +78,10 @@ mlruns/
 *.webm
 *.mov
 *.parquet
+# Exception: the tiny committed zero-GPU leaderboard view (a few KB), so a
+# fresh clone can `python examples/read_results.py` with no GPU / no download.
+# Regenerated deterministically by scripts/make_results_mini.py.
+!examples/results-mini.parquet
 *.arrow
 *.bin
 *.safetensors

@@ -121,7 +121,17 @@ The world-model track runs in its own [research repo](https://github.com/thrmnn/
 
 ## Quickstart
 
-From `git clone` to a real benchmark result in two commands. Run them from an activated Python 3.12 conda env (`conda activate lerobot`):
+**First, just look at the data — no GPU, no download.** A fresh clone already ships a tiny, committed view of the leaderboard headline cells. Read a real number in under a minute:
+
+```bash
+git clone https://github.com/thrmnn/embodimetry.git && cd embodimetry
+pip install -e .                       # core deps (pandas + scipy); the sim/viz extras are NOT needed to read
+python examples/read_results.py        # prints the v1 leaderboard table with Wilson 95% CIs
+```
+
+That reads `examples/results-mini.parquet` (regenerated deterministically by `scripts/make_results_mini.py` from the published numbers) and prints `act × aloha 0.824 [0.772, 0.866]`, the four SmolVLA × LIBERO cells, and `diffusion × pusht` — each with its confidence interval. No GPU, no Hub download, no full parquet.
+
+**Then, reproduce a number on a GPU.** From `git clone` to a real benchmark result in two commands. Run them from an activated Python 3.12 conda env (`conda activate lerobot`):
 
 ```bash
 # 1. Clone and install (editable, all extras: sim + viz + space + dev)
@@ -132,7 +142,7 @@ pip install -e ".[all]"
 python scripts/run_one.py --policy act --env aloha_transfer_cube --seed 0 --n-episodes 5
 ```
 
-You just produced per-episode rows in `results/results.parquet` and rollout MP4s in `results/videos/` — the same artifacts every leaderboard number is built from.
+You just produced per-episode rows in `results/results.parquet` and rollout MP4s in `results/videos/` — the same artifacts every leaderboard number is built from. (No GPU? `run_one.py` detects it and points you back at the zero-GPU read above instead of crashing mid-rollout.)
 
 **→ Full walkthrough, expected output, and common-issue fixes: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).**
 

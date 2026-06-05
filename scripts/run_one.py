@@ -38,7 +38,8 @@ Exit codes:
     0  success — rows appended (or would be, in --dry-run)
     2  cell ran but with errors in some episodes — rows still appended
     3  policy not runnable (Day 0a TODO: lock revision_sha)
-    4  missing runtime (lerobot or sim extras not installed)
+    4  missing runtime (lerobot/sim extras absent, or no usable GPU for a
+       torch policy — message points at the zero-GPU read path)
     5  policy/env not in registry, or env not in policy.env_compat
 """
 
@@ -232,6 +233,44 @@ def _check_lerobot_available() -> str | None:
     return None
 
 
+# Torch policies need to fit on the GPU; the v1 sweep was calibrated on an
+# RTX 4060 (8 GB). Anything under this is a near-certain OOM mid-rollout, so
+# refuse early with an actionable message instead of a deep CUDA stack trace.
+_MIN_FREE_VRAM_GB = 2.0
+
+
+def _check_gpu_available(device: str) -> str | None:
+    """Return None if a CUDA device with enough free VRAM is ready, else a hint.
+
+    Only meaningful for torch policies on a ``cuda`` device. ``torch`` is
+    lazy-imported here so the dry-run / baseline paths never pull it in. A
+    CPU/MPS device or a torch without CUDA support is passed through
+    unchanged (return None) — we only gate the cuda request.
+    """
+    if not device.startswith("cuda"):
+        return None
+    try:
+        import torch
+    except ImportError as exc:
+        return f"missing runtime: torch not importable ({exc})"
+    if not torch.cuda.is_available():
+        return (
+            "no CUDA device available but --device requested 'cuda'. This eval "
+            "needs a GPU to load a torch policy."
+        )
+    try:
+        free_bytes, _total = torch.cuda.mem_get_info()
+    except (RuntimeError, AssertionError) as exc:  # driver/runtime hiccup
+        return f"CUDA present but querying free VRAM failed ({exc})"
+    free_gb = free_bytes / 1024**3
+    if free_gb < _MIN_FREE_VRAM_GB:
+        return (
+            f"only {free_gb:.1f} GB free VRAM (need >= {_MIN_FREE_VRAM_GB:.0f} GB to "
+            "load a torch policy). Free GPU memory or pick a smaller cell."
+        )
+    return None
+
+
 # --------------------------------------------------------------------- #
 # Orchestration                                                         #
 # --------------------------------------------------------------------- #
@@ -261,18 +300,21 @@ def run_one(
     2. Env compat (ValueError → exit 5).
     3. Policy runnability (RuntimeError → exit 3).
     4. Lerobot importable (ImportError → exit 4).
+    5. GPU/VRAM available for torch policies (no CUDA / low VRAM → exit 4,
+       with a pointer to the zero-GPU ``examples/read_results.py`` path).
 
     Then, if ``dry_run`` is True, return immediately with exit 0 — no
-    torch import, no eval call, no parquet write.
+    torch import, no eval call, no parquet write. (The GPU precheck runs
+    after the dry-run guard, so ``--dry-run`` stays torch-free.)
 
     Otherwise: call :func:`embodimetry.eval.run_cell_from_specs`,
     optionally render videos, append rows atomically. If any episode
     errored, the exit code is 2 (rows still appended).
 
-    The ``device`` argument is forwarded to ``run_cell_from_specs`` and
-    is NOT pre-validated here — let CUDA fail with its own runtime
-    error if it is not available; pre-checking would force a torch
-    import outside the dry-run guard.
+    The ``device`` argument is forwarded to ``run_cell_from_specs``. For
+    torch policies it is pre-flighted (step 5 above) *after* the dry-run
+    guard so the planner stays torch-free; a missing/insufficient GPU
+    exits 4 with a zero-GPU pointer instead of a deep CUDA stack trace.
     """
     cell_key = _cell_key(policy_name, env_name, seed)
 
@@ -355,6 +397,30 @@ def run_one(
                 "pip install -e <path-to-lerobot-checkout> (or `pip install lerobot`)"
             ),
         )
+
+    # 5: GPU/VRAM precheck — torch policies only. Baselines (no_op/random)
+    # emit actions without a model, so they run fine GPU-less and skip this.
+    # Surface as exit 4 (missing runtime) with a pointer to the zero-GPU
+    # read path, NOT a deep CUDA stack trace from inside the eval loop.
+    if not policy_spec.is_baseline:
+        gpu_err = _check_gpu_available(device)
+        if gpu_err is not None:
+            return RunOneOutcome(
+                exit_code=4,
+                cell_key=cell_key,
+                n_episodes_attempted=0,
+                n_episodes_succeeded=0,
+                n_episodes_errored=0,
+                n_rows_appended=0,
+                out_parquet=None,
+                videos_dir=None,
+                log_message=(
+                    f"[run-one] aborted: {gpu_err}\n"
+                    "[run-one] No GPU? You can still read the published leaderboard "
+                    "with zero GPU and zero download:\n"
+                    "[run-one]     python examples/read_results.py"
+                ),
+            )
 
     # Cell execution. Lazy-import eval here so the dry-run path stays
     # torch-free (eval imports torch lazily but its module-level
