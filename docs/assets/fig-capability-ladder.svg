@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="240" viewBox="0 0 1000 240" role="img" aria-label="Embodimetry capability ladder from L0 zero-shot evaluation to L4 reinforcement learning">
+  <title>Embodimetry capability ladder: L0 zero-shot → L1 fine-tune → L2 classical control → L3 world-model MPC → L4 RL</title>
+  <style>
+    .lbl  { font-family: 'DejaVu Sans Mono', Menlo, Consolas, monospace; font-weight: 700; }
+    .tag  { font-family: 'DejaVu Sans Mono', Menlo, Consolas, monospace; }
+    .desc { font-family: 'DejaVu Sans', 'Helvetica Neue', Arial, sans-serif; }
+  </style>
+
+  <rect width="1000" height="240" fill="#F4F5F7"/>
+
+  <!-- header -->
+  <text x="40" y="44" class="lbl" font-size="22" fill="#14171C">The capability ladder</text>
+  <text x="40" y="68" class="desc" font-size="15" fill="#5A6470">One instrument, one eval contract — measured rung by rung.</text>
+
+  <!-- baseline rail -->
+  <rect x="40" y="196" width="920" height="3" rx="1.5" fill="#C7CDD6"/>
+
+  <!-- rungs: x centers at 130, 300, 470, 640, 810 ; heights grow -->
+  <!-- L0 -->
+  <g>
+    <rect x="70" y="156" width="120" height="40" rx="6" fill="#1F9D6B"/>
+    <text x="130" y="181" text-anchor="middle" class="lbl" font-size="18" fill="#F4F5F7">L0</text>
+    <text x="130" y="124" text-anchor="middle" class="tag" font-size="13" fill="#14171C">zero-shot</text>
+    <text x="130" y="142" text-anchor="middle" class="desc" font-size="11" fill="#5A6470">pretrained eval</text>
+    <text x="130" y="224" text-anchor="middle" class="tag" font-size="11" fill="#1F9D6B">SHIPPED v1</text>
+  </g>
+  <!-- L1 -->
+  <g>
+    <rect x="240" y="136" width="120" height="60" rx="6" fill="#1F9D6B"/>
+    <text x="300" y="173" text-anchor="middle" class="lbl" font-size="18" fill="#F4F5F7">L1</text>
+    <text x="300" y="104" text-anchor="middle" class="tag" font-size="13" fill="#14171C">fine-tune</text>
+    <text x="300" y="122" text-anchor="middle" class="desc" font-size="11" fill="#5A6470">adapt + re-eval</text>
+    <text x="300" y="224" text-anchor="middle" class="tag" font-size="11" fill="#5A6470">roadmap</text>
+  </g>
+  <!-- L2 -->
+  <g>
+    <rect x="410" y="116" width="120" height="80" rx="6" fill="#2F6DF0"/>
+    <text x="470" y="163" text-anchor="middle" class="lbl" font-size="18" fill="#F4F5F7">L2</text>
+    <text x="470" y="84" text-anchor="middle" class="tag" font-size="13" fill="#14171C">classical control</text>
+    <text x="470" y="102" text-anchor="middle" class="desc" font-size="11" fill="#5A6470">model-based baselines</text>
+    <text x="470" y="224" text-anchor="middle" class="tag" font-size="11" fill="#5A6470">roadmap</text>
+  </g>
+  <!-- L3 -->
+  <g>
+    <rect x="580" y="96" width="120" height="100" rx="6" fill="#2F6DF0"/>
+    <text x="640" y="153" text-anchor="middle" class="lbl" font-size="18" fill="#F4F5F7">L3</text>
+    <text x="640" y="64" text-anchor="middle" class="tag" font-size="13" fill="#14171C">world-model MPC</text>
+    <text x="640" y="82" text-anchor="middle" class="desc" font-size="11" fill="#5A6470">planners as policies</text>
+    <text x="640" y="224" text-anchor="middle" class="tag" font-size="11" fill="#5A6470">research track</text>
+  </g>
+  <!-- L4 -->
+  <g>
+    <rect x="750" y="76" width="120" height="120" rx="6" fill="#14171C"/>
+    <text x="810" y="143" text-anchor="middle" class="lbl" font-size="18" fill="#F4F5F7">L4</text>
+    <text x="810" y="44" text-anchor="middle" class="tag" font-size="13" fill="#14171C">RL + guarantees</text>
+    <text x="810" y="62" text-anchor="middle" class="desc" font-size="11" fill="#5A6470">provable control</text>
+    <text x="810" y="224" text-anchor="middle" class="tag" font-size="11" fill="#5A6470">vision</text>
+  </g>
+</svg>

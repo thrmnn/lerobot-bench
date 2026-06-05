@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="430" viewBox="0 0 1000 430" role="img" aria-label="Embodimetry v1 leaderboard: per-cell success rate with Wilson 95 percent confidence intervals">
+  <title>Embodimetry v1 leaderboard — success rate with Wilson 95% CI per policy×env cell</title>
+  <style>
+    .lbl   { font-family: 'DejaVu Sans Mono', Menlo, Consolas, monospace; }
+    .val   { font-family: 'DejaVu Sans Mono', Menlo, Consolas, monospace; font-weight: 700; }
+    .head  { font-family: 'DejaVu Sans Mono', Menlo, Consolas, monospace; font-weight: 700; }
+    .desc  { font-family: 'DejaVu Sans', 'Helvetica Neue', Arial, sans-serif; }
+  </style>
+
+  <rect width="1000" height="430" fill="#F4F5F7"/>
+
+  <!-- title -->
+  <text x="40" y="40" class="head" font-size="22" fill="#14171C">v1 leaderboard — success rate (Wilson 95% CI)</text>
+  <text x="40" y="62" class="desc" font-size="14" fill="#5A6470">5 seeds × 50 episodes (N=250); † auto-downscoped to N=125. Source: results.parquet / paper Table 2.</text>
+
+  <!-- plot geometry: x axis from 90 (=0.0) to 940 (=1.0) -->
+  <!-- gridlines -->
+  <g stroke="#D7DCE3" stroke-width="1">
+    <line x1="90"  y1="96" x2="90"  y2="382"/>
+    <line x1="260" y1="96" x2="260" y2="382"/>
+    <line x1="430" y1="96" x2="430" y2="382"/>
+    <line x1="600" y1="96" x2="600" y2="382"/>
+    <line x1="770" y1="96" x2="770" y2="382"/>
+    <line x1="940" y1="96" x2="940" y2="382"/>
+  </g>
+  <g class="lbl" font-size="11" fill="#8A94A0" text-anchor="middle">
+    <text x="90"  y="400">0.0</text>
+    <text x="260" y="400">0.2</text>
+    <text x="430" y="400">0.4</text>
+    <text x="600" y="400">0.6</text>
+    <text x="770" y="400">0.8</text>
+    <text x="940" y="400">1.0</text>
+  </g>
+
+  <!-- bars. x(p) = 90 + p*850. Rows at y = 116,160,204,248,292,336 (height 26) -->
+
+  <!-- ACT × aloha_xfer  0.824 [0.772,0.866] -->
+  <text x="285" y="125" text-anchor="end" class="lbl" font-size="13" fill="#14171C">act × aloha_xfer</text>
+  <rect x="90" y="112" width="700.4" height="22" rx="3" fill="#2F6DF0"/>
+  <line x1="746.2" y1="123" x2="826.1" y2="123" stroke="#14171C" stroke-width="2"/>
+  <line x1="746.2" y1="118" x2="746.2" y2="128" stroke="#14171C" stroke-width="2"/>
+  <line x1="826.1" y1="118" x2="826.1" y2="128" stroke="#14171C" stroke-width="2"/>
+  <text x="712" y="128" class="val" font-size="13" fill="#F4F5F7" text-anchor="end">0.824</text>
+
+  <!-- Diffusion × pusht  0.816 [0.739,0.874] † -->
+  <text x="285" y="169" text-anchor="end" class="lbl" font-size="13" fill="#14171C">diffusion × pusht †</text>
+  <rect x="90" y="156" width="693.6" height="22" rx="3" fill="#2F6DF0"/>
+  <line x1="718.2" y1="167" x2="833.0" y2="167" stroke="#14171C" stroke-width="2"/>
+  <line x1="718.2" y1="162" x2="718.2" y2="172" stroke="#14171C" stroke-width="2"/>
+  <line x1="833.0" y1="162" x2="833.0" y2="172" stroke="#14171C" stroke-width="2"/>
+  <text x="705" y="172" class="val" font-size="13" fill="#F4F5F7" text-anchor="end">0.816</text>
+
+  <!-- SmolVLA × libero_goal  0.928 [0.889,0.954] -->
+  <text x="285" y="213" text-anchor="end" class="lbl" font-size="13" fill="#14171C">smolvla × libero_goal</text>
+  <rect x="90" y="200" width="788.8" height="22" rx="3" fill="#1F9D6B"/>
+  <line x1="845.7" y1="211" x2="901.0" y2="211" stroke="#14171C" stroke-width="2"/>
+  <line x1="845.7" y1="206" x2="845.7" y2="216" stroke="#14171C" stroke-width="2"/>
+  <line x1="901.0" y1="206" x2="901.0" y2="216" stroke="#14171C" stroke-width="2"/>
+  <text x="868" y="216" class="val" font-size="13" fill="#F4F5F7" text-anchor="end">0.928</text>
+
+  <!-- SmolVLA × libero_spatial  0.776 [0.720,0.823] -->
+  <text x="285" y="257" text-anchor="end" class="lbl" font-size="13" fill="#14171C">smolvla × libero_spatial</text>
+  <rect x="90" y="244" width="659.6" height="22" rx="3" fill="#1F9D6B"/>
+  <line x1="702.0" y1="255" x2="789.6" y2="255" stroke="#14171C" stroke-width="2"/>
+  <line x1="702.0" y1="250" x2="702.0" y2="260" stroke="#14171C" stroke-width="2"/>
+  <line x1="789.6" y1="250" x2="789.6" y2="260" stroke="#14171C" stroke-width="2"/>
+  <text x="738" y="260" class="val" font-size="13" fill="#F4F5F7" text-anchor="end">0.776</text>
+
+  <!-- SmolVLA × libero_object  0.528 [0.466,0.589] -->
+  <text x="285" y="301" text-anchor="end" class="lbl" font-size="13" fill="#14171C">smolvla × libero_object</text>
+  <rect x="90" y="288" width="448.8" height="22" rx="3" fill="#1F9D6B"/>
+  <line x1="486.1" y1="299" x2="590.7" y2="299" stroke="#14171C" stroke-width="2"/>
+  <line x1="486.1" y1="294" x2="486.1" y2="304" stroke="#14171C" stroke-width="2"/>
+  <line x1="590.7" y1="294" x2="590.7" y2="304" stroke="#14171C" stroke-width="2"/>
+  <text x="527" y="304" class="val" font-size="13" fill="#F4F5F7" text-anchor="end">0.528</text>
+
+  <!-- SmolVLA × libero_10  0.252 [0.202,0.309] -->
+  <text x="285" y="345" text-anchor="end" class="lbl" font-size="13" fill="#14171C">smolvla × libero_10</text>
+  <rect x="90" y="332" width="214.2" height="22" rx="3" fill="#1F9D6B"/>
+  <line x1="261.7" y1="343" x2="352.7" y2="343" stroke="#14171C" stroke-width="2"/>
+  <line x1="261.7" y1="338" x2="261.7" y2="348" stroke="#14171C" stroke-width="2"/>
+  <line x1="352.7" y1="338" x2="352.7" y2="348" stroke="#14171C" stroke-width="2"/>
+  <text x="293" y="348" class="val" font-size="13" fill="#F4F5F7" text-anchor="end">0.252</text>
+
+  <!-- legend -->
+  <g class="desc" font-size="12" fill="#5A6470">
+    <rect x="600" y="40" width="14" height="14" rx="3" fill="#2F6DF0"/>
+    <text x="620" y="52">single-cell policy</text>
+    <rect x="740" y="40" width="14" height="14" rx="3" fill="#1F9D6B"/>
+    <text x="760" y="52">SmolVLA (LIBERO suite)</text>
+  </g>
+</svg>
