@@ -57,14 +57,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from embodimetry.checkpointing import RESULT_SCHEMA
+from lerobot_bench.checkpointing import RESULT_SCHEMA
 
 # Re-exported so existing ``from _helpers import V1_POLICIES, filter_to_v1_policies``
 # call sites (app.py, tests/test_space.py) keep working. The canonical
 # definition lives in ``embodimetry.leaderboard_filter`` so the Space and
 # the dashboard share one v1 policy gate and cannot drift apart.
-from embodimetry.leaderboard_filter import V1_POLICIES, filter_to_v1_policies
-from embodimetry.stats import paired_diff_ci, wilson_ci, wilson_halfwidth_at_p
+from lerobot_bench.leaderboard_filter import V1_POLICIES, filter_to_v1_policies
+from lerobot_bench.stats import paired_diff_ci, wilson_ci, wilson_halfwidth_at_p
 
 __all__ = ["V1_POLICIES", "filter_to_v1_policies"]
 
