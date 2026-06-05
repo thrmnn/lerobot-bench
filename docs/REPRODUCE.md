@@ -77,18 +77,18 @@ make reproduce CELL=policy/env/seed
 shows for a cell. Examples:
 
 ```bash
-make reproduce CELL=act/pusht/0
-make reproduce CELL=diffusion_policy/aloha_transfer_cube/3
+make reproduce CELL=act/aloha_transfer_cube/0
+make reproduce CELL=diffusion_policy/pusht/3
 ```
 
 To compare against a non-default reference parquet, or to run on CPU, call the
 script directly:
 
 ```bash
-python scripts/reproduce_cell.py --policy act --env pusht --seed 0 \
+python scripts/reproduce_cell.py --policy act --env aloha_transfer_cube --seed 0 \
     --reference path/to/other/results.parquet
 
-python scripts/reproduce_cell.py --policy act --env pusht --seed 0 --dry-run
+python scripts/reproduce_cell.py --policy act --env aloha_transfer_cube --seed 0 --dry-run
 ```
 
 `--dry-run` confirms the cell exists in the reference and reports its episode
@@ -117,7 +117,7 @@ The script ends with one of two verdicts and a matching exit code.
 **Reproduced** — exit `0`:
 
 ```
-REPRODUCED ✓  act/pusht/seed0  (50/50 episodes identical)
+REPRODUCED ✓  act/aloha_transfer_cube/seed0  (50/50 episodes identical)
 ```
 
 Every episode's `success` and `n_steps` matched the reference. The cell's
@@ -126,7 +126,7 @@ leaderboard contribution is confirmed.
 **Mismatch** — exit `1`:
 
 ```
-MISMATCH ✗  act/pusht/seed0  (3/50 episodes diverged)
+MISMATCH ✗  act/aloha_transfer_cube/seed0  (3/50 episodes diverged)
   first divergence at episode 7, column 'success':
     reference   = True
     reproduced  = False
