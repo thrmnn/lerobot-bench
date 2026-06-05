@@ -8,7 +8,9 @@ Visual identity and README/social imagery for **embodimetry**.
 |---|---|
 | `logo.svg` | Primary wordmark — icon mark + `embodimetry` text. Monochrome (`currentColor`), works on light and dark backgrounds. Used in the README hero. |
 | `mark.svg` | Compact square icon mark (128×128). For favicons and the Hugging Face Space avatar. Same `currentColor` treatment. |
-| `social-card.svg` | 1280×640 social-preview card — project name, value prop, the 6×6 matrix hint, headline stats, MIT badge. Use for the GitHub repo social preview and Twitter/HF cards. |
+| `social-card.svg` | 1280×640 social-preview card — project name, value prop, the 6×6 matrix hint, headline stats, MIT badge. Use for the GitHub repo social preview and Twitter/HF cards. Brand palette (graphite `#14171C`, reference blue `#2F6DF0`, calibrated green `#1F9D6B`). |
+| `fig-capability-ladder.svg` | 1000×240 strip showing the L0→L4 capability ladder (zero-shot → fine-tune → classical control → world-model MPC → RL/guarantees). Brand palette; embedded in the README "Capability ladder" section. |
+| `fig-v1-leaderboard-bars.svg` | 1000×430 horizontal bar chart of the six v1 published policy×env cells with Wilson 95% CIs. Numbers sourced from `results.parquet` / paper Table 2; embedded in the README "v1 leaderboard" section. |
 
 The mark is a benchmark bar-chart whose bars are capped with robotic nodes —
 robotics + measurement, restrained and technical.
