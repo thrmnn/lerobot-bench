@@ -721,11 +721,16 @@ def load_policy(
 def _load_pretrained_policy(
     *,
     repo_id: str,
-    revision: str,
+    revision: str | None,
     action_shape: tuple[int, ...] | None,
     device: str,
 ) -> _LerobotPolicyAdapter:
     """Inner helper: lazy-imports lerobot and instantiates the adapter.
+
+    ``revision`` is a pinned Hub SHA for registry policies; it is ``None``
+    when ``repo_id`` is a local checkpoint directory (the L1 fine-tuning
+    rung loads its freshly-trained checkpoint by path). ``from_pretrained``
+    accepts ``revision=None`` for local paths.
 
     Split out of :func:`load_policy` so the lerobot imports are confined
     to a function that is only entered on the pretrained branch.
@@ -756,6 +761,16 @@ def _load_pretrained_policy(
             repo_id,
             revision,
         )
+        if revision is None:
+            # Local checkpoints (the L1 fine-tuned dir) always ship the
+            # processor JSONs, so the try above succeeds and we never reach
+            # here with revision=None. A None here means a local path with no
+            # processor JSON AND no Hub revision to recover buffers from —
+            # unrecoverable, so fail loud rather than pass None downstream.
+            raise RuntimeError(
+                f"no processor JSONs at local checkpoint '{repo_id}' and no Hub "
+                "revision to recover legacy normalization buffers from"
+            )
         feature_keys = (*cfg.input_features.keys(), *cfg.output_features.keys())
         dataset_stats = _recover_dataset_stats_from_safetensors(
             repo_id, revision, feature_keys=feature_keys
