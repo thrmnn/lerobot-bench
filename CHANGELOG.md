@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **L1 (fine-tuning) rung of the Capability-Ladder Audit** (`scripts/run_ladder_l1_finetune.py` → `results/ladder/act_aloha_l1.{parquet,summary.json}`) — full-finetunes the pretrained ACT checkpoint (`lerobot/act_aloha_sim_transfer_cube_human`) on its 50-demo training set, then re-measures the fine-tuned checkpoint on the **identical** canonical eval contract its zero-shot cell used (5 seeds × 50 ep, `sticky_reward_eq=4.0`, max_steps=400, via `embodimetry.eval.run_cell`) to quantify the fine-tuning lift on the same axis as the other rungs. Feasibility-first on the 8 GB RTX 4060: ACT full-FT peaks ~2.8 GB VRAM at batch 8 / ~6 steps·s⁻¹ (trivially feasible); SmolVLA full-FT does not fit 8 GB and its LoRA path on `lerobot/libero_10` is blocked by a dataset-stats/camera-key mismatch, so the higher-headroom SmolVLA L1 cell is routed to a bigger GPU. The fine-tuned policy is named `act_finetuned` and gated OUT of `V1_POLICIES` (same posture as `classical_pusht`/`xvla_libero`); the lift is computed against the **corrected** zero-shot 0.824 (206/250), never the buggy 0.016. Tests: `tests/test_ladder_l1_finetune.py`.
+
 ### Removed
 - **internal strategy docs pruned from the public tree** (#181) — `git rm`'d `docs/CEO-PLAN.md` (internal strategic-positioning plan, not appropriate for a public benchmark repo). Inbound links repointed: `docs/README.md` index entry dropped, `docs/ARCHITECTURE.md` source-of-truth header now points at `DESIGN.md` only, and prose references in `docs/FAILURE_TAXONOMY.md` + `docs/MODEL_CARDS.md` rewritten to drop the dead pointer. `docs/NEXT_STEPS.md` and `docs/AUDIT_2026_05_27.md` were already absent from the tree. Note: removed files persist in git history — a history scrub is a separate, user-gated step before the repo goes public.
 
