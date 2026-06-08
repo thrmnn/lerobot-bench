@@ -309,17 +309,17 @@ embodimetry/
 ## Development
 
 ```bash
-make install      # editable install with dev extras
+make install      # editable install with all extras (sim+viz+space+dev)
 make lint         # ruff check
 make format       # ruff format
 make typecheck    # mypy
-make test         # pytest fast tier
+make test         # pytest (full suite); `make test-fast` skips slow/gpu/sim
 make all          # lint + typecheck + test
 make dashboard    # launch the local operator dashboard
 make sweep-full   # full sweep (no cap; for the capped overnight run use scripts/launch_overnight_sweep.sh)
 ```
 
-Pre-commit hooks run ruff and the typecheck/test fast tier on every commit. CI on every push and PR.
+Pre-commit hooks run ruff (lint + format) and mypy on every commit; the test suite runs in CI on every push and PR.
 
 ---
 

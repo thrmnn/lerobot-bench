@@ -7,6 +7,7 @@ Logs progress to stdout with sizes. Call before Phase 3 to decouple
 
 from __future__ import annotations
 
+import argparse
 import logging
 import shutil
 import sys
@@ -35,6 +36,24 @@ def disk_free_gb() -> float:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="prefetch-vlas",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List the target checkpoints and exit without downloading anything.",
+    )
+    args = parser.parse_args()
+
+    if args.dry_run:
+        logger.info("dry-run: %d checkpoints would be fetched to the HF cache:", len(TARGETS))
+        for repo_id, revision in TARGETS:
+            logger.info("  %s @ %s", repo_id, revision[:8])
+        return 0
+
     logger.info("disk free at start: %.1f GB", disk_free_gb())
     rc = 0
     for repo_id, revision in TARGETS:
