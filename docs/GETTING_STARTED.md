@@ -15,10 +15,12 @@ published cell) or `CONTRIBUTING.md` (add your own policy).
 
 1. [Prerequisites](#1-prerequisites)
 2. [Install](#2-install)
-3. [Your first result](#3-your-first-result)
-4. [What you just produced](#4-what-you-just-produced)
-5. [Where to go next](#5-where-to-go-next)
-6. [Common issues](#6-common-issues)
+3. [The eval contract in one paragraph](#3-the-eval-contract-in-one-paragraph)
+4. [Your first result](#4-your-first-result)
+5. [What you just produced](#5-what-you-just-produced)
+6. [Run the sweep](#6-run-the-sweep)
+7. [Where to go next](#7-where-to-go-next)
+8. [Common issues](#8-common-issues)
 
 ---
 
@@ -68,7 +70,24 @@ embodimetry OK; lerobot 0.5.1
 If `lerobot.__version__` is **not** `0.5.1`, stop here — fix the env before
 running anything (see [Common issues](#6-common-issues)).
 
-## 3. Your first result
+## 3. The eval contract in one paragraph
+
+Everything the benchmark scores is reduced to one interface: a
+**`PolicyCallable`** — `__call__(obs: dict) -> action: np.ndarray`, plus a
+`reset()` invoked once per episode (a no-op for stateless policies). A
+pretrained LeRobot checkpoint, a `no_op`/`random` baseline, a hand-written
+controller, and a world-model planner running CEM at inference are *all* the
+same callable, so they run the *same* eval loop and produce the *same*
+parquet schema. A **cell** is a `(policy, env, seed, n_episodes)` tuple; the
+seed deterministically drives the env reset and policy sampling, so any row
+replays bit-for-bit. The loop pairs each callable with a `GymLikeEnv`
+(`reset(seed)`, `step(action)`, `render()`), records the binary `success`
+outcome per episode, and `embodimetry.stats` turns the pooled outcomes into a
+Wilson 95% CI. That is the whole contract — see
+[`docs/API.md`](API.md#module-eval) for the protocol and
+[`docs/DESIGN.md`](DESIGN.md) § Methodology for the seeding rule.
+
+## 4. Your first result
 
 Run a single `(policy, env, seed)` **cell** with a small episode count.
 `scripts/run_one.py` is the building block the full sweep dispatches to; with
@@ -106,7 +125,7 @@ resolves the policy and env through the registries and prints the cell it
 python scripts/run_one.py --policy act --env aloha_transfer_cube --seed 0 --dry-run
 ```
 
-## 4. What you just produced
+## 5. What you just produced
 
 The run wrote two artifacts under `results/` (gitignored):
 
@@ -127,25 +146,40 @@ episode (skip them entirely with `--no-record-video`). Open any file to watch
 the policy attempt the task — this is how the failure taxonomy
 (`docs/FAILURE_TAXONOMY.md`) is labelled.
 
-## 5. Where to go next
+## 6. Run the sweep
+
+One cell is the unit; a **sweep** dispatches the whole matrix. Start with the
+smoke sweep (baselines only, minutes not hours) to confirm the pipeline end to
+end:
+
+```bash
+make sweep-mini    # 2 baselines × 2 envs × 2 seeds × 25 episodes
+```
+
+The full benchmark runs serially — `scripts/run_sweep.py` dispatches one
+`run_one.py` subprocess per cell, writes `results.parquet` incrementally, and a
+`sweep_manifest.json` that survives `kill -9` (resume is automatic; a cell that
+dies mid-run restarts from episode 0 at the next launch). v1 pins
+`--max-parallel 1` (serial dispatch is the reproducible, RAM-safe default on
+the 8 GB / 32 GB reference box); the flag exists for forward-compatible
+concurrent scheduling but a value other than `1` is rejected in v1. The full
+operating procedure — calibration, auto-downscope, the 18 GB cgroup cap, OOM
+playbook — is in [`docs/RUNBOOK.md`](RUNBOOK.md) § Running a sweep, and the
+dispatch/queue/resume mechanics in [`docs/ORCHESTRATION.md`](ORCHESTRATION.md).
+
+## 7. Where to go next
 
 | You want to… | Go to |
 |---|---|
 | Watch a sweep run live (progress, rollout preview, log tail) | `make dashboard` → http://127.0.0.1:7860 |
 | **Verify** a published leaderboard cell is bit-for-bit reproducible | [`docs/REPRODUCE.md`](REPRODUCE.md) |
 | Add your own pretrained policy to the benchmark | [`CONTRIBUTING.md`](../CONTRIBUTING.md) § Add a policy |
-| Run the full overnight sweep | [`docs/RUNBOOK.md`](RUNBOOK.md) § Running a sweep |
+| Add a new simulated environment | [`docs/ENV_CONTRIBUTION_GUIDE.md`](ENV_CONTRIBUTION_GUIDE.md) |
+| Run and operate the full overnight sweep | [`docs/RUNBOOK.md`](RUNBOOK.md) § Running a sweep |
 | Understand the methodology (seeding, CIs, MDE, downscope) | [`docs/DESIGN.md`](DESIGN.md) |
 | Browse all results without installing anything | [Live leaderboard](https://huggingface.co/spaces/thrmnn/embodimetry) |
 
-A quick smoke sweep (baselines only, minutes not hours) is also a good next
-step:
-
-```bash
-make sweep-mini
-```
-
-## 6. Common issues
+## 8. Common issues
 
 ### MuJoCo / rendering fails headless
 
