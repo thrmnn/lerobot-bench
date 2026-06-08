@@ -234,6 +234,43 @@ def test_render_thumbnail_strip_rejects_empty(tmp_path: Path) -> None:
 # --------------------------------------------------------------------- #
 
 
+def test_render_ladder_is_nonempty_invariant() -> None:
+    """The shipped ladder must have at least one rung (config-mistake guard).
+
+    An empty ladder would make :func:`render_episode` fall through with no
+    rung tried and raise ``RenderSizeError`` with an empty attempts tuple —
+    silently never publishing any clip. The module asserts non-emptiness at
+    import; this pins the invariant for the shipped config too.
+    """
+    assert RENDER_LADDER, "RENDER_LADDER must not be empty"
+    assert len(RENDER_LADDER) >= 1
+
+
+def test_render_module_fails_fast_on_empty_ladder() -> None:
+    """Re-executing render.py with an emptied RENDER_LADDER raises AssertionError.
+
+    Faithfully exercises the module-load fail-fast: we replay the module
+    source in a fresh namespace with the ladder assignment rewritten to an
+    empty tuple, and assert the guard fires. Mirrors the AST-rewrite test
+    convention used elsewhere in the suite.
+    """
+    import ast
+
+    source = Path(render.__file__).read_text()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "RENDER_LADDER"
+        ):
+            node.value = ast.parse("()", mode="eval").body
+    ast.fix_missing_locations(tree)
+    code = compile(tree, filename="<render-empty-ladder>", mode="exec")
+    with pytest.raises(AssertionError, match="RENDER_LADDER must not be empty"):
+        exec(code, {"__name__": "render_empty_ladder_probe"})
+
+
 def test_render_ladder_long_episode_steps_off_rung_0(tmp_path: Path) -> None:
     """600-frame moderate-entropy clip overshoots rung 0; ladder lands on 1 or 2.
 

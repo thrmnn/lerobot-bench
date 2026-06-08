@@ -12,10 +12,15 @@ import pandas as pd
 import pytest
 
 from embodimetry.checkpointing import (
+    OPTIONAL_COLUMNS,
+    OPTIONAL_DEFAULTS,
     REQUIRED_COLUMNS,
     RESULT_SCHEMA,
     CellKey,
     append_cell_rows,
+    assert_single_code_sha_per_cell,
+    backfill_errored_on_zero_steps,
+    cells_with_mixed_code_sha,
     drop_partial_cells,
     load_results,
     plan_resume,
@@ -366,3 +371,122 @@ def test_atomicity_simulated(tmp_path: Path) -> None:
     df = load_results(path)
     assert len(df) == 3
     assert list(df["episode_index"]) == [0, 1, 2]
+
+
+# --------------------------------------------------------------------- #
+# Schema-asymmetry guard: REQUIRED strict, OPTIONAL backfilled           #
+# --------------------------------------------------------------------- #
+
+
+def test_append_cell_rows_never_silently_fills_missing_required_columns(
+    tmp_path: Path,
+) -> None:
+    """A row missing a REQUIRED column raises; it is NEVER backfilled.
+
+    Documents the load-bearing asymmetry: REQUIRED columns are strictly
+    enforced (missing -> ValueError) while OPTIONAL columns are tolerated
+    and backfilled with OPTIONAL_DEFAULTS. This guards against accidentally
+    demoting a REQUIRED column to OPTIONAL (which would let an
+    integrity-critical field like ``code_sha`` silently vanish) or promoting
+    an OPTIONAL one to REQUIRED (which would reject every legacy parquet).
+    """
+    path = tmp_path / "r.parquet"
+    # Build full valid rows, then drop the REQUIRED ``code_sha`` column.
+    full = _df([_row("A", "env", 0, i) for i in range(3)])
+    missing_required = full.drop(columns=["code_sha"])
+    with pytest.raises(ValueError, match=r"new_rows has wrong columns") as excinfo:
+        append_cell_rows(path, missing_required)
+    assert "code_sha" in str(excinfo.value)
+    # Nothing was written — the strict gate fired before any tmp swap.
+    assert not path.exists()
+
+
+def test_required_and_optional_column_sets_are_disjoint_and_in_lockstep() -> None:
+    """Every OPTIONAL column must have a default; the two sets stay disjoint.
+
+    Enforces the lock-step rule called out in the OPTIONAL_COLUMNS docstring:
+    a new optional column addition must update both OPTIONAL_COLUMNS and
+    OPTIONAL_DEFAULTS together, and never collide with REQUIRED_COLUMNS.
+    """
+    assert set(OPTIONAL_COLUMNS).isdisjoint(REQUIRED_COLUMNS)
+    assert set(OPTIONAL_COLUMNS) == set(OPTIONAL_DEFAULTS), (
+        "OPTIONAL_COLUMNS and OPTIONAL_DEFAULTS drifted -- add new optional "
+        "columns to BOTH in lock-step"
+    )
+    assert set(RESULT_SCHEMA) == set(REQUIRED_COLUMNS) | set(OPTIONAL_COLUMNS)
+
+
+# --------------------------------------------------------------------- #
+# Bit-repro invariant: code_sha.nunique() == 1 per cell                  #
+# --------------------------------------------------------------------- #
+
+
+def test_cells_with_mixed_code_sha_flags_only_violating_cells() -> None:
+    """A cell whose rows span >1 code_sha is reported; single-SHA cells are not."""
+    clean = [_row("A", "env", 0, i, code_sha="sha1") for i in range(3)]
+    mixed = [
+        _row("B", "env", 1, 0, code_sha="sha1"),
+        _row("B", "env", 1, 1, code_sha="sha2"),
+        _row("B", "env", 1, 2, code_sha="sha2"),
+    ]
+    df = _df(clean + mixed)
+    violations = cells_with_mixed_code_sha(df)
+    assert violations == {("B", "env", 1): 2}
+
+
+def test_cells_with_mixed_code_sha_clean_frame_returns_empty() -> None:
+    df = _df([_row("A", "env", 0, i, code_sha="sha1") for i in range(5)])
+    assert cells_with_mixed_code_sha(df) == {}
+
+
+def test_cells_with_mixed_code_sha_empty_frame_returns_empty() -> None:
+    assert cells_with_mixed_code_sha(_df([])) == {}
+
+
+def test_assert_single_code_sha_per_cell_raises_on_violation() -> None:
+    df = _df(
+        [
+            _row("B", "env", 1, 0, code_sha="sha1"),
+            _row("B", "env", 1, 1, code_sha="sha2"),
+        ]
+    )
+    with pytest.raises(ValueError, match=r"bit-repro invariant") as excinfo:
+        assert_single_code_sha_per_cell(df)
+    assert "code_sha.nunique()==1" in str(excinfo.value)
+
+
+def test_assert_single_code_sha_per_cell_passes_on_clean_frame() -> None:
+    df = _df([_row("A", "env", 0, i, code_sha="sha1") for i in range(5)])
+    assert_single_code_sha_per_cell(df)  # must not raise
+
+
+# --------------------------------------------------------------------- #
+# Offline repair: backfill errored on n_steps == 0 crashes (audit H3)    #
+# --------------------------------------------------------------------- #
+
+
+def test_backfill_errored_on_zero_steps_flags_only_crashed_rows() -> None:
+    rows = [
+        _row("A", "env", 0, 0, n_steps=10, errored=False),
+        _row("A", "env", 0, 1, n_steps=0, success=False, errored=False),  # crash
+        _row("A", "env", 0, 2, n_steps=5, errored=False),
+    ]
+    out = backfill_errored_on_zero_steps(_df(rows))
+    assert list(out["errored"]) == [False, True, False]
+    # Input is not mutated.
+    assert list(_df(rows)["errored"]) == [False, False, False]
+
+
+def test_backfill_errored_then_plan_resume_reruns_crashed_cell(tmp_path: Path) -> None:
+    """End-to-end: a zero-step crash, once backfilled, makes the cell re-run."""
+    path = tmp_path / "r.parquet"
+    rows = [_row("A", "env", 0, i) for i in range(5)]
+    rows[3].update({"n_steps": 0, "success": False})  # crashed episode, no errored flag
+    repaired = backfill_errored_on_zero_steps(_df(rows))
+    repaired.to_parquet(path, index=False)
+
+    a = CellKey("A", "env", 0)
+    plan = plan_resume(path, requested_cells=[a], n_episodes=5)
+    # The crash is now visible via errored -> cell is partial, not completed.
+    assert plan.partial_cells == frozenset({a})
+    assert plan.completed_cells == frozenset()

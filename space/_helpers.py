@@ -276,6 +276,16 @@ def compute_leaderboard_table(
     # then sort envs alphabetically within each policy. A separate
     # ``_policy_mean`` column drives the sort and is dropped before
     # return so the public column set stays stable.
+    #
+    # HETEROGENEITY CAVEAT (Simpson's-paradox guard): this per-policy mean
+    # is an UNWEIGHTED mean across that policy's env cells. For a policy
+    # spanning the four LIBERO suites (libero_spatial/object/goal/_10),
+    # those suites differ in difficulty, so the pooled mean can rank
+    # policies in an order that flips within individual suites. It drives
+    # *row ordering only* — never read it as a headline "policy score".
+    # The per-cell success_rate + Wilson CI columns are the reportable
+    # quantities; the suites are kept as separate ``env`` rows precisely so
+    # the heterogeneity stays visible rather than being averaged away.
     policy_means = out.groupby("policy")["success_rate"].mean()
     out["_policy_mean"] = out["policy"].map(policy_means)
     out = out.sort_values(
