@@ -127,6 +127,10 @@ want the *why* behind the project or are preparing a release.
   security audit of `main`, with findings and hardening recommendations.
 - [`../RELEASE.md`](../RELEASE.md) — the ordered v1.0.0 release checklist and
   ship runbook.
+- [`COMMS_PLAN.md`](COMMS_PLAN.md) — the launch comms sequence (arXiv → living
+  leaderboard → thread → one-researcher outreach), the one figure/sentence that
+  travels, and the owner-gated steps; sequenced so the in-flight gradient never
+  reads as settled.
 - [`../CHANGELOG.md`](../CHANGELOG.md) — notable changes per release, following
   Keep a Changelog.
 
