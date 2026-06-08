@@ -72,6 +72,12 @@ RENDER_LADDER: tuple[tuple[int, int], ...] = (
     (5, 33),
 )
 
+# Fail fast on a config mistake: an empty ladder would make render_episode
+# fall straight through with no rung tried, raise RenderSizeError with an
+# empty attempts tuple, and silently never publish any clip. Assert here so
+# the breakage surfaces at import, not deep in a multi-hour sweep.
+assert RENDER_LADDER, "RENDER_LADDER must not be empty"
+
 _CODEC: str = "libx264"
 _PIXEL_FORMAT: str = "yuv420p"
 _PNG_CODEC: str = "png"

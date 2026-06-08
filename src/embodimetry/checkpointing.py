@@ -27,6 +27,7 @@ import os
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -395,6 +396,80 @@ def drop_partial_cells(parquet_path: Path, cells: Iterable[CellKey]) -> int:
         remaining = df[keep_mask].reset_index(drop=True)
         _atomic_write_parquet(parquet_path, remaining)
         return removed
+
+
+def cells_with_mixed_code_sha(df: pd.DataFrame) -> dict[tuple[str, str, int], int]:
+    """Audit the bit-repro invariant: each cell must have a single ``code_sha``.
+
+    The paper claims every cell is "bit-for-bit replayable", which requires
+    all episodes in a ``(policy, env, seed)`` cell to have been produced by
+    the *same* code revision. A cell whose rows span more than one
+    ``code_sha`` was stitched together across resumes at different HEADs and
+    is not replayable from a single SHA.
+
+    Returns a mapping ``cell -> distinct code_sha count`` for every cell that
+    violates the invariant (count > 1); an empty dict means the frame is
+    clean. This is a **non-raising** audit: the shipped canonical parquet
+    predates the invariant and still carries multi-SHA cells, so we surface
+    the violation rather than hard-blocking the load. ``assert_single_code_sha_per_cell``
+    is the strict variant for new sweeps.
+
+    An empty frame or one missing ``code_sha`` returns an empty dict — there
+    is nothing to violate.
+    """
+    if df.empty or "code_sha" not in df.columns:
+        return {}
+    counts = df.groupby(list(_CELL_KEY))["code_sha"].nunique()
+    violations: dict[tuple[str, str, int], int] = {}
+    for cell_key, n_sha in counts.items():
+        if int(n_sha) > 1:
+            # cell_key is the (policy, env, seed) groupby tuple, typed
+            # ``Hashable`` by pandas; cast positionally to recover element types.
+            key = cast("tuple[Any, Any, Any]", cell_key)
+            violations[(str(key[0]), str(key[1]), int(key[2]))] = int(n_sha)
+    return violations
+
+
+def assert_single_code_sha_per_cell(df: pd.DataFrame) -> None:
+    """Strict guard for the bit-repro invariant — raises on any mixed-SHA cell.
+
+    Use on the output of a *fresh* sweep (where every cell ran to completion
+    at one HEAD) to catch a resume that silently spanned code revisions.
+    Raises :class:`ValueError` listing the offending cells. The lenient
+    :func:`cells_with_mixed_code_sha` is for auditing the legacy parquet.
+    """
+    violations = cells_with_mixed_code_sha(df)
+    if violations:
+        shown = sorted(violations.items())[:10]
+        raise ValueError(
+            f"{len(violations)} cell(s) span multiple code_sha values "
+            f"(bit-repro invariant: code_sha.nunique()==1 per cell): {shown}"
+        )
+
+
+def backfill_errored_on_zero_steps(df: pd.DataFrame) -> pd.DataFrame:
+    """Mark rows with ``n_steps == 0`` as ``errored=True`` (audit H3).
+
+    The shipped parquet predates the ``errored`` column, so a crashed
+    episode (env died before a single step) is indistinguishable from a
+    legit failure on ``success`` alone — both read ``success=False,
+    return_=0.0``. An episode that recorded **zero** steps did not run, so
+    it is a crash, not a task failure. This offline repair sets the
+    ``errored`` flag on those rows so :func:`plan_resume` re-runs the cell
+    and downstream readers stop conflating crash with failure.
+
+    Returns a new frame (the input is not mutated). A frame missing
+    ``errored`` is back-filled with the default first so the column always
+    exists on the result.
+    """
+    out = df.copy()
+    if "errored" not in out.columns:
+        out["errored"] = OPTIONAL_DEFAULTS["errored"]
+    if "n_steps" not in out.columns:
+        return out
+    crashed = out["n_steps"] == 0
+    out.loc[crashed, "errored"] = True
+    return out
 
 
 def _atomic_write_parquet(path: Path, df: pd.DataFrame) -> None:

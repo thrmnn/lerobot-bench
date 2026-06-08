@@ -8,6 +8,7 @@ baseline.
 
 from __future__ import annotations
 
+import ast
 import os
 from pathlib import Path
 from typing import Any
@@ -2085,3 +2086,90 @@ def test_patch_processors_loads_real_xvla_libero_pipeline_contains_both_steps() 
 test_patch_processors_loads_real_xvla_libero_pipeline_contains_both_steps = pytest.mark.sim(
     test_patch_processors_loads_real_xvla_libero_pipeline_contains_both_steps
 )
+
+
+# --------------------------------------------------------------------- #
+# Seeding-contract docstring sync (AST guard, mirrors test_mde_consistency) #
+# --------------------------------------------------------------------- #
+
+_EVAL_SOURCE = Path(__file__).resolve().parent.parent / "src" / "embodimetry" / "eval.py"
+
+# The per-cell seed calls the module docstring promises, in contract order.
+# The docstring writes them with the ``numpy``/``torch`` package prefix; the
+# code uses the imported aliases (``np.random.seed`` etc.). We match on the
+# dotted attribute *tail* so the test pins the call identity, not the alias.
+_CONTRACT_SEED_CALLS: tuple[tuple[str, ...], ...] = (
+    ("random", "seed"),  # numpy.random.seed / np.random.seed
+    ("manual_seed",),  # torch.manual_seed
+    ("manual_seed_all",),  # torch.cuda.manual_seed_all
+)
+_CONTRACT_FORMULA = "seed_idx * 1000"
+
+
+def _attr_tail(node: ast.expr, depth: int) -> tuple[str, ...]:
+    """Return the last ``depth`` dotted-name components of an attribute chain."""
+    parts: list[str] = []
+    cur: ast.expr | None = node
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+    parts.reverse()
+    return tuple(parts[-depth:])
+
+
+def test_seed_everything_matches_documented_seeding_contract() -> None:
+    """``seed_everything`` must implement the seeding contract its module docstring states.
+
+    The :mod:`embodimetry.eval` module docstring (§ "Seeding contract")
+    documents the three per-cell RNG seeds and the ``seed_idx * 1000`` base
+    formula; the paper and DESIGN.md cite that docstring as the contract.
+    This AST guard parses both the docstring and the ``seed_everything``
+    body and asserts they agree — so a refactor that changes the code
+    without updating the docstring (or vice versa) fails CI. Mirrors the AST
+    guard pattern in ``test_mde_consistency``.
+    """
+    tree = ast.parse(_EVAL_SOURCE.read_text())
+
+    module_doc = ast.get_docstring(tree)
+    assert module_doc is not None, "eval.py lost its module docstring"
+    # The docstring is the human-facing half of the contract: it must name
+    # every seed call and the base-seed formula.
+    for call_tail in _CONTRACT_SEED_CALLS:
+        assert ".".join(call_tail) in module_doc, (
+            f"eval.py docstring no longer documents {'.'.join(call_tail)} -- "
+            "the seeding contract drifted from the code"
+        )
+    assert _CONTRACT_FORMULA in module_doc, (
+        f"eval.py docstring no longer documents the '{_CONTRACT_FORMULA}' base-seed formula"
+    )
+
+    # Locate seed_everything and collect its calls in source order.
+    func = next(
+        (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "seed_everything"),
+        None,
+    )
+    assert func is not None, "seed_everything not found in eval.py"
+
+    seen_calls: list[tuple[str, ...]] = []
+    base_seed_formula: str | None = None
+    for node in ast.walk(func):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            for contract_tail in _CONTRACT_SEED_CALLS:
+                if _attr_tail(node.func, len(contract_tail)) == contract_tail:
+                    seen_calls.append(contract_tail)
+        # Capture `base_seed = seed_idx * 1000`.
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "base_seed" for t in node.targets
+        ):
+            base_seed_formula = ast.unparse(node.value)
+
+    # Every documented seed call is actually made.
+    assert seen_calls == list(_CONTRACT_SEED_CALLS), (
+        "seed_everything does not call the three documented seeds in contract order "
+        f"(numpy, torch, torch.cuda); saw {seen_calls}. Update the code or the docstring."
+    )
+    # And the base-seed formula matches the documented one.
+    assert base_seed_formula is not None, "seed_everything no longer defines base_seed"
+    assert base_seed_formula.replace(" ", "") == _CONTRACT_FORMULA.replace(" ", ""), (
+        f"base_seed formula is '{base_seed_formula}', contract says '{_CONTRACT_FORMULA}'"
+    )
