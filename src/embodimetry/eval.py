@@ -75,6 +75,32 @@ from embodimetry.policies import PolicySpec
 logger = logging.getLogger(__name__)
 
 
+# Column order of the OPTIONAL per-episode taxonomy sidecar (audit #171).
+# This is a SEPARATE artifact from the canonical results.parquet
+# (``checkpointing.RESULT_SCHEMA``) and never feeds the leaderboard /
+# success-rate path. It exists so a future sweep can reconstruct the real
+# per-policy failure taxonomy, which the cell-aggregated canonical parquet
+# cannot express.
+PER_EPISODE_SCHEMA: tuple[str, ...] = (
+    "policy",
+    "env",
+    "seed",
+    "episode_index",
+    "success",
+    "failure_label",
+    "n_steps",
+    "terminated",
+    "truncated",
+    "final_reward",
+    "return_",
+    "errored",
+    "code_sha",
+    "lerobot_version",
+    "timestamp_utc",
+    "eval_run_id",
+)
+
+
 # --------------------------------------------------------------------- #
 # Protocols                                                             #
 # --------------------------------------------------------------------- #
@@ -138,6 +164,14 @@ class EpisodeResult:
     and a short stringified exception for crashes. When ``error`` is
     set, ``success=False``, ``return_=0.0``, ``n_steps=0``,
     ``final_reward=0.0`` — the cell continues, the row is preserved.
+
+    ``terminated`` / ``truncated`` are the gymnasium step flags from the
+    episode's *last* step (False/False for a crashed episode). They are
+    captured purely to drive :attr:`failure_label`; nothing in the
+    success-rate / canonical-parquet path reads them. ``terminated`` is
+    True when the env signalled an MDP-terminal transition (goal reached
+    OR an absorbing failure state, env-dependent); ``truncated`` is True
+    when the episode hit the step cap without terminating.
     """
 
     episode_index: int
@@ -150,6 +184,48 @@ class EpisodeResult:
     error: str | None = None
     video_path: Path | None = None
     video_sha256: str = ""
+    terminated: bool = False
+    truncated: bool = False
+
+    @property
+    def failure_label(self) -> str:
+        """Heuristic per-episode outcome label (audit #171).
+
+        Derived ONLY from signals the rollout already records — no new
+        env probing, no invented categories. The taxonomy is deliberately
+        minimal and honest:
+
+        * ``"errored"`` — the episode crashed (OOM, env death). Not a
+          task outcome; flagged so a follow-up taxonomy can exclude it.
+        * ``"success"`` — the success rule (whatever ``success_metric``
+          was in force) fired. We do NOT re-derive success here; we read
+          the already-computed :attr:`success` flag so this label can
+          never disagree with the headline success-rate.
+        * ``"timeout"`` — not success, and the episode ended by hitting
+          the step cap (``truncated`` and not ``terminated``). The
+          policy never drove the env into a terminal state.
+        * ``"early_termination"`` — not success, but the env signalled
+          ``terminated`` (an absorbing/terminal transition that was not a
+          success). For binary-reward envs this is the closest honest
+          proxy for a "task-failure terminal state".
+        * ``"unknown"`` — not success and neither flag set. Only reachable
+          if an env breaks out of the rollout loop without setting either
+          gym flag; surfaced rather than silently bucketed elsewhere.
+
+        These are coarse on purpose: separating e.g. "grasp slip" from
+        "wrong object" requires per-step trajectory signals this loop does
+        not collect (see the module docstring for what a fuller taxonomy
+        would need).
+        """
+        if self.error is not None:
+            return "errored"
+        if self.success:
+            return "success"
+        if self.truncated and not self.terminated:
+            return "timeout"
+        if self.terminated:
+            return "early_termination"
+        return "unknown"
 
 
 @dataclass(frozen=True)
@@ -217,6 +293,98 @@ class CellResult:
             for i, ep in enumerate(self.episodes)
         ]
         return pd.DataFrame(rows, columns=list(RESULT_SCHEMA))
+
+    def to_per_episode_rows(self) -> pd.DataFrame:
+        """Build the OPTIONAL per-episode taxonomy sidecar (audit #171).
+
+        Strictly additive: this is a SEPARATE DataFrame from
+        :meth:`to_rows`, written (if at all) to its own sidecar parquet —
+        it does NOT touch the canonical :data:`RESULT_SCHEMA` columns or
+        any shipped number. The ``success`` column here is the identical
+        boolean :meth:`to_rows` emits, so ``failure_label == "success"``
+        rows are byte-for-byte the same set as the canonical successes.
+
+        Columns are :data:`PER_EPISODE_SCHEMA`.
+        """
+        rows = [
+            {
+                "policy": self.policy,
+                "env": self.env,
+                "seed": self.seed,
+                "episode_index": ep.episode_index,
+                "success": ep.success,
+                "failure_label": ep.failure_label,
+                "n_steps": ep.n_steps,
+                "terminated": ep.terminated,
+                "truncated": ep.truncated,
+                "final_reward": ep.final_reward,
+                "return_": ep.return_,
+                "errored": ep.error is not None,
+                "code_sha": self.code_sha,
+                "lerobot_version": self.lerobot_version,
+                "timestamp_utc": self.timestamp_utc,
+                "eval_run_id": self.eval_run_id,
+            }
+            for ep in self.episodes
+        ]
+        return pd.DataFrame(rows, columns=list(PER_EPISODE_SCHEMA))
+
+
+# --------------------------------------------------------------------- #
+# Per-episode taxonomy sidecar sink (audit #171)                        #
+# --------------------------------------------------------------------- #
+
+
+def append_per_episode_rows(sink_path: Path, new_rows: pd.DataFrame) -> int:
+    """Atomically append per-episode taxonomy rows to a sidecar parquet.
+
+    OPT-IN companion to :func:`embodimetry.checkpointing.append_cell_rows`.
+    Deliberately kept here (not in ``checkpointing``) so this NEW sidecar
+    cannot be confused with the canonical results.parquet append path —
+    it has its own :data:`PER_EPISODE_SCHEMA` and never participates in
+    resume planning.
+
+    Strategy mirrors the canonical writer: load existing rows, concat,
+    write to a ``.tmp.parquet`` sibling, then ``os.replace`` into place
+    (atomic on POSIX). Empty ``new_rows`` is a no-op. ``new_rows`` must
+    carry exactly :data:`PER_EPISODE_SCHEMA`. Unlike the canonical writer
+    there is no duplicate-key guard: this sidecar is regenerable from a
+    re-run and is not load-bearing for any shipped number.
+    """
+    actual = set(new_rows.columns)
+    expected = set(PER_EPISODE_SCHEMA)
+    if actual != expected:
+        raise ValueError(
+            f"per-episode rows have wrong columns: "
+            f"missing={sorted(expected - actual)}, extra={sorted(actual - expected)}"
+        )
+    if len(new_rows) == 0:
+        return _count_parquet_rows(sink_path)
+
+    new_rows_ordered = new_rows[list(PER_EPISODE_SCHEMA)]
+    if sink_path.exists():
+        existing = pd.read_parquet(sink_path)
+        combined = pd.concat([existing, new_rows_ordered], ignore_index=True)
+    else:
+        sink_path.parent.mkdir(parents=True, exist_ok=True)
+        combined = new_rows_ordered
+
+    tmp_path = sink_path.with_suffix(".tmp.parquet")
+    try:
+        combined.to_parquet(tmp_path, index=False, engine="pyarrow")
+        os.replace(tmp_path, sink_path)
+    except Exception:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                logger.warning("failed to clean up tmp per-episode parquet at %s", tmp_path)
+        raise
+    return len(combined)
+
+
+def _count_parquet_rows(path: Path) -> int:
+    return len(pd.read_parquet(path)) if path.exists() else 0
 
 
 # --------------------------------------------------------------------- #
@@ -1383,6 +1551,7 @@ def run_cell(
     code_sha: str | None = None,
     lerobot_version: str | None = None,
     eval_run_id: str = "",
+    per_episode_sink: Path | None = None,
 ) -> CellResult:
     """Run ``n_episodes`` for one ``(policy, env, seed_idx)`` cell.
 
@@ -1420,6 +1589,16 @@ def run_cell(
     ``code_sha`` and ``lerobot_version`` default to autodetection
     (``git rev-parse HEAD`` and ``lerobot.__version__``); pass them
     explicitly when the orchestrator already has them in hand.
+
+    ``per_episode_sink`` (audit #171) is OPT-IN and OFF by default. When
+    a path is given, the cell's per-episode taxonomy rows
+    (:meth:`CellResult.to_per_episode_rows`, schema
+    :data:`PER_EPISODE_SCHEMA`) are appended to that sidecar parquet at
+    the cell boundary — same flush granularity as the canonical results,
+    so a mid-cell crash leaves no partial taxonomy rows. This writes ONLY
+    to the sidecar; the canonical results.parquet and every shipped
+    number are untouched whether or not this is set. The path is created
+    (parents included) on first write.
     """
     if n_episodes <= 0:
         raise ValueError(f"n_episodes must be positive, got {n_episodes}")
@@ -1465,7 +1644,7 @@ def run_cell(
             )
         episodes.append(episode)
 
-    return CellResult(
+    cell_result = CellResult(
         policy=policy_name,
         env=env_spec.name,
         seed=seed_idx,
@@ -1475,6 +1654,11 @@ def run_cell(
         timestamp_utc=timestamp_utc,
         eval_run_id=eval_run_id,
     )
+
+    if per_episode_sink is not None:
+        append_per_episode_rows(per_episode_sink, cell_result.to_per_episode_rows())
+
+    return cell_result
 
 
 def _encode_and_drop_frames(
@@ -1523,6 +1707,8 @@ def _encode_and_drop_frames(
         error=episode.error,
         video_path=out_path,
         video_sha256=result.content_sha256,
+        terminated=episode.terminated,
+        truncated=episode.truncated,
     )
 
 
@@ -1563,6 +1749,8 @@ def _run_one_episode(
     final_reward = 0.0
     sticky_is_success = False
     sticky_reward_match = False
+    last_terminated = False
+    last_truncated = False
 
     try:
         obs, _info = env.reset(seed=episode_seed)
@@ -1573,6 +1761,8 @@ def _run_one_episode(
         for _ in range(max_steps):
             action = policy(obs)
             obs, reward, terminated, truncated, info = env.step(action)
+            last_terminated = bool(terminated)
+            last_truncated = bool(truncated)
             n_steps += 1
             cumulative_return += float(reward)
             final_reward = float(reward)
@@ -1613,6 +1803,13 @@ def _run_one_episode(
     else:
         # final_reward_threshold (v1_legacy default).
         success = final_reward >= success_threshold
+    # If the rollout exhausted the step budget without the env setting
+    # either gym flag, the bench's own step cap was the limiter -> a
+    # timeout. Recording it as truncated keeps `failure_label` honest
+    # for envs that defer truncation to the harness instead of the
+    # gym TimeLimit wrapper. (No effect on `success`.)
+    if not last_terminated and not last_truncated and n_steps >= max_steps:
+        last_truncated = True
     return EpisodeResult(
         episode_index=episode_index,
         success=success,
@@ -1622,6 +1819,8 @@ def _run_one_episode(
         frames=tuple(frames),
         final_reward=final_reward,
         error=None,
+        terminated=last_terminated,
+        truncated=last_truncated,
     )
 
 
@@ -1635,6 +1834,7 @@ def run_cell_from_specs(
     record_video: bool = True,
     videos_dir: Path | None = None,
     eval_run_id: str = "",
+    per_episode_sink: Path | None = None,
 ) -> CellResult:
     """Convenience: load policy + env from specs, then :func:`run_cell`.
 
@@ -1649,6 +1849,10 @@ def run_cell_from_specs(
     happens inside the cell loop and ``EpisodeResult.frames`` is dropped
     after each episode's encode. See :func:`run_cell` for the full
     contract.
+
+    ``per_episode_sink`` is forwarded to :func:`run_cell` (OFF by
+    default). It is the opt-in handle scripts use to emit the failure
+    taxonomy sidecar without altering the canonical results path.
     """
     env = load_env(env_spec)
     # gymnasium envs expose .action_space; we read its shape for baselines.
@@ -1671,4 +1875,5 @@ def run_cell_from_specs(
         record_video=record_video,
         videos_dir=videos_dir,
         eval_run_id=eval_run_id,
+        per_episode_sink=per_episode_sink,
     )
