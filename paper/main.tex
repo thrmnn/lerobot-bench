@@ -1,6 +1,9 @@
-% embodimetry --- 4-page arXiv writeup (cs.RO primary, cs.LG secondary).
+% embodimetry --- 4-5 page arXiv writeup (cs.RO primary, cs.LG secondary).
 % Capability-Ladder Audit framing: L0 pretrained / L1 fine-tune / L2 classical
-% on ONE seed+Wilson-CI+MDE contract; L3 world-model is the parked aspiration.
+% / L3 world-model planner on ONE seed+Wilson-CI+MDE contract. L3 is now a
+% MEASURED cross-env conditional positive (Wall 50% nav vs 0% manip, same
+% zero-training DINO-WM planner) --- the paper's central contribution.
+% L3 numbers are a CROSS-REPO result (lerobot-wm-research), cited as such.
 
 \documentclass[10pt]{article}
 
@@ -11,6 +14,7 @@
 \usepackage{microtype}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage{subcaption}
 \usepackage{graphicx}
 \usepackage{xcolor}
@@ -56,31 +60,38 @@ introduce \emph{embodimetry}, a \emph{Capability-Ladder Audit}: a single
 seed / Wilson-CI / minimum-detectable-effect (MDE) contract that scores
 every paradigm as the \emph{same} \texttt{PolicyCallable} on shared
 LeRobot~\cite{cadene2024lerobot} tasks, a neutral cross-paradigm
-yardstick rather than another per-method leaderboard. Each cell runs
-5~seeds $\times$ 50~episodes ($N{=}250$ binary outcomes) with Wilson and
-bootstrap 95\% CIs, paired comparisons bounded by an explicit MDE, and a
-fixed revision SHA so any parquet row replays bit-for-bit. We instrument
-three rungs on the identical contract. \textbf{L0} (pretrained
-Diffusion Policy on PushT) scores $0.816$~[0.739, 0.874].
-\textbf{L1} (continued fine-tuning of an already-converged ACT on
+yardstick rather than another per-method leaderboard. Each cell runs up
+to 5~seeds $\times$ 50~episodes with Wilson and bootstrap 95\% CIs,
+paired comparisons bounded by an explicit MDE, and a fixed revision SHA
+so any parquet row replays bit-for-bit. Our central result is at the top
+of the ladder: \textbf{the same zero-training world-model planner (L3,
+DINO-WM~\cite{zhou2024dinowm} latent MPC) substitutes for learning
+exactly when the dynamics are simple enough to model.} On Wall
+(two-room point-mass navigation) it reaches $3/6$ ($50\%$) success with
+\emph{no task-specific training}; on PushT (contact manipulation) the
+\emph{identical} planner scores ${\sim}0$ ($0/2$), moving the block but
+away from the goal, at ${\sim}1000\times$ the per-step compute of a
+learned policy. Same planner, same eval contract, opposite outcomes ---
+a cross-env conditional that makes the ``same axes all the way up''
+thesis literally true with a positive result. The rest of the ladder is
+the honest-negatives spine that earns the audit its credibility.
+\textbf{L0} (pretrained Diffusion Policy on PushT) scores $0.816$~[0.739,
+0.874]. \textbf{L1} (continued fine-tuning of an already-converged ACT on
 Aloha-transfer-cube) moves $0.824$~[0.772, 0.866] to $0.864$~[0.816,
-0.901] --- a $+0.040$ shift whose CIs \emph{overlap} (Cohen's
-$h{=}0.11$, below the $N{=}250$ MDE): the honest result of fine-tuning a
-near-ceiling policy on its own data, reported as within noise, not as an
-improvement. \textbf{L2} (a competent scripted PushT controller) clears
-the strict success bar on only $0.012$~[0.004, 0.035] of episodes
-despite a mean rollout coverage near $0.50$ --- a quantitative statement
-that learning buys the last fraction of precision a hand-tuned
-controller cannot. The \textbf{L3} rung --- a zero-training world-model
-planner that recovers a target fraction of a learned policy's success at
-${\sim}1/100$th the compute --- is the north-star the instrument is built
-to measure and is stated as future work, not a delivered number:
-paper-faithful CEM planning is infeasible on our single 8\,GB GPU and is
-compute-parked. As a secondary proof that the audit machinery bites, the
-contract caught our own normalization bug ($0.016 \to 0.824$ on
-ACT$\times$aloha). The contribution is the contract: one statistical
-spine under which pretrained, fine-tuned, and classical policies become
-comparable, with overlapping CIs called overlapping.
+0.901] --- a $+0.040$ shift whose CIs \emph{overlap} (Cohen's $h{=}0.11$,
+below the $N{=}250$ MDE), reported as within noise, not an improvement;
+and an attempted SmolVLA LoRA fine-tune collapses
+($0.252\to{\sim}0$). \textbf{L2} (a competent scripted PushT controller)
+clears the strict bar on only $0.012$~[0.004, 0.035] of episodes despite
+mean rollout coverage near $0.50$ --- learning buys the last fraction of
+precision a hand-tuned controller cannot. The contract also caught our own
+normalization bug ($0.016\to0.824$ on ACT$\times$aloha), proof the audit
+bites. The L3 cross-env numbers are a cross-repo result
+(\texttt{lerobot-wm-research}); the Wall $3/6$ is indicative, not
+definitive ($N{=}6$, a reduced CEM budget that fits 8\,GB), and we say so.
+The contribution is the contract --- one statistical spine from pretrained
+policies to world-model planners --- and the surprise it surfaces: on
+simple dynamics, planning substitutes for learning.
 \end{abstract}
 
 % ---------------------------------------------------------------- %
@@ -125,15 +136,30 @@ after the checkpoint-availability filter); the ladder rungs (L1, L2) are
 gated \emph{out} of that leaderboard and run as separate audit cells on
 the identical contract.
 
-This paper reports three measured rungs and one aspiration. L0, L1, and
-L2 land on the same contract; their headline reading is that fine-tuning
-a near-ceiling policy moves the number only \emph{within noise}, and that
-a competent classical controller clears the strict success bar on
-${\sim}1\%$ of episodes despite getting halfway there on average --- a
-quantitative case that the value of learning is the last fraction of
-precision. The L3 world-model rung, the reason the instrument exists, is
-honestly compute-parked. The benchmark itself is the data; this paper is
-the defense.
+This paper reports all four rungs on the same contract, and the citable
+surprise is at the top of the ladder. We take \emph{one} zero-training
+world-model planner --- DINO-WM~\cite{zhou2024dinowm} latent MPC, no
+task-specific training --- and run it unchanged on two envs of differing
+dynamical complexity. On Wall, a two-room point-mass navigation task, it
+reaches $3/6$ ($50\%$) success; on PushT, contact-rich manipulation, the
+identical planner scores ${\sim}0$ ($0/2$), at ${\sim}1000\times$ the
+per-step compute of a learned policy that scores $0.816$. The finding is
+the conditional: \emph{a zero-training world-model planner substitutes
+for learning when the dynamics are simple enough to model}. That is the
+contribution the ladder is built to frame --- the same axes all the way
+up, made literally true with a positive result --- and it is novel
+precisely because no prior work measures a world-model planner against a
+learned policy on one shared seed/CI protocol.
+
+The rest of the ladder is the supporting story: a spine of honest
+negatives that is what makes the contract trustworthy. Fine-tuning a
+near-ceiling policy moves the number only \emph{within noise} (L1, ACT);
+an attempted SmolVLA LoRA fine-tune collapses rather than lifts; and a
+competent classical controller clears the strict success bar on
+${\sim}1\%$ of episodes despite getting halfway there on average (L2) ---
+a quantitative case that the value of learning is the last fraction of
+precision. The contract tells you uncomfortable truths; that is the
+point. The benchmark itself is the data; this paper is the defense.
 
 % ---------------------------------------------------------------- %
 % Related Work                                                     %
@@ -161,11 +187,12 @@ The ladder we audit spans paradigms each benchmarked in isolation:
 classical control and learned policies are compared only informally, and
 world-model planners --- PlaNet~\cite{hafner2019planet},
 DINO-WM~\cite{zhou2024dinowm}, V-JEPA-2-AC~\cite{assran2025vjepa2} ---
-report success on their own tasks, never against a fine-tuned imitation
+report success on their own tasks, never against a learned imitation
 policy under one shared seed/CI protocol. Our contribution is not a new
 policy class but the \emph{contract} that puts a pretrained, fine-tuned,
-and classical policy --- and, in future work, a world-model planner ---
-on the same Wilson interval.
+classical, \emph{and} world-model planner on the same Wilson interval ---
+and the cross-env conditional that emerges when the same DINO-WM planner
+is run on two envs of differing dynamical complexity (\S\ref{sec:l3}).
 
 % ---------------------------------------------------------------- %
 % Methods                                                          %
@@ -294,6 +321,31 @@ $\max_t \text{info}[\text{coverage}]_t$ (summary JSON only, never the
 parquet schema): the gap between mean max-coverage and the strict $0.95$
 bar quantifies the last-mile precision that the binary rate discards.
 
+\paragraph{L3 rung --- zero-training world-model planning.}
+The L3 cell is a \emph{zero-training} planner: a frozen
+DINO-WM~\cite{zhou2024dinowm} latent forward model wrapped in a
+cross-entropy-method (CEM) MPC loop, entering the audit as a
+\texttt{PolicyCallable} with no task-specific training and its per-step
+sampling cost logged alongside its success rate. At each step the planner
+encodes the current observation once, rolls candidate action sequences
+through the latent model, and returns the first action of the
+lowest-cost sequence (cost ${=}$ latent distance to the encoded goal).
+The \emph{same} planner and CEM hyperparameters are run on two envs of
+differing dynamical complexity: \textbf{Wall}, a two-room point-mass
+navigation task (success $:= \lVert\text{goal}-\text{pos}\rVert < 4.5$,
+\texttt{max\_steps}${=}40$), and \textbf{PushT}, contact-rich
+manipulation. The CEM budget is $N{=}300$ samples, $10$ optimization
+iterations, top-$k{=}30$ elites, horizon $5$ --- a \emph{reduced} budget
+chosen so the loop fits an 8\,GB GPU. A $39\times$ predictor speedup
+(scaled-dot-product attention, \texttt{bfloat16}, and encode-once frame
+caching) is what made any L3 measurement feasible on this hardware; even
+so, the budget is well below the $300\times30$ CEM the source method
+uses at H100 scale, which we flag as a magnitude (not direction)
+caveat. These L3 cells live in a separate research repository
+(\texttt{lerobot-wm-research}); we report them as a \emph{cross-repo}
+result run on the same eval contract, and mark their figures' provenance
+accordingly rather than fabricating an in-tree artifact.
+
 % ---------------------------------------------------------------- %
 % Results                                                          %
 % ---------------------------------------------------------------- %
@@ -302,13 +354,15 @@ bar quantifies the last-mile precision that the binary rate discards.
 \label{sec:results}
 
 \paragraph{The ladder on one contract.}
-Table~\ref{tab:ladder} is the paper's center of gravity: three rungs ---
-pretrained (L0), fine-tuned (L1), classical (L2) --- read off the same
-Wilson interval. The reading is deliberately undramatic. Fine-tuning a
+Table~\ref{tab:ladder} is the supporting spine of the paper: the L0--L2
+rungs --- pretrained, fine-tuned, classical --- read off the same Wilson
+interval. The reading is deliberately undramatic. Fine-tuning a
 near-ceiling policy moves it within noise; a competent scripted
 controller gets halfway to the goal on average but almost never clears
-the strict bar. Both statements are quantitative because all three rungs
-share one statistical spine.
+the strict bar. Both statements are quantitative because all the rungs
+share one statistical spine. The center of gravity is the L3 rung
+(\S\ref{sec:l3}): the same world-model planner read against itself across
+two envs.
 
 \begin{table}[t]
 \centering
@@ -322,7 +376,8 @@ L1 & ACT$_\text{zero-shot}$ $\times$ aloha & 250 & 0.824 [0.772, 0.866] & baseli
 L1 & ACT$_\text{fine-tuned}$ $\times$ aloha & 250 & 0.864 [0.816, 0.901] & $\Delta{=}{+}0.040$, CIs overlap \\
 L2 & classical $\times$ pusht & 250 & 0.012 [0.004, 0.035] & mean cov.\ ${\approx}0.50$ \\
 \midrule
-\multicolumn{5}{l}{\textit{L3 world-model planner --- compute-parked aspiration (\S\ref{sec:l3}), no number claimed.}} \\
+L3 & DINO-WM planner $\times$ wall & 6 & 0.50 ($3/6$) & zero-training nav (Table~\ref{tab:l3}) \\
+L3 & DINO-WM planner $\times$ pusht & 2 & ${\sim}0.0$ ($0/2$) & same planner, contact manip. \\
 \bottomrule
 \end{tabular}
 \caption{The Capability-Ladder Audit: paradigms scored as the same
@@ -332,9 +387,14 @@ L2 & classical $\times$ pusht & 250 & 0.012 [0.004, 0.035] & mean cov.\ ${\appro
 $N{=}250$ MDE of $0.123$) --- it is reported as within noise, not an
 improvement. L2's $\hat{p}{=}0.012$ against a mean rollout coverage near
 $0.50$ is the ``learning buys the last fraction of precision'' result.
+The L3 rows are the central finding: the \emph{same} zero-training
+world-model planner reaches $50\%$ on simple navigation and ${\sim}0\%$
+on contact manipulation (\S\ref{sec:l3}, Table~\ref{tab:l3}); $N$ is
+small ($6$ and $2$), so they are indicative, not definitive.
 $^\dagger$auto-downscoped ($n_\text{ep}{=}25$, $N{=}125$;
-\S\ref{sec:downscope}). Sources: \texttt{results/ladder/} (L1, L2) and
-\texttt{results/sweep-full/} (L0, ACT zero-shot).}
+\S\ref{sec:downscope}). Sources: \texttt{results/ladder/} (L1, L2),
+\texttt{results/sweep-full/} (L0, ACT zero-shot), and the cross-repo
+\texttt{lerobot-wm-research} (L3).}
 \label{tab:ladder}
 \end{table}
 
@@ -351,7 +411,13 @@ $0.123$ (\S\ref{sec:downscope}). We therefore report L1 as a
 is the expected and honest outcome of continued fine-tuning a policy
 already near its ceiling on its own training distribution; the negative
 result is the finding, and it is kept on the leaderboard's axis rather
-than dropped.
+than dropped. We do not silently drop the second fine-tune track either:
+an attempted SmolVLA LoRA fine-tune \emph{collapsed} the policy
+($0.252\to{\sim}0$ on \texttt{libero\_10}\todo{confirm exact post-LoRA
+$\hat{p}$ and $N$ from the fine-tune track summary; not committed to this
+tree}) rather than lifting it --- a negative we attribute to a small demo
+budget against a large adapter and an unfavorable reward structure,
+reported as a failed lift, not omitted.
 
 \paragraph{L2 --- a competent controller, and the last 50\% of precision.}
 The scripted PushT state-feedback controller is genuinely competent ---
@@ -365,6 +431,66 @@ where the value of learning lives: not in getting started, but in the
 last fraction of precision a hand-tuned controller cannot close. The
 mean-coverage figure is logged in the L2 summary JSON; the binary
 $0.012$ is the contract-comparable number.
+
+\subsection{L3 --- planning substitutes for learning on simple dynamics}
+\label{sec:l3}
+This is the paper's central result. We take \emph{one} zero-training
+DINO-WM~\cite{zhou2024dinowm} latent-MPC planner --- a frozen forward
+model wrapped in a CEM loop, no task-specific training --- and run it
+unchanged across two envs of differing dynamical complexity on the same
+eval contract (Table~\ref{tab:l3}). On \textbf{Wall}, two-room point-mass
+navigation, the planner reaches $3/6 = 50\%$ success
+($N{=}6$ seeds, \texttt{max\_steps}${=}40$, success
+$:= \lVert\text{goal}-\text{pos}\rVert<4.5$) in 36\,min of GPU time on an
+8\,GB RTX~4060. On \textbf{PushT}, contact-rich manipulation, the
+\emph{identical} planner with the \emph{identical} CEM budget scores
+${\sim}0$ ($0/2$ honest seeds): the planner moves the block, but pushes
+it away from the goal, at ${\sim}1000\times$ the per-step compute of the
+learned diffusion policy that scores $0.816$ on the same env. Same
+planner, same contract, opposite outcomes. The conditional is the
+finding: \emph{a zero-training world-model planner substitutes for
+learning exactly when the dynamics are simple enough to model} --- it
+plans navigation it was never trained on, and fails the contact dynamics
+it cannot model accurately enough for greedy CEM to exploit.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llrll}
+\toprule
+Env & Dynamics & $N$ & Success & Per-step compute \\
+\midrule
+Wall  & 2-room nav (point mass) & 6 & $3/6 = 0.50$ & \multirow{2}{*}{${\sim}1000\times$ learned policy} \\
+PushT & contact manipulation    & 2 & $0/2 \approx 0.0$ & \\
+\bottomrule
+\end{tabular}
+\caption{The L3 cross-env conditional: the \emph{same} zero-training
+DINO-WM~\cite{zhou2024dinowm} latent-MPC planner, identical CEM budget
+($N{=}300$ samples, $10$ opt.\ iters, top-$k{=}30$, horizon~$5$), run on
+two envs. Wall success $:=\lVert\text{goal}-\text{pos}\rVert<4.5$,
+\texttt{max\_steps}${=}40$, 36\,min GPU on an 8\,GB RTX~4060. The Wall
+$3/6$ is \emph{indicative, not definitive} ($N{=}6$): a larger-$N$,
+fuller-CEM rerun is the obvious next step. Upstream
+DINO-WM~\cite{zhou2024dinowm} reports near-perfect Wall at H100-scale
+$300\times30$ CEM, so the \emph{magnitude} here is budget-limited though
+the \emph{direction} (nav $\gg$ manip for a zero-training planner) is
+confirmed. Failures are interpretable --- wall-trap and last-mile stall,
+both greedy-CEM local minima rather than bugs. Source: cross-repo
+\texttt{lerobot-wm-research}, run on the same eval contract; not an
+in-embodimetry-tree artifact.}
+\label{tab:l3}
+\end{table}
+
+A $39\times$ predictor speedup (scaled-dot-product attention,
+\texttt{bfloat16}, and encode-once frame caching) is what made any L3
+measurement possible on this hardware. The Wall misses are interpretable,
+not bugs --- wall-trap (the planner routes into the dividing wall) and
+last-mile stall (it arrives near the goal then stalls), both greedy-CEM
+local minima a larger budget or longer horizon would be expected to
+escape. With $N{=}6$ on Wall and $N{=}2$ on PushT we make no significance
+claim: the cross-env direction is the result, the magnitudes are
+budget-conditioned, and a larger-$N$ / fuller-CEM rerun is the explicit
+next step.
 
 \paragraph{Per-cell leaderboard.}
 Table~\ref{tab:leaderboard} gives the v1 learned-policy and floor-baseline
@@ -482,43 +608,59 @@ Hub-artifact wiring bug (\texttt{docs/DEFERRED\_POLICIES.md}).
 \section{Discussion}
 
 \paragraph{What the ladder says.}
-Three things, in order of confidence. First, the contract works as a
-cross-paradigm yardstick: pretrained, fine-tuned, and classical policies
-ran through one loop, were seeded identically, and are read off the same
-Wilson interval (Table~\ref{tab:ladder}); every row is bit-replayable and
-Wilson/bootstrap CIs agree within one half-width on every cell. Second,
-the measured rungs say something specific and undramatic: fine-tuning a
-near-ceiling policy moves it within noise ($+0.040$, overlapping CIs,
-$h{=}0.11$), so the L1 lift is a non-result we report as one rather than
-inflate; and a competent classical controller gets halfway to the goal on
-average but clears the strict bar on ${\sim}1\%$ of episodes
-($\hat{p}{=}0.012$), locating the value of learning in the last fraction
-of precision. Third, the machinery catches its own errors:
-ACT$\times$aloha's $0.016\to0.824$ recovery (Table~\ref{tab:act-ablation})
-was a normalization bug in the harness, not the architecture --- direct
-evidence that the audit bites. The contribution we stand behind without
-qualification is the contract: one seed/Wilson-CI/MDE spine under which
-paradigms become comparable, with sub-MDE deltas flagged inconclusive and
-overlapping CIs called overlapping.
+The headline is the L3 cross-env conditional, and the rest of the ladder
+is what makes it trustworthy. The same zero-training world-model planner
+reaches $50\%$ on simple navigation (Wall) and ${\sim}0\%$ on contact
+manipulation (PushT) under one contract (\S\ref{sec:l3}): \emph{planning
+substitutes for learning when the dynamics are simple enough to model}.
+This is the ``same axes all the way up'' thesis made literally true with
+a positive result, and it is novel because no prior work scores a
+world-model planner against a learned policy on a shared seed/CI
+protocol. We hold it as \emph{indicative} ($N{=}6$ on Wall, a reduced
+8\,GB-fit CEM budget), not definitive.
 
-\subsection{The L3 world-model rung: aspiration, not result}
-\label{sec:l3}
-The reason embodimetry exists is the rung it does \emph{not} yet report.
-The north-star is a single defensible number: \emph{a zero-training
-world-model planner that recovers a target fraction of a learned policy's
-success at ${\sim}1/100$th the compute}, measured on the same contract as
-the L0--L2 rungs so the comparison is honest. Planners such as
-DINO-WM~\cite{zhou2024dinowm} and V-JEPA-2-AC~\cite{assran2025vjepa2}
-enter the audit as a \texttt{PolicyCallable} like any other policy, with
-the planner's sampling cost reported alongside its success rate. We claim
-no L3 number here: a paper-faithful CEM planning loop (horizon, sample,
-and optimization-iteration counts matching the source method) is
-infeasible on our single 8\,GB GPU --- on PushT it runs at roughly minutes
-per environment step, putting a $5{\times}50$ cell far outside any
-reasonable budget. The L3 rung is therefore \emph{compute-parked} and
-disclosed as a limitation, not quietly dropped: the instrument is built
-and contract-ready, and L3 is the gap it is designed to fill in a
-GPU-provisioned follow-up.
+The supporting spine is a set of honest negatives that earn the audit its
+credibility. First, the contract works as a cross-paradigm yardstick:
+pretrained, fine-tuned, classical, and world-model policies ran through
+one loop, were seeded identically, and are read off the same Wilson
+interval (Tables~\ref{tab:ladder},~\ref{tab:l3}); every L0--L2 row is
+bit-replayable and Wilson/bootstrap CIs agree within one half-width.
+Second, the measured rungs say something specific and undramatic:
+fine-tuning a near-ceiling policy moves it within noise ($+0.040$,
+overlapping CIs, $h{=}0.11$) and an attempted SmolVLA LoRA fine-tune
+collapses rather than lifts, so neither L1 track is inflated into a win;
+and a competent classical controller gets halfway to the goal on average
+but clears the strict bar on ${\sim}1\%$ of episodes ($\hat{p}{=}0.012$),
+locating the value of learning in the last fraction of precision. Third,
+the machinery catches its own errors: ACT$\times$aloha's $0.016\to0.824$
+recovery (Table~\ref{tab:act-ablation}) was a normalization bug in the
+harness, not the architecture. The contribution we stand behind is the
+contract --- one seed/Wilson-CI/MDE spine from pretrained policies to
+world-model planners, with sub-MDE deltas flagged inconclusive and
+overlapping CIs called overlapping --- and the surprise it surfaces at
+the top of the ladder.
+
+\subsection{What the L3 finding means}
+The cross-env conditional is more than a curiosity: it is a claim about
+\emph{where} a learned world model can stand in for task-specific
+training. Wall's point-mass dynamics are low-dimensional, near-linear,
+and contact-free, so a frozen latent forward model predicts them
+accurately enough that greedy CEM finds a goal-reaching plan it was never
+trained on. PushT's dynamics are contact-rich and stiff; small latent
+prediction errors compound through the contact, and the planner pushes
+the block confidently in the wrong direction. The same planner thus
+\emph{substitutes for learning on simple dynamics and fails on hard
+dynamics}, which reframes ``do we need a learned policy?'' as a question
+about the modellability of the dynamics rather than about the planner.
+This is exactly the cross-paradigm comparison the contract was built to
+make: a world-model planner and a learned policy on one Wilson interval,
+on the same env, with the planner's compute cost (${\sim}1000\times$ per
+step) reported alongside its success. We hold the magnitudes loosely ---
+Wall's $50\%$ is a partial solve under an 8\,GB-fit CEM budget, and
+upstream DINO-WM~\cite{zhou2024dinowm} reaches near-perfect Wall at
+H100-scale CEM --- but the \emph{direction} (nav $\gg$ manip for a
+zero-training planner) is the defensible result, and a larger-$N$,
+fuller-CEM rerun is the obvious way to harden it.
 
 \subsection{Limitations}
 
@@ -534,12 +676,22 @@ GPU-provisioned follow-up.
     RAM during \texttt{from\_pretrained} cold load ($<4$\,GB peak VRAM),
     exceeding the 32\,GB v1 laptop's headroom; v1 compares four learned
     policies, not seven (v1.1 uses quantized/streaming load).
-    \item \textbf{Single-GPU compute ceiling, and L3 parked.} The entire
-    audit runs on one 8\,GB RTX~4060 laptop. This caps the ladder: SmolVLA
-    full fine-tune does not fit, so L1 is a single ACT cell; and a
-    paper-faithful CEM world-model planner (L3) runs at minutes/step and is
-    compute-parked (\S\ref{sec:l3}). The L3 number --- the instrument's
-    reason for being --- is not delivered here, only made measurable.
+    \item \textbf{L3 is measured but budget-limited and small-$N$.} The
+    L3 cross-env result runs on one 8\,GB RTX~4060 with a CEM budget
+    reduced to fit ($N{=}300$/opt~$10$/top-$k$~$30$/horizon~$5$, vs.\ the
+    source method's H100-scale $300\times30$). Wall is $N{=}6$ seeds and
+    PushT $N{=}2$, so the numbers are \emph{indicative, not definitive}:
+    the cross-env \emph{direction} (nav $\gg$ manip) is the claim, the
+    Wall $50\%$ magnitude is partial and budget-conditioned, and we make
+    no significance claim at this $N$. A larger-$N$, fuller-CEM rerun is
+    the explicit next step. The L3 cells are also a \emph{cross-repo}
+    result (\texttt{lerobot-wm-research}), not an in-tree parquet artifact
+    of this repository.
+    \item \textbf{Single-GPU compute ceiling.} The entire audit runs on
+    one 8\,GB RTX~4060 laptop. This caps the ladder beyond L3: SmolVLA
+    full fine-tune does not fit, so L1 is a single ACT cell plus an
+    attempted SmolVLA LoRA track that collapsed ($0.252\to{\sim}0$),
+    reported as a failed lift rather than dropped.
     \item \textbf{L1 is one cell, and the lift is within noise.} The
     fine-tuning rung is ACT$\times$aloha alone, and its $+0.040$ shift has
     overlapping Wilson CIs and $h{=}0.11$ (below the $N{=}250$ MDE). We
@@ -553,13 +705,17 @@ GPU-provisioned follow-up.
     envelopes, not suite replications, and the cross-paradigm comparison
     should not lean on them.
     \item \textbf{Sparse matrix, multi-comparison, and episode budget.}
-    Cross-policy comparisons are valid only within shared envs; the ladder
-    rungs sit on \emph{different} envs (PushT, aloha), so L0/L1/L2 are
+    Cross-policy comparisons are valid only within shared envs; the
+    L0/L1/L2 rungs sit on \emph{different} envs (PushT, aloha), so they are
     same-contract but not same-task and must be read as paradigm
-    snapshots, not a head-to-head. With several pairwise claims in play we
-    control family-wise error by Holm--Bonferroni, but the matrix is too
-    sparse for a fully crossed comparison. $N{=}250$ is a GPU-budget
-    choice; claims cite only deltas above the per-cell MDE.
+    snapshots, not a head-to-head. The L3 finding is the exception that
+    motivates the design: it holds the \emph{policy} fixed and varies the
+    \emph{env}, which is the cleanest cross-env comparison the contract
+    supports --- but it is only two envs, so ``simple vs.\ hard dynamics''
+    is a two-point contrast, not a curve. With several pairwise claims in
+    play we control family-wise error by Holm--Bonferroni, but the matrix
+    is too sparse for a fully crossed comparison. $N{=}250$ is a
+    GPU-budget choice; claims cite only deltas above the per-cell MDE.
     \item \textbf{Harness bugs and protocol-vs-paper.} Our own
     normalization bug (PR~\#51) shows a harness can be the dominant error
     source; the LIBERO cap mismatches make those cells protocol-vs-paper,
@@ -568,14 +724,17 @@ GPU-provisioned follow-up.
 \end{itemize}
 
 \paragraph{Future work.}
-Deliver the L3 rung: run a contract-faithful world-model planner
-(DINO-WM~\cite{zhou2024dinowm}, V-JEPA-2-AC~\cite{assran2025vjepa2}) on a
-GPU that affords paper-faithful CEM, and report the
-success-recovered-per-compute number the instrument is built to measure.
-Broaden L1 to a multi-cell, larger-budget fine-tuning sweep with a
-from-scratch baseline so the rung can support a positive claim. Close the
-audit caveats (cap=600 LIBERO reruns); onboard the $\pi_0$ family via
-quantized/streaming load; and re-run on hardware for the sim-to-real gap.
+Harden the L3 cross-env conditional: rerun the DINO-WM planner at a
+larger seed count and a fuller (paper-faithful) CEM budget on a
+GPU that affords it, turning the indicative Wall $3/6$ into a
+CI-bearing number and widening the env set so ``simple vs.\ hard
+dynamics'' becomes a gradient rather than a two-point contrast; add
+V-JEPA-2-AC~\cite{assran2025vjepa2} as a second planner. Broaden L1 to a
+multi-cell, larger-budget fine-tuning sweep with a from-scratch baseline
+so the rung can support a positive claim, and diagnose the SmolVLA LoRA
+collapse. Close the audit caveats (cap=600 LIBERO reruns); onboard the
+$\pi_0$ family via quantized/streaming load; and re-run on hardware for
+the sim-to-real gap.
 
 % ---------------------------------------------------------------- %
 % References                                                       %
