@@ -12,12 +12,12 @@
 # time well under the free-tier 30 s budget. The reproducibility pin
 # is documented in the Methodology tab and in pyproject.toml.
 
-gradio>=5,<6
-pandas>=2.2,<3.0
-pyarrow>=18.0
-huggingface-hub>=0.30
-scipy>=1.13,<2.0
-numpy>=2.0,<3.0
+gradio>=6.17.3,<7
+pandas>=3.0.3,<4.0
+pyarrow>=24.0.0
+huggingface-hub>=1.18.0
+scipy>=1.17.1,<2.0
+numpy>=2.4.6,<3.0
 
 # Pull embodimetry (this project's library code — RESULT_SCHEMA,
 # stats.wilson_ci, leaderboard_filter, etc.) from GitHub. Must point at a
