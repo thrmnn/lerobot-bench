@@ -35,6 +35,27 @@ A public, reproducible **instrument** for embodied-AI policies. v1 is a multi-se
 
 </div>
 
+---
+
+## ▶ Try it / See it
+
+**Run a real eval cell live — no GPU, no login, ~2 min.** The notebook evaluates the two weights-free floors (`no_op` + `random`) on PushT in your own runtime and prints a real success rate with a Wilson 95% CI — the same `run_cell_from_specs` + `wilson_ci` API the leaderboard uses.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/thrmnn/embodimetry/blob/main/notebooks/try_embodimetry.ipynb) &nbsp; [**`notebooks/try_embodimetry.ipynb`**](notebooks/try_embodimetry.ipynb) &nbsp;·&nbsp; zero-GPU read: [`examples/read_results.py`](examples/read_results.py) &nbsp;·&nbsp; 🤗 hosted Space _(deploying — see [Live demo](#live-demo))_
+
+**See it.** Real rollouts from v1 — a success and a failure, scored under one contract:
+
+<div align="center">
+
+| Diffusion × pusht ✓ | ACT × aloha ✓ | ACT × aloha ✗ |
+|:---:|:---:|:---:|
+| <img src="docs/assets/gifs/dp-pusht.gif" width="220" alt="Diffusion Policy solving the PushT task"> | <img src="docs/assets/gifs/aloha-success.gif" width="220" alt="ACT solving the Aloha transfer-cube task"> | <img src="docs/assets/gifs/act-aloha-fail.gif" width="220" alt="ACT failing the Aloha transfer-cube task"> |
+| block pushed into the goal | cube transferred between arms | grasp slips — no transfer |
+
+</div>
+
+---
+
 > **What it is.** Embodimetry is an instrument for *measuring embodied intelligence* under a single, auditable eval contract. Every leaderboard number is a binary-outcome estimate with a confidence interval, anchored to a pinned `lerobot` release and per-policy checkpoint SHAs, and reproducible from a seed triple. v1 measures pretrained policies zero-shot; the same contract is designed to carry up the [capability ladder](#capability-ladder) — fine-tuning, classical control, world-model MPC, and ultimately safety guarantees.
 
 **Status: v1 finalized** (dataset version `v1.0.0`, with the v1.0.1 methodology audit folded into framing). Sweep complete — **22 cells (18 published) × 5 seeds = 110 cell-seed runs dispatched, 0 failures** across 6 policies × 6 envs (a cell is one `(policy, env)` pair). The pi0 family and `xvla_libero` are deferred to v1.1 (see [v1 scope](#v1-scope)).
