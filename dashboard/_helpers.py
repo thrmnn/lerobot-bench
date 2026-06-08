@@ -1972,6 +1972,25 @@ _ENV_CONTEXT: dict[str, dict[str, str]] = {
             "AlohaTransferCube env."
         ),
     },
+    "aloha_insertion": {
+        "task": (
+            "Bimanual peg insertion: one arm picks up a socket and the "
+            "other picks up a peg, then the two arms cooperate to insert "
+            "the peg into the socket. Success requires a completed "
+            "insertion (graded reward reaches its top rung)."
+        ),
+        "obs": "480x640 top-camera RGB + 14-D joint state (two 7-DoF arms).",
+        "discriminates": (
+            "Fine bimanual alignment under contact -- tighter tolerance "
+            "than the cube hand-off; both arms must converge on the same "
+            "mating pose."
+        ),
+        "source": (
+            'Zhao et al. 2023, "Learning Fine-Grained Bimanual '
+            'Manipulation with Low-Cost Hardware" (RSS 2023); gym-aloha '
+            "AlohaInsertion env. Expansion axis -- off the published v1 set."
+        ),
+    },
     "libero_spatial": {
         "task": (
             "Pick-and-place where the target object's identity is fixed "

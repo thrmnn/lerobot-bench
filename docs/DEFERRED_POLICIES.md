@@ -118,3 +118,41 @@ unresolved issue is run down.
   action-layout mismatch).
 - Re-run the xvla × LIBERO cells under the same N=5×50 contract and
   publish the row alongside the v1.1 dataset.
+
+---
+
+## vqbet_pusht (config-schema mismatch)
+
+Investigated 2026-06-08 during the matrix-expansion pass as the *second*
+vision policy on the shared `pusht` env — the most valuable possible
+addition (a real cross-architecture head-to-head vs `diffusion_policy`
+under the identical 3×96×96 image + (2,) agent-pos contract and
+coverage > 0.95 success rule). Hub eval_info reports `pc_success = 57.0`.
+
+**Blocker (genuine, reproduced on CPU):** the Hub `config.json` for
+`lerobot/vqbet_pusht` (revision `15c2d0af889c401c7e5db7a07499d3b498afc276`)
+carries a field — `mlp_hidden_dim: 1024` — that the pinned
+`lerobot==0.5.1` `VQBeTConfig` dataclass does **not** declare. draccus
+rejects the unknown field at `PreTrainedConfig.from_pretrained`:
+
+```
+draccus.utils.DecodingError: The fields `mlp_hidden_dim` are not valid for VQBeTConfig
+```
+
+So the spec **cannot run today** under the pinned dependency, and per the
+explicit-not-silent contract it is left out of `configs/policies.yaml`
+rather than added as a non-runnable row. (`mlp_hidden_dim=1024` happens to
+match the 0.5.1 default, so the value is benign — only the schema is
+stale.)
+
+**v1.1 onboarding (low effort, isolated):** add a config-key allowlist
+filter in `eval._load_pretrained_policy` that drops Hub config keys not
+present in the target `*Config` dataclass before draccus parse (the same
+class of Hub-JSON wiring fix as the xvla loader patches). Then re-lock the
+SHA, smoke-load on CPU, and run `vqbet_pusht × pusht` under the N=5×50
+contract for the diffusion-vs-VQ-BeT head-to-head. Locked SHA preserved
+here so onboarding needs no fresh lock-in:
+
+| Policy      | Repo ID              | Revision SHA (locked 2026-06-08)           | License     |
+|-------------|----------------------|--------------------------------------------|-------------|
+| vqbet_pusht | `lerobot/vqbet_pusht`| `15c2d0af889c401c7e5db7a07499d3b498afc276` | apache-2.0  |

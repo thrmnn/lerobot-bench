@@ -84,6 +84,9 @@ def test_runnable_includes_locked_pretrained_policies() -> None:
         "classical_pusht",
         "diffusion_policy",
         "act",
+        # Expansion axis (gated off V1_POLICIES) — added 2026-06-08.
+        "act_insertion",
+        "pi05_libero",
         "pi05_libero_finetuned_v044",
         "pi0_libero_finetuned_v044",
         "pi0fast_libero",
@@ -403,3 +406,60 @@ policies:
     )
     with pytest.raises(ValueError, match="must be a mapping"):
         PolicyRegistry.from_yaml(yaml)
+
+
+# --------------------------------------------------------------------- #
+# Expansion-axis policies (added 2026-06-08). Gated off V1_POLICIES;     #
+# each pins a Hub SHA locked via HfApi().model_info(repo_id).sha.        #
+# --------------------------------------------------------------------- #
+
+
+_EXPANSION_LOCKED = {
+    "act_insertion": (
+        "lerobot/act_aloha_sim_insertion_human",
+        "33259aa86eb45fdf85350280044a33d9d50e40c3",
+        ("aloha_insertion",),
+    ),
+    "pi05_libero": (
+        "lerobot/pi05-libero",
+        "10522ae373a9ce84d263b808a4ecf5af8f1944fa",
+        ("libero_spatial", "libero_object", "libero_goal", "libero_10"),
+    ),
+}
+
+
+@pytest.mark.parametrize("policy_name", sorted(_EXPANSION_LOCKED))
+def test_expansion_policy_loads_with_locked_sha(policy_name: str) -> None:
+    registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    spec = registry.get(policy_name)
+    repo_id, sha, env_compat = _EXPANSION_LOCKED[policy_name]
+    assert spec.is_baseline is False
+    assert spec.repo_id == repo_id
+    assert spec.revision_sha == sha
+    assert spec.env_compat == env_compat
+    assert spec.is_runnable() is True
+    spec.assert_runnable()  # does not raise
+
+
+def test_baselines_cover_aloha_insertion() -> None:
+    """no_op + random extend to the new aloha_insertion env for a reference floor."""
+    registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    names = {p.name for p in registry.supporting("aloha_insertion")}
+    assert {"no_op", "random", "act_insertion"} <= names
+    # The transfer-cube ACT checkpoint must NOT bleed onto the insertion env.
+    assert "act" not in names
+
+
+def test_pi05_libero_matches_finetuned_v044_env_compat() -> None:
+    """The second pi05 checkpoint compares on the same 4 LIBERO suites."""
+    registry = PolicyRegistry.from_yaml(DEFAULT_POLICIES_YAML)
+    a = registry.get("pi05_libero")
+    b = registry.get("pi05_libero_finetuned_v044")
+    assert set(a.env_compat) == set(b.env_compat)
+
+
+def test_expansion_policies_gated_off_v1() -> None:
+    """None of the new expansion policies leak into the frozen v1 leaderboard."""
+    from embodimetry.leaderboard_filter import V1_POLICIES
+
+    assert set(_EXPANSION_LOCKED).isdisjoint(V1_POLICIES)

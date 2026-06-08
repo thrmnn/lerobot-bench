@@ -40,6 +40,21 @@ def test_by_family_groups_correctly() -> None:
     assert {s.name for s in pusht_family} == {"pusht", "pusht_state"}
     aloha_family = registry.by_family("aloha")
     assert all(s.family == "aloha" for s in aloha_family)
+    # Expansion axis (2026-06-08): peg-insertion joins transfer-cube.
+    assert {s.name for s in aloha_family} == {"aloha_transfer_cube", "aloha_insertion"}
+
+
+def test_aloha_insertion_spec() -> None:
+    registry = EnvRegistry.from_yaml(DEFAULT_ENVS_YAML)
+    ins = registry.get("aloha_insertion")
+    assert ins.family == "aloha"
+    assert ins.gym_id == "gym_aloha/AlohaInsertion-v0"
+    assert ins.max_steps == 400
+    assert ins.success_threshold == pytest.approx(1.0)
+    # Same canonical reward==4 task-complete rule as transfer_cube.
+    canonical = ins.with_criterion("canonical")
+    assert canonical.success_metric == "sticky_reward_eq"
+    assert canonical.strict_reward_value == pytest.approx(4.0)
 
 
 def test_get_unknown_env_lists_available(tmp_path: Path) -> None:

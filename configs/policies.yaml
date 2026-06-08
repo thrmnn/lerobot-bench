@@ -18,6 +18,7 @@ policies:
     env_compat:
       - pusht
       - aloha_transfer_cube
+      - aloha_insertion
       - libero_spatial
       - libero_object
       - libero_goal
@@ -31,6 +32,7 @@ policies:
     env_compat:
       - pusht
       - aloha_transfer_cube
+      - aloha_insertion
       - libero_spatial
       - libero_object
       - libero_goal
@@ -108,6 +110,33 @@ policies:
       the paper is acknowledged on the model card and attributed to gym-aloha
       success heuristics.
 
+  # Expansion axis (gated off V1_POLICIES). Same ACT architecture as `act`
+  # above, but the peg-insertion task checkpoint, evaluated on the new
+  # `aloha_insertion` env. NOT a cross-policy head-to-head (only baselines
+  # share that env) — it widens the aloha family to a second task and lets
+  # us check whether the ACT normalization-fix finding generalizes off
+  # transfer_cube. type=act (supported). SHA locked 2026-06-08 via
+  # HfApi().model_info(repo_id).sha.
+  - name: act_insertion
+    is_baseline: false
+    env_compat: [aloha_insertion]
+    repo_id: lerobot/act_aloha_sim_insertion_human
+    revision_sha: 33259aa86eb45fdf85350280044a33d9d50e40c3
+    fp_precision: fp32
+    license: apache-2.0
+    notes: >-
+      ACT Aloha sim peg-insertion (human-teleop data) checkpoint (~456 DL).
+      Second aloha task on the expansion axis. Gated off V1_POLICIES.
+    paper_reported_success:
+      aloha_insertion: 0.83
+    paper_reported_notes: >-
+      LeRobot Hub eval_info.json for `lerobot/act_aloha_sim_insertion_human`
+      (revision pinned in this file): pc_success = 83.0 (avg_max_reward 3.55)
+      on `gym-aloha` AlohaInsertion. Zhao et al. 2023 Table I reports the
+      `Insertion (sim) / Insertion` subtask separately (scripted | human);
+      we score the canonical `reward == 4` (peg inserted) rule. Our re-run
+      uses 5 seeds x 50 episodes per cell.
+
   # ------------------------------------------------------------------
   # VLA libero policies — 5 entries, all libero suites compatible.
   # SHAs locked 2026-05-03 from huggingface_hub.HfApi().model_info(repo_id).sha.
@@ -128,6 +157,30 @@ policies:
     fp_precision: bf16
     license: gemma
     notes: "Pi0.5 LIBERO finetune (~17.5k DL). Gemma license — review terms before redistribution."
+
+  # Expansion axis (gated off V1_POLICIES). A SECOND pi05 LIBERO checkpoint
+  # (`lerobot/pi05-libero`) — identical input-feature contract to
+  # pi05_libero_finetuned_v044 (image/image2/state/empty_camera_0), so it
+  # runs through the same loader path. The cross-checkpoint comparison
+  # (same architecture, different finetune run / data version) on all 4
+  # shared LIBERO suites is the value. SHA locked 2026-06-08 via
+  # HfApi().model_info(repo_id).sha. License unspecified on the Hub card;
+  # pi05 derives from Gemma — treat as gemma/restricted until clarified.
+  - name: pi05_libero
+    is_baseline: false
+    env_compat:
+      - libero_spatial
+      - libero_object
+      - libero_goal
+      - libero_10
+    repo_id: lerobot/pi05-libero
+    revision_sha: 10522ae373a9ce84d263b808a4ecf5af8f1944fa
+    fp_precision: bf16
+    notes: >-
+      Pi0.5 LIBERO checkpoint (~1.2k DL). Second pi05 variant for a
+      cross-checkpoint comparison vs pi05_libero_finetuned_v044 on the
+      shared LIBERO suites. License unspecified on Hub card; pi05 derives
+      from Gemma — treat as restricted. Gated off V1_POLICIES.
 
   - name: pi0_libero_finetuned_v044
     is_baseline: false

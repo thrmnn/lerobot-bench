@@ -740,6 +740,58 @@ def test_load_policy_pretrained_calls_lerobot_factory(monkeypatch: pytest.Monkey
     assert out.dtype == np.float32
 
 
+@pytest.mark.parametrize(
+    ("policy_name", "expected_repo", "expected_sha"),
+    [
+        (
+            "act_insertion",
+            "lerobot/act_aloha_sim_insertion_human",
+            "33259aa86eb45fdf85350280044a33d9d50e40c3",
+        ),
+        (
+            "pi05_libero",
+            "lerobot/pi05-libero",
+            "10522ae373a9ce84d263b808a4ecf5af8f1944fa",
+        ),
+    ],
+)
+def test_load_policy_expansion_specs_forward_locked_sha(
+    policy_name: str,
+    expected_repo: str,
+    expected_sha: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each new expansion policy resolves from the shipped YAML and forwards
+    its pinned Hub SHA to the loader verbatim (CI-safe: the lerobot
+    ``from_pretrained`` call is monkeypatched out, so no network/GPU)."""
+    from pathlib import Path
+
+    from embodimetry import eval as eval_mod
+    from embodimetry.policies import PolicyRegistry
+
+    repo_root = Path(__file__).resolve().parents[1]
+    spec = PolicyRegistry.from_yaml(repo_root / "configs" / "policies.yaml").get(policy_name)
+    assert spec.repo_id == expected_repo
+    assert spec.revision_sha == expected_sha
+
+    captured: dict[str, Any] = {}
+
+    class _SentinelAdapter:
+        def __call__(self, obs: dict[str, Any]) -> NDArray[np.float32]:
+            return np.zeros((2,), dtype=np.float32)
+
+        def reset(self) -> None:
+            return None
+
+    def _fake_inner(*, repo_id: str, revision: str, action_shape: Any, device: str) -> Any:
+        captured.update({"repo_id": repo_id, "revision": revision})
+        return _SentinelAdapter()
+
+    monkeypatch.setattr(eval_mod, "_load_pretrained_policy", _fake_inner)
+    load_policy(spec, action_shape=(2,), device="cpu")
+    assert captured == {"repo_id": expected_repo, "revision": expected_sha}
+
+
 # --------------------------------------------------------------------- #
 # _LerobotPolicyAdapter unit tests                                      #
 #                                                                       #
