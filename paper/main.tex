@@ -1,4 +1,6 @@
 % embodimetry --- 4-page arXiv writeup (cs.RO primary, cs.LG secondary).
+% Capability-Ladder Audit framing: L0 pretrained / L1 fine-tune / L2 classical
+% on ONE seed+Wilson-CI+MDE contract; L3 world-model is the parked aspiration.
 
 \documentclass[10pt]{article}
 
@@ -26,8 +28,13 @@
     urlcolor=blue!50!black,
 }
 
-\title{\vspace{-1.5ex}embodimetry: a multi-policy reproducible
-evaluation suite for pretrained LeRobot policies\vspace{-0.5ex}}
+% \todo marks a number not yet pinned to an in-tree parquet/JSON value.
+% Render it visibly so a human resolves it before submission.
+\newcommand{\todo}[1]{\textcolor{red}{[\textbf{TODO:} #1]}}
+
+\title{\vspace{-1.5ex}embodimetry: a Capability-Ladder Audit ---
+measuring pretrained, fine-tuned, and classical robot policies on one
+reproducible eval contract\vspace{-0.5ex}}
 \author{Th\'eo Hermann\\
 \texttt{thermann.ai@gmail.com} \quad
 \texttt{https://github.com/thrmnn/embodimetry}}
@@ -42,39 +49,38 @@ evaluation suite for pretrained LeRobot policies\vspace{-0.5ex}}
 % ---------------------------------------------------------------- %
 
 \begin{abstract}
-Reported success rates for pretrained LeRobot~\cite{cadene2024lerobot}
-policies live in self-reported tables across heterogeneous protocols,
-with no shared seed accounting or confidence intervals. We introduce
-\emph{embodimetry}, a public reproducible evaluation suite that runs
-a fixed roster of six policies --- four learned (Diffusion Policy, ACT,
-SmolVLA, XVLA) and two weights-free floor baselines (no-op,
-uniform-random) --- on six LeRobot sim envs (PushT, Aloha-transfer-cube,
-and the four LIBERO suites~\cite{liu2023libero}), 22~runnable
-\textit{(policy, env)} cells after the checkpoint-availability filter.
-Each cell runs a multi-seed contract (5~seeds $\times$ 50~episodes,
-$N{=}250$ binary outcomes) with Wilson and bootstrap 95\% confidence
-intervals plus paired comparisons under explicit
-minimum-detectable-effect (MDE) bounds, and every entry is pinned to a
-fixed revision SHA so a parquet row is replayable bit-for-bit. The
-headline finding is a bug we caught in our \emph{own} harness: an early
-build silently skipped dataset normalization on \texttt{observation.images.top},
-feeding ACT un-normalized images and pinning ACT on Aloha-transfer-cube at
-0.016~[0.006, 0.040] --- below the env's random floor. After we fixed the
-normalization (PR~\#51) the same checkpoint reads 0.824~[0.772, 0.866]; a
-controlled $2{\times}2$ ablation (normalization $\times$ inference settings)
-shows the recovery is entirely the norm fix, while temporal ensembling is a
-wash. The lesson is that the harness itself, not the architecture, was the
-load-bearing variable, and that an eval suite must be audited as carefully as
-the policies it scores. SmolVLA on LIBERO-10 measures
-$\hat{p}{=}0.252$~[0.202, 0.309] under our v1 default protocol vs.\ the
-0.71 reported~\cite{shukor2025smolvla}, but a v1.0.1 audit bounds the
-gap by scope mismatch (the paper averages 10~tasks $\times$ 10~trials; we
-ran \texttt{task\_id=0} $\times$ 5~seeds $\times$ 50~episodes, and
-74.8\% of failed \texttt{libero\_10} episodes hit the 520-step cap vs.\
-canonical LIBERO's 600). These numbers are real for the scope measured;
-the audit constrains what they mean. The implication: single-seed
-self-reported numbers should not be compared head-to-head without
-re-running under a shared protocol.
+Robot-policy success rates are reported per paradigm --- pretrained
+imitation, fine-tuning, classical control, world-model planning --- on
+incompatible protocols, so the paradigms cannot be put on one axis. We
+introduce \emph{embodimetry}, a \emph{Capability-Ladder Audit}: a single
+seed / Wilson-CI / minimum-detectable-effect (MDE) contract that scores
+every paradigm as the \emph{same} \texttt{PolicyCallable} on shared
+LeRobot~\cite{cadene2024lerobot} tasks, a neutral cross-paradigm
+yardstick rather than another per-method leaderboard. Each cell runs
+5~seeds $\times$ 50~episodes ($N{=}250$ binary outcomes) with Wilson and
+bootstrap 95\% CIs, paired comparisons bounded by an explicit MDE, and a
+fixed revision SHA so any parquet row replays bit-for-bit. We instrument
+three rungs on the identical contract. \textbf{L0} (pretrained
+Diffusion Policy on PushT) scores $0.816$~[0.739, 0.874].
+\textbf{L1} (continued fine-tuning of an already-converged ACT on
+Aloha-transfer-cube) moves $0.824$~[0.772, 0.866] to $0.864$~[0.816,
+0.901] --- a $+0.040$ shift whose CIs \emph{overlap} (Cohen's
+$h{=}0.11$, below the $N{=}250$ MDE): the honest result of fine-tuning a
+near-ceiling policy on its own data, reported as within noise, not as an
+improvement. \textbf{L2} (a competent scripted PushT controller) clears
+the strict success bar on only $0.012$~[0.004, 0.035] of episodes
+despite a mean rollout coverage near $0.50$ --- a quantitative statement
+that learning buys the last fraction of precision a hand-tuned
+controller cannot. The \textbf{L3} rung --- a zero-training world-model
+planner that recovers a target fraction of a learned policy's success at
+${\sim}1/100$th the compute --- is the north-star the instrument is built
+to measure and is stated as future work, not a delivered number:
+paper-faithful CEM planning is infeasible on our single 8\,GB GPU and is
+compute-parked. As a secondary proof that the audit machinery bites, the
+contract caught our own normalization bug ($0.016 \to 0.824$ on
+ACT$\times$aloha). The contribution is the contract: one statistical
+spine under which pretrained, fine-tuned, and classical policies become
+comparable, with overlapping CIs called overlapping.
 \end{abstract}
 
 % ---------------------------------------------------------------- %
@@ -83,38 +89,51 @@ re-running under a shared protocol.
 
 \section{Introduction}
 
-LeRobot~\cite{cadene2024lerobot} ships pretrained checkpoints for
-Diffusion Policy~\cite{chi2023diffusion}, ACT~\cite{zhao2023learning},
-SmolVLA~\cite{shukor2025smolvla}, XVLA~\cite{bu2025xvla}, and the
-$\pi_0$ family~\cite{black2024pi0} across simulated manipulation envs
-(PushT, Aloha, LIBERO). Individual policy papers report success rates
-on these envs, but the protocols differ in seed counts, episode
-budgets, success thresholds, and how confidence intervals (if any) are
-derived. The result is a set of numbers in PDFs that cannot be trusted
-head-to-head --- a problem documented repeatedly in adjacent
-fields~\cite{henderson2018deep,agarwal2021deep}.
+Robot control is pursued along a ladder of paradigms with increasing
+autonomy and decreasing supervision: \textbf{L0} zero-shot evaluation of
+a pretrained policy, \textbf{L1} fine-tuning that policy on a small demo
+budget, \textbf{L2} hand-engineered classical control, and \textbf{L3}
+planning through a learned world model. Each rung has its own literature
+and its own way of reporting success, so a Diffusion Policy
+number~\cite{chi2023diffusion}, an ACT fine-tuning
+number~\cite{zhao2023learning}, a scripted-controller baseline, and a
+world-model planner~\cite{zhou2024dinowm,assran2025vjepa2} are never
+measured on a common axis. The protocols differ in seed counts, episode
+budgets, success thresholds, and whether confidence intervals are
+reported at all --- a reproducibility gap documented repeatedly in
+adjacent fields~\cite{henderson2018deep,agarwal2021deep}.
 
-We fill that gap with \emph{embodimetry}, released across three
-surfaces: open data (a public Hugging Face
-Hub~\cite{huggingfacehub2024} dataset
-\texttt{thrmnn/embodimetry-v1} of every per-episode outcome plus an
-MP4 of every rollout, indexed by \textit{(policy, env, seed, episode)});
-open eval (a pinned, scriptable pipeline that re-derives any parquet row
-in $<1$\,h on commodity hardware, plus the resumable orchestrator that
-ran the full sweep); and open analysis (the notebook
+\emph{embodimetry} is a \emph{Capability-Ladder Audit}: it measures
+multiple paradigms as the \emph{same} \texttt{PolicyCallable}
+(\texttt{obs} $\to$ \texttt{action}) through \emph{one} seed /
+Wilson-CI / MDE contract on shared LeRobot~\cite{cadene2024lerobot}
+tasks. A pretrained Diffusion Policy, a fine-tuned ACT, and a scripted
+PushT controller all enter the same eval loop, are seeded identically,
+and are scored with the same Wilson interval, so their numbers sit on
+one yardstick instead of in four PDFs. The instrument is paradigm-neutral
+by construction: it has no stake in which rung wins.
+
+We release embodimetry across three surfaces: open data (a public
+Hugging Face Hub~\cite{huggingfacehub2024} dataset of every per-episode
+outcome plus an MP4 of every rollout); open eval (a pinned, scriptable
+pipeline that re-derives any parquet row in $<1$\,h on commodity
+hardware); and open analysis (the notebook
 \texttt{notebooks/01-write-finding.ipynb} that produces every table and
-figure here). The v1 roster is four learned policies and two
-weights-free baselines crossed with six envs; after filtering to cells
-with a public Hub checkpoint the matrix has 22~runnable cells. The
-$\pi_0$ family is deferred to v1.1 for a host-RAM reason detailed in the
-Limitations.
+figure here). The v1 leaderboard is four learned policies and two
+weights-free floor baselines crossed with six envs (22~runnable cells
+after the checkpoint-availability filter); the ladder rungs (L1, L2) are
+gated \emph{out} of that leaderboard and run as separate audit cells on
+the identical contract.
 
-The contribution is methodological as much as empirical: a seeding
-contract that makes per-cell numbers bit-reproducible at cell
-boundaries, a bootstrap protocol that makes CIs defensible at $N{=}250$
-binary outcomes per cell, and an MDE bound that prevents over-claiming
-on small deltas. The benchmark itself is the data; this paper is the
-defense.
+This paper reports three measured rungs and one aspiration. L0, L1, and
+L2 land on the same contract; their headline reading is that fine-tuning
+a near-ceiling policy moves the number only \emph{within noise}, and that
+a competent classical controller clears the strict success bar on
+${\sim}1\%$ of episodes despite getting halfway there on average --- a
+quantitative case that the value of learning is the last fraction of
+precision. The L3 world-model rung, the reason the instrument exists, is
+honestly compute-parked. The benchmark itself is the data; this paper is
+the defense.
 
 % ---------------------------------------------------------------- %
 % Related Work                                                     %
@@ -123,37 +142,30 @@ defense.
 \section{Related work}
 \label{sec:related}
 
-\paragraph{Robot-learning benchmarks.}
-PushT~\cite{chi2023diffusion} and the Aloha simulation
-suite~\cite{zhao2023learning} were each introduced as harnesses for a
-single policy class, and the success rates in those papers remain the de
-facto reference. LIBERO~\cite{liu2023libero} was designed as a benchmark
-from the outset, with four suites (\textit{spatial}, \textit{object},
-\textit{goal}, \textit{long}; the latter exposed in lerobot as
-\texttt{libero\_10}) targeting compositional generalisation.
-RLBench~\cite{james2020rlbench} and CALVIN~\cite{mees2022calvin} offer
-larger task taxonomies but host no pretrained LeRobot-compatible
-checkpoints; Open X-Embodiment~\cite{bohg2025open} provides
-cross-embodiment data but no evaluation protocol on these envs. None
-ship a multi-policy leaderboard with shared seed accounting, multi-seed
-CIs, and re-runnable rows for the LeRobot stack --- the gap we fill.
+\paragraph{Robot-learning benchmarks and statistical rigor.}
+PushT~\cite{chi2023diffusion}, the Aloha suite~\cite{zhao2023learning},
+and LIBERO~\cite{liu2023libero} are the de facto LeRobot references;
+RLBench~\cite{james2020rlbench}, CALVIN~\cite{mees2022calvin}, and Open
+X-Embodiment~\cite{bohg2025open} offer larger taxonomies but no
+pretrained LeRobot-compatible checkpoints or shared protocol. None ship a
+multi-policy leaderboard with shared seed accounting, multi-seed CIs, and
+re-runnable rows. We adopt the multi-seed, bootstrap-CI, MDE-bounded
+posture that Henderson et al.~\cite{henderson2018deep} and Agarwal et
+al.~\cite{agarwal2021deep} established for deep RL, and add weights-free
+no-op/uniform-random floor baselines on every cell (per the
+Gym~\cite{brockman2016openai} convention) since some envs admit non-zero
+random success.
 
-\paragraph{Statistical rigor in policy evaluation.}
-Henderson et al.~\cite{henderson2018deep} showed single-seed deep RL
-claims are largely irreproducible across seeds; Agarwal et
-al.~\cite{agarwal2021deep} formalised multi-seed reporting with
-stratified bootstrap CIs and per-task distributional summaries. We adopt
-the same posture --- multi-seed evaluation, bootstrap CIs, paired
-comparisons, and MDE bounds --- for the LeRobot manipulation matrix,
-where no comparable protocol has been published.
-
-\paragraph{Floor baselines.}
-A leaderboard without no-op and uniform-random baselines cannot separate
-``the env is hard'' from ``the policy is good'': some LeRobot envs admit
-non-zero success under random action. We therefore evaluate two
-weights-free baselines on every cell as a leaderboard floor, mirroring
-the OpenAI Gym~\cite{brockman2016openai} convention from which the
-LeRobot env API descends.
+\paragraph{Cross-paradigm and world-model planning.}
+The ladder we audit spans paradigms each benchmarked in isolation:
+classical control and learned policies are compared only informally, and
+world-model planners --- PlaNet~\cite{hafner2019planet},
+DINO-WM~\cite{zhou2024dinowm}, V-JEPA-2-AC~\cite{assran2025vjepa2} ---
+report success on their own tasks, never against a fine-tuned imitation
+policy under one shared seed/CI protocol. Our contribution is not a new
+policy class but the \emph{contract} that puts a pretrained, fine-tuned,
+and classical policy --- and, in future work, a world-model planner ---
+on the same Wilson interval.
 
 % ---------------------------------------------------------------- %
 % Methods                                                          %
@@ -191,34 +203,20 @@ cell restarts from $e{=}0$. The orchestrator
 (\texttt{checkpointing.plan\_resume}) classifies cells as completed,
 partial, or pending and re-runs partial cells from scratch.
 
-\paragraph{Per-cell confidence intervals.}
-For each cell we report $\hat{p} = (\text{successes})/N$ with two CIs we
-sanity-check against each other: (i)~the closed-form Wilson score
-interval~\cite{wilson1927probable}, recommended for proportions near 0
-or 1~\cite{agresti1998approximate}; and (ii)~a percentile-bootstrap 95\%
-interval~\cite{efron1979bootstrap,efron1993introduction} with
-$n_\text{resamples}{=}10{,}000$ and a seeded
-\texttt{numpy.random.Generator(42)}. The resampling unit is the
-\emph{episode}, not the seed: bootstrapping over 5 seeds gives wide CIs
-and conflates between-seed variance with the inferential question. The
-two intervals agree to within 1\,pp at $N{=}250$ across the $\hat{p}$
-grid; we show Wilson in the table and bootstrap in the forest plot.
-
-\paragraph{Paired comparisons.}
-For cell pairs with identical $(\text{seed\_idx}, e)$ pairings (same
-protocol, same env) we report a paired $\Delta\hat{p}$ two ways: a
-paired bootstrap (\texttt{stats.paired\_delta\_bootstrap}, same
-$n_\text{resamples}$ and seed) giving a pivotal CI on the
-difference~\cite{efron1993introduction}, and the two-sided Wilcoxon
-signed-rank test~\cite{wilcoxon1945individual} on per-episode
-differences (\texttt{zero\_method=`wilcox'}, which for binary outcomes
-reduces in the limit to McNemar's test~\cite{mcnemar1947note}). Effect
-size is Cohen's $h$~\cite{cohen1988statistical},
-$h = 2\arcsin(\sqrt{p_1}) - 2\arcsin(\sqrt{p_2})$, with bands
-$|h|<0.2$ small, $<0.5$ medium, $\geq 0.8$ large. When an env carries
-more than one ranking claim, the family-wise rate is controlled by
-Holm--Bonferroni~\cite{bonferroni1936teoria} at $\alpha{=}0.05$ over the
-$k$ within-env comparisons.
+\paragraph{Confidence intervals and paired comparisons.}
+Each cell reports $\hat{p}{=}\text{successes}/N$ with two mutually
+sanity-checked 95\% CIs: the closed-form Wilson score
+interval~\cite{wilson1927probable,agresti1998approximate} (shown in the
+tables) and a percentile bootstrap~\cite{efron1979bootstrap,efron1993introduction}
+($10{,}000$ resamples, seeded \texttt{Generator(42)}, resampling over
+\emph{episodes} not seeds); the two agree within 1\,pp at $N{=}250$. For
+two cells sharing $(\text{seed\_idx}, e)$ pairings we report a paired
+$\Delta\hat{p}$ with a pivotal bootstrap CI and the Wilcoxon
+signed-rank test~\cite{wilcoxon1945individual} (reducing to
+McNemar~\cite{mcnemar1947note} for binary outcomes), plus Cohen's
+$h{=}2\arcsin\!\sqrt{p_1}-2\arcsin\!\sqrt{p_2}$~\cite{cohen1988statistical}
+($|h|{<}0.2$ small). Multiple within-env ranking claims are controlled by
+Holm--Bonferroni~\cite{bonferroni1936teoria} at $\alpha{=}0.05$.
 
 \paragraph{Minimum detectable effect.}
 At $N{=}250$ the Wilson 95\% half-width at worst case $\hat{p}{=}0.5$ is
@@ -250,18 +248,51 @@ minimum ($N{=}50$) still exceeds budget, the policy is dropped from v1,
 not silently truncated.
 
 \paragraph{Sparse matrix and reproducibility.}
-A \textit{(policy, env)} cell is N/A only when no public Hub checkpoint
-exists at lock-in, reducing the $6\times6$ grid to 22~runnable cells;
-sparsity is a visible gap in Table~\ref{tab:leaderboard}, not silently
-skipped. Each parquet row carries its code commit SHA, the lerobot pin
-(\texttt{lerobot==0.5.1}), and the SHA-256 of its MP4. Every entry in
-\texttt{configs/policies.yaml} is locked to a fixed
-\texttt{revision\_sha} (resolved from
-\texttt{HfApi().model\_info(repo\_id).sha} at lock-in, 2026-05-03); the
-eval loop refuses to load a policy without one. A single row replays via
-\texttt{python scripts/run\_one.py --policy P --env E --seed S}. The
-full sweep took $\approx 25$~hours of GPU time on the reference hardware
-(1$\times$ RTX 4060 Laptop, WSL2, lerobot 0.5.1).
+A cell is N/A only when no public Hub checkpoint exists at lock-in,
+reducing the $6\times6$ grid to 22~runnable cells; sparsity is a visible
+gap, not silently skipped. Each parquet row carries its code SHA, the
+lerobot pin (\texttt{0.5.1}), and the SHA-256 of its MP4; every policy is
+locked to a fixed \texttt{revision\_sha} and the eval loop refuses to load
+one without it. A single row replays via \texttt{run\_one.py}. The full
+sweep took $\approx 25$\,h of GPU time on the reference hardware
+(1$\times$ RTX 4060 Laptop, WSL2).
+
+\paragraph{The same contract across rungs.}
+\label{sec:ladder-contract}
+Every rung enters the audit as a \texttt{PolicyCallable}: a function
+mapping an observation dict to an action, with no knowledge of which
+paradigm produced it. The L1 fine-tuned ACT, the L2 scripted controller,
+and the L0 pretrained checkpoints all run through the \emph{identical}
+\texttt{embodimetry.eval.run\_cell} loop --- the same per-cell seeding
+contract, the same $5{\times}50$ budget, and the same env-canonical
+success rule the corresponding zero-shot cell used. The only thing that
+varies between an L0 and L1 cell is the policy weights; between an L0 and
+L2 cell, the policy is weights-free scripted control. Ladder cells are
+gated out of \texttt{V1\_POLICIES} (the published leaderboard roster) and
+written to a separate \texttt{results/ladder/} tree, so an audit rung can
+never leak into the leaderboard or rewrite a canonical parquet row, while
+still being directly CI-comparable to it.
+
+\paragraph{L1 rung --- continued fine-tuning.}
+We full-fine-tune the pretrained ACT checkpoint on a small demo budget
+from \texttt{aloha\_transfer\_cube} and re-measure on the contract its
+zero-shot cell used (canonical \texttt{sticky\_reward\_eq}, reward${=}4$,
+$N{=}250$). ACT (${\sim}50$\,M params) full-FT peaks at ${\sim}2.8$\,GB
+VRAM and fits the 8\,GB budget; SmolVLA full-FT does not, so L1 is a
+single-cell ACT probe (see Limitations). Fine-tuning an already-converged
+policy on its own data is expected to yield a near-zero lift; we report
+the lift with its paired effect size and call it within noise when its CI
+straddles zero, rather than dropping the negative result.
+
+\paragraph{L2 rung --- classical-control quality.}
+The L2 cell runs a deterministic scripted state-feedback PushT controller
+through the same loop under the strict canonical PushT rule
+(\texttt{sticky\_is\_success}, $\text{coverage}>0.95$). Because a binary
+success rate alone hides \emph{how close} a competent controller gets, we
+additionally log the per-episode max-coverage
+$\max_t \text{info}[\text{coverage}]_t$ (summary JSON only, never the
+parquet schema): the gap between mean max-coverage and the strict $0.95$
+bar quantifies the last-mile precision that the binary rate discards.
 
 % ---------------------------------------------------------------- %
 % Results                                                          %
@@ -270,75 +301,117 @@ full sweep took $\approx 25$~hours of GPU time on the reference hardware
 \section{Results}
 \label{sec:results}
 
-\paragraph{Per-policy leaderboard.}
-Table~\ref{tab:leaderboard} reports pooled per-policy success rate
-$\hat{p}$ across supported envs with the Wilson 95\% interval; rows with
-$N{<}250$ are auto-downscoped (Section~\ref{sec:downscope}) and flagged
-$\dagger$. The full per-\textit{(policy, env)} breakdown is
-Table~\ref{tab:breakdown}.
+\paragraph{The ladder on one contract.}
+Table~\ref{tab:ladder} is the paper's center of gravity: three rungs ---
+pretrained (L0), fine-tuned (L1), classical (L2) --- read off the same
+Wilson interval. The reading is deliberately undramatic. Fine-tuning a
+near-ceiling policy moves it within noise; a competent scripted
+controller gets halfway to the goal on average but almost never clears
+the strict bar. Both statements are quantitative because all three rungs
+share one statistical spine.
 
 \begin{table}[t]
 \centering
 \small
-\begin{minipage}[t]{0.40\linewidth}
-\centering
-\begin{tabular}{lrrl}
+\begin{tabular}{llrll}
 \toprule
-Policy & $N$ & $\hat{p}$ & 95\% CI \\
+Rung & Policy $\times$ env & $N$ & $\hat{p}$ (Wilson 95\%) & Note \\
 \midrule
-ACT              & 250  & 0.824 & [0.772, 0.866] \\
-Diffusion        & 125$\dagger$ & 0.816 & [0.739, 0.874] \\
-SmolVLA          & 1000 & 0.621 & [0.591, 0.651] \\
-random           & 1500 & 0.009 & [0.005, 0.015] \\
-no-op            & 1500 & 0.000 & [0.000, 0.003] \\
+L0 & Diffusion $\times$ pusht$^\dagger$ & 125 & 0.816 [0.739, 0.874] & pretrained zero-shot \\
+L1 & ACT$_\text{zero-shot}$ $\times$ aloha & 250 & 0.824 [0.772, 0.866] & baseline \\
+L1 & ACT$_\text{fine-tuned}$ $\times$ aloha & 250 & 0.864 [0.816, 0.901] & $\Delta{=}{+}0.040$, CIs overlap \\
+L2 & classical $\times$ pusht & 250 & 0.012 [0.004, 0.035] & mean cov.\ ${\approx}0.50$ \\
+\midrule
+\multicolumn{5}{l}{\textit{L3 world-model planner --- compute-parked aspiration (\S\ref{sec:l3}), no number claimed.}} \\
 \bottomrule
 \end{tabular}
-\subcaption{Pooled per-policy.}
-\label{tab:leaderboard}
-\end{minipage}\hfill
-\begin{minipage}[t]{0.57\linewidth}
+\caption{The Capability-Ladder Audit: paradigms scored as the same
+\texttt{PolicyCallable} on one seed/Wilson-CI/MDE contract
+(\S\ref{sec:ladder-contract}). The L1 lift's Wilson intervals
+\emph{overlap} ([0.816, 0.866] in common; Cohen's $h{=}0.11$, below the
+$N{=}250$ MDE of $0.123$) --- it is reported as within noise, not an
+improvement. L2's $\hat{p}{=}0.012$ against a mean rollout coverage near
+$0.50$ is the ``learning buys the last fraction of precision'' result.
+$^\dagger$auto-downscoped ($n_\text{ep}{=}25$, $N{=}125$;
+\S\ref{sec:downscope}). Sources: \texttt{results/ladder/} (L1, L2) and
+\texttt{results/sweep-full/} (L0, ACT zero-shot).}
+\label{tab:ladder}
+\end{table}
+
+\paragraph{L0 / L1 --- pretrained and fine-tuned, side by side.}
+The pretrained Diffusion Policy reads $\hat{p}{=}0.816$~[0.739, 0.874] on
+PushT. On the L1 cell, fine-tuning the already-converged ACT checkpoint on
+its own \texttt{aloha\_transfer\_cube} demos moves the success rate from
+$0.824$~[0.772, 0.866] ($206/250$) to $0.864$~[0.816, 0.901] ($216/250$).
+The point estimate rises $+0.040$, but the two Wilson intervals overlap
+on $[0.816, 0.866]$, the paired effect size is small (Cohen's
+$h{=}0.11$), and $|\Delta\hat{p}|{=}0.040$ is below the $N{=}250$ MDE of
+$0.123$ (\S\ref{sec:downscope}). We therefore report L1 as a
+\emph{within-noise, non-significant shift}, not a fine-tuning win. This
+is the expected and honest outcome of continued fine-tuning a policy
+already near its ceiling on its own training distribution; the negative
+result is the finding, and it is kept on the leaderboard's axis rather
+than dropped.
+
+\paragraph{L2 --- a competent controller, and the last 50\% of precision.}
+The scripted PushT state-feedback controller is genuinely competent ---
+its mean per-episode max-coverage is near $0.50$%
+\todo{confirm exact mean/median max-coverage from
+\texttt{results/ladder/classical\_pusht\_l2.summary.json}; not committed
+to this tree}, i.e.\ on an average rollout it pushes the block roughly
+halfway to the target footprint --- yet it
+clears the strict canonical bar ($\text{coverage}>0.95$) on only
+$0.012$~[0.004, 0.035] of episodes ($3/250$). Read against the L0
+learned-policy rate on the same env, this is a quantitative statement of
+where the value of learning lives: not in getting started, but in the
+last fraction of precision a hand-tuned controller cannot close. The
+mean-coverage figure is logged in the L2 summary JSON; the binary
+$0.012$ is the contract-comparable number.
+
+\paragraph{Per-cell leaderboard.}
+Table~\ref{tab:leaderboard} gives the v1 learned-policy and floor-baseline
+cells on the same Wilson contract, for context around the ladder rungs.
+
+\begin{table}[t]
 \centering
+\small
 \begin{tabular}{llrrl}
 \toprule
 Policy & Env & $N$ & $\hat{p}$ & 95\% CI \\
 \midrule
 ACT       & aloha\_xfer    & 250 & 0.824 & [0.772, 0.866] \\
-Diffusion & pusht          & 125$\dagger$ & 0.816 & [0.739, 0.874] \\
+Diffusion & pusht$^\dagger$ & 125 & 0.816 & [0.739, 0.874] \\
 SmolVLA   & libero\_goal   & 250 & \textbf{0.928} & [0.889, 0.954] \\
 SmolVLA   & libero\_spat.  & 250 & 0.776 & [0.720, 0.823] \\
 SmolVLA   & libero\_obj.   & 250 & 0.528 & [0.466, 0.589] \\
 SmolVLA   & libero\_10     & 250 & \textbf{0.252} & [0.202, 0.309] \\
 random    & aloha\_xfer    & 250 & 0.052 & [0.031, 0.087] \\
-random    & other envs     & 1250 & 0.000 & [0.000, 0.003] \\
-no-op     & all envs       & 1500 & 0.000 & [0.000, 0.003] \\
+random/no-op & other envs  & 2750 & 0.000 & [0.000, 0.002] \\
 \bottomrule
 \end{tabular}
-\subcaption{Per-\textit{(policy, env)}.}
-\label{tab:breakdown}
-\end{minipage}
-\caption{Success rate with Wilson 95\% CI. (a) pooled per-policy across
-supported envs; (b) per-cell breakdown, $N{=}5\cdot n_\text{ep}$ binary
-outcomes per cell. $\dagger$: auto-downscoped
-diffusion$\times$pusht cell ($n_\text{ep}{=}25$, $N{=}125$;
-Section~\ref{sec:downscope}). \texttt{random} on
-\texttt{aloha\_transfer\_cube} is the only above-floor baseline (the
-\texttt{gym-aloha} heuristic is the most permissive in the matrix). MDE
-band at $N{=}250$, $\hat{p}{=}0.5$ is $0.123$; 22~runnable cells; XVLA
-deferred.}
+\caption{v1 per-cell success rate with Wilson 95\% CI, $N{=}5\cdot
+n_\text{ep}$ binary outcomes per cell. $^\dagger$auto-downscoped
+diffusion$\times$pusht ($n_\text{ep}{=}25$, $N{=}125$;
+\S\ref{sec:downscope}). Uniform-random clears floor only on
+\texttt{aloha\_transfer\_cube}, so the floor is per-cell. MDE band at
+$N{=}250$, $\hat{p}{=}0.5$ is $0.123$; 22~runnable cells; XVLA deferred.}
+\label{tab:leaderboard}
 \end{table}
 
-\paragraph{Headline: the harness, not the architecture, was the
-load-bearing variable --- a normalization bug we caught in our own eval.}
-The single most consequential v1 result began as ACT's apparent failure
-on \texttt{aloha\_transfer\_cube} ($\hat{p}{=}0.016$~[0.006, 0.040], below
-the env's random floor) and ended as a bug in \emph{our} harness. An early
+\paragraph{Proof the audit bites: a normalization bug we caught in our
+own eval.}
+A secondary but load-bearing result --- evidence the audit machinery
+actually catches errors rather than laundering them --- is a bug in
+\emph{our own} harness. ACT's apparent failure on
+\texttt{aloha\_transfer\_cube} ($\hat{p}{=}0.016$~[0.006, 0.040], below
+the env's random floor) turned out to be ours, not the architecture's. An early
 build of the eval loop silently failed to apply dataset normalization stats
 to \texttt{observation.images.top}, feeding ACT un-normalized image
 observations; PR~\#51 fixed it
 (\texttt{\_recover\_dataset\_stats\_from\_safetensors} now disambiguates
 buffer names against the config's \texttt{feature\_keys}). After the fix the
 same checkpoint reads the canonical \textbf{0.824~[0.772, 0.866]}
-(Table~\ref{tab:breakdown}). To attribute the recovery cleanly we ran a
+(Table~\ref{tab:leaderboard}). To attribute the recovery cleanly we ran a
 controlled $2{\times}2$ ablation crossing normalization \{buggy, fixed\}
 with inference \{Hub-default, paper-settings\}, each cell $N{=}250$
 (Table~\ref{tab:act-ablation}): the recovery is 100\% the normalization
@@ -368,103 +441,41 @@ regardless of inference settings, and once normalization is fixed the
 Hub-default and paper inference settings are statistically
 indistinguishable (overlapping Wilson CIs), so temporal ensembling is a
 wash. The fixed+Hub-default cell (0.812) is the same condition as the
-canonical leaderboard number 0.824~[0.772, 0.866] (Table~\ref{tab:breakdown})
+canonical leaderboard number 0.824~[0.772, 0.866] (Table~\ref{tab:leaderboard})
 measured in a separate $N{=}250$ run; the two agree within CI. Source:
 \texttt{scripts/probes/probe\_act\_normalization\_ablation.py}.}
 \label{tab:act-ablation}
 \end{table}
 
-\paragraph{SmolVLA on LIBERO under our protocol.}
-SmolVLA's pooled rate across the four LIBERO suites is
-0.621~[0.591, 0.651] under our protocol (\texttt{task\_id=0}, 5~seeds
-$\times$ 50~episodes, env-default caps), with a sharp per-suite
-gradient: 0.928~[0.889, 0.954] (\texttt{goal}) and 0.776~[0.720, 0.823]
-(\texttt{spatial}) against 0.528~[0.466, 0.589] (\texttt{object}) and
-0.252~[0.202, 0.309] (\texttt{libero\_10}). Published SmolVLA-0.45B
-numbers~\cite{shukor2025smolvla} are suite averages over 10~tasks
-$\times$ 10~trials (0.90/0.96/0.92/0.71 for the same suites): ours is a
-single-task probe at \texttt{task\_id=0}, not an apples-to-apples
-replication, and \texttt{libero\_10} is additionally a lower bound at
-the 520-step cap (74.8\% of failed episodes truncated; canonical LIBERO
-uses 600). The within-protocol measurement is tight (Wilson half-width
-$0.054$ at $N{=}250$); the replication claim defers to v1.1
-(Section~\ref{sec:results-audit}). On \texttt{libero\_object} the
-across-seed variance is $1{\times}10^{-4}$ (five seeds agree on
-$\hat{p}{=}0.528$ to within one episode) vs.\ $5.9{\times}10^{-3}$ on
-\texttt{spatial}, so this failure is consistent across seeds --- a
-structural cap on a subset of object configurations, not a sample-size
-problem.
-
-\paragraph{Baseline sanity.}
-The no-op baseline succeeds zero times across all six envs ($N{=}1500$,
-Wilson upper bound $0.003$). Uniform-random succeeds zero times on
-\texttt{pusht} and every LIBERO suite and is the only above-floor
-baseline on \texttt{aloha\_transfer\_cube} ($\hat{p}{=}0.052$,
-[0.031, 0.087]), where the \texttt{gym-aloha} heuristic is the most
-permissive in the matrix --- so the floor is not a single number across
-the leaderboard, which is why we run it on every cell.
-
+\paragraph{Leaderboard context and baseline sanity.}
+For context, SmolVLA's pooled rate across the four LIBERO suites is
+0.621~[0.591, 0.651] under our protocol (\texttt{task\_id=0}, env-default
+caps), with a sharp per-suite gradient (0.928 \texttt{goal} down to 0.252
+\texttt{libero\_10}); these are single-task envelopes, not suite
+replications of the paper's 10-task averages~\cite{shukor2025smolvla}
+(\S\ref{sec:results-audit}). The floor baselines confirm the bar is real:
+no-op succeeds zero times across all six envs ($N{=}1500$, Wilson upper
+$0.003$), and uniform-random is above floor only on
+\texttt{aloha\_transfer\_cube} ($0.052$~[0.031, 0.087]) --- so the floor
+is not one number, which is why we run it on every cell.
 
 \paragraph{Methodology caveats (v1.0.1 audit).}
 \label{sec:results-audit}
-A static audit against each policy's source paper and each env's
-canonical protocol surfaced three confirmed mismatches that constrain
-what the headline cells mean without invalidating the measurements.
-(1)~\emph{Task scope.} The SmolVLA paper~\cite{shukor2025smolvla}
-Table~2 averages 10~tasks $\times$ 10~trials per suite; v1 runs
-\texttt{task\_id=0} $\times$ 5~seeds $\times$ 50~episodes, so every
-SmolVLA paper-vs-measured delta is a single-task envelope, not a
-replication (PR~\#84). (2)~\emph{ACT normalization bug (self-caught,
-fixed in PR~\#51).} The headline paragraph and
-Table~\ref{tab:act-ablation} cover this in full: the $0.016 \to 0.824$
-recovery is entirely the normalization fix, temporal ensembling is a
-wash, and we had earlier mis-attributed the recovery to inference
-settings before the ablation corrected it. (3)~\emph{LIBERO
-step caps (probe resolved for \texttt{libero\_10}).} Canonical
-LIBERO~\cite{liu2023libero} uses 600~steps for all four suites; v1
-inherited lerobot's caps \{280,280,300,520\}, with failed-episode
-cap-hit rates 22.4\%, 47.2\%, 7.2\%, 74.8\%. Re-running
-\texttt{libero\_10} at cap=600 measures \textbf{0.256~[0.206, 0.314]}
-vs.\ 0.252 ($\Delta{=}+0.4$\,pp, within either half-width); cap-hits
-stay at 74.4\% at 600, so \texttt{libero\_10} is
-\emph{policy-bottlenecked}, not cap-bottlenecked. The other three suites
-remain provisional lower bounds pending cap=600 reruns in v1.1 (PR~\#90
-ships a selectable \texttt{--canonical} criterion). No patch rewrites any
-parquet row: v1 numbers stay valid for the scope they were measured
-under, and the audit constrains the comparative claim, not the
-measurement.
-
-\paragraph{XVLA deferral.}
-\texttt{xvla\_libero} ran across all four LIBERO suites (875~episodes)
-but is \textbf{deferred from the v1 leaderboard}. Two Hub-artifact wiring
-bugs (missing rotation-6D$\to$axis-angle post-processor and ImageNet
-normalization) were patched (PRs~\#71/\#74), yet a third unresolved issue
-still produced 0/40 in a post-patch sanity sweep (Wilson upper bound
-$0.088$ at $N{=}40$, consistent with a non-functional load);
-\texttt{docs/DEFERRED\_POLICIES.md} documents all three and XVLA returns
-in v1.1.
-
-\paragraph{Stats sanity and failure modes.}
-\label{sec:taxonomy}
-Wilson and pivotal-bootstrap 95\% CIs agree to within one half-width on
-every cell; no cell triggers the disagreement flag. The orchestrator
-advanced through 13 distinct \texttt{code\_sha} values across the 110
-\textit{(policy, env, seed)} cells, but the revision pins and
-\texttt{lerobot\_bench.stats} helpers were constant (only orchestrator
-and env-glue drifted) and every row carries its SHA for audit. For
-\emph{how} policies fail we rely on label-free signals on disk, not a
-labeled taxonomy: per-cell episode-length distributions and the cap-hit
-rate (fraction of failed episodes reaching \texttt{max\_steps}, a proxy
-for the timeout mode) come from the parquet, and every failed-episode
-MP4 is published for manual inspection. The \texttt{libero\_object}
-failures are consistent across seeds (across-seed variance
-$1{\times}10^{-4}$, above) with a low cap-hit rate (7.2\%), indicating an
-early structural failure on a fixed object subset rather than timeouts;
-an informal review of the rollouts is consistent with the policy acting
-on the wrong object, but we report no labeled per-mode counts. The full
-six-mode taxonomy (\texttt{docs/FAILURE\_TAXONOMY.md}) is specified with
-a single-labeler protocol and a \texttt{failure\_mode} schema field and
-deferred to v1.1; v1 makes no labeled-count claim.
+A static audit surfaced three mismatches that constrain comparative
+claims without invalidating any measurement. (1)~\emph{Task scope:} every
+SmolVLA cell is \texttt{task\_id=0}, so paper-vs-measured deltas are
+single-task envelopes, not replications. (2)~\emph{ACT normalization bug}
+(self-caught, PR~\#51): covered above and in Table~\ref{tab:act-ablation};
+the $0.016\to0.824$ recovery is entirely the norm fix, temporal ensembling
+a wash. (3)~\emph{LIBERO step caps:} v1 inherited lerobot caps shorter than
+canonical LIBERO's 600~\cite{liu2023libero}; a cap=600 probe on
+\texttt{libero\_10} reads 0.256~[0.206, 0.314] vs.\ 0.252 (within
+half-width, policy- not cap-bottlenecked), other suites pending v1.1. No
+patch rewrites a parquet row. We rely on label-free failure signals
+(episode-length and cap-hit distributions, plus every failed-episode MP4)
+rather than a labeled taxonomy, which is specified but deferred to v1.1.
+XVLA ran on LIBERO but is deferred from v1 over an unresolved
+Hub-artifact wiring bug (\texttt{docs/DEFERRED\_POLICIES.md}).
 
 % ---------------------------------------------------------------- %
 % Discussion                                                       %
@@ -472,24 +483,44 @@ deferred to v1.1; v1 makes no labeled-count claim.
 
 \section{Discussion}
 
-\paragraph{What the leaderboard says.}
-Three things, in order of confidence. First, the protocol works: every
-row is bit-replayable, Wilson and bootstrap CIs agree to within one
-half-width on every cell, and 110~cells dispatched with zero failures
-over 25~hours unattended. Second, harness correctness dominates:
-ACT$\times$aloha's $0.016\to0.824$ swing (Table~\ref{tab:act-ablation})
-dwarfs any cross-architecture difference in the matrix, while
-diffusion$\times$pusht measures $\hat{p}{=}0.816$ against the
-$0.654$ Hub-card reference~\cite{chi2023diffusion} ($+16.2$\,pp), an
-over-count consistent with our last-step success criterion being more
-permissive than the card's sticky-\texttt{any(is\_success)} rule
-(\texttt{docs/SUCCESS\_CRITERION\_AUDIT.md}). Third,
-SmolVLA$\times$\texttt{libero\_10}'s 0.252 vs.\ the paper's 0.71 is a
-scope mismatch (Section~\ref{sec:results-audit}), not a replication
-failure. The contribution we stand behind without qualification is the
-protocol itself: a single-PR onboarding path, a shared seed contract,
-and CI-vs-MDE bookkeeping that flags sub-threshold deltas as
-inconclusive.
+\paragraph{What the ladder says.}
+Three things, in order of confidence. First, the contract works as a
+cross-paradigm yardstick: pretrained, fine-tuned, and classical policies
+ran through one loop, were seeded identically, and are read off the same
+Wilson interval (Table~\ref{tab:ladder}); every row is bit-replayable and
+Wilson/bootstrap CIs agree within one half-width on every cell. Second,
+the measured rungs say something specific and undramatic: fine-tuning a
+near-ceiling policy moves it within noise ($+0.040$, overlapping CIs,
+$h{=}0.11$), so the L1 lift is a non-result we report as one rather than
+inflate; and a competent classical controller gets halfway to the goal on
+average but clears the strict bar on ${\sim}1\%$ of episodes
+($\hat{p}{=}0.012$), locating the value of learning in the last fraction
+of precision. Third, the machinery catches its own errors:
+ACT$\times$aloha's $0.016\to0.824$ recovery (Table~\ref{tab:act-ablation})
+was a normalization bug in the harness, not the architecture --- direct
+evidence that the audit bites. The contribution we stand behind without
+qualification is the contract: one seed/Wilson-CI/MDE spine under which
+paradigms become comparable, with sub-MDE deltas flagged inconclusive and
+overlapping CIs called overlapping.
+
+\subsection{The L3 world-model rung: aspiration, not result}
+\label{sec:l3}
+The reason embodimetry exists is the rung it does \emph{not} yet report.
+The north-star is a single defensible number: \emph{a zero-training
+world-model planner that recovers a target fraction of a learned policy's
+success at ${\sim}1/100$th the compute}, measured on the same contract as
+the L0--L2 rungs so the comparison is honest. Planners such as
+DINO-WM~\cite{zhou2024dinowm} and V-JEPA-2-AC~\cite{assran2025vjepa2}
+enter the audit as a \texttt{PolicyCallable} like any other policy, with
+the planner's sampling cost reported alongside its success rate. We claim
+no L3 number here: a paper-faithful CEM planning loop (horizon, sample,
+and optimization-iteration counts matching the source method) is
+infeasible on our single 8\,GB GPU --- on PushT it runs at roughly minutes
+per environment step, putting a $5{\times}50$ cell far outside any
+reasonable budget. The L3 rung is therefore \emph{compute-parked} and
+disclosed as a limitation, not quietly dropped: the instrument is built
+and contract-ready, and L3 is the gap it is designed to fill in a
+GPU-provisioned follow-up.
 
 \subsection{Limitations}
 
@@ -505,28 +536,55 @@ inconclusive.
     RAM during \texttt{from\_pretrained} cold load ($<4$\,GB peak VRAM),
     exceeding the 32\,GB v1 laptop's headroom; v1 compares four learned
     policies, not seven (v1.1 uses quantized/streaming load).
-    \item \textbf{Sparse matrix and episode budget.} Cross-policy
-    comparisons are valid only within shared envs (one block: the four
-    LIBERO suites). $N{=}250$ is a GPU-budget choice; headline claims
-    cite only deltas above the per-cell MDE.
+    \item \textbf{Single-GPU compute ceiling, and L3 parked.} The entire
+    audit runs on one 8\,GB RTX~4060 laptop. This caps the ladder: SmolVLA
+    full fine-tune does not fit, so L1 is a single ACT cell; and a
+    paper-faithful CEM world-model planner (L3) runs at minutes/step and is
+    compute-parked (\S\ref{sec:l3}). The L3 number --- the instrument's
+    reason for being --- is not delivered here, only made measurable.
+    \item \textbf{L1 is one cell, and the lift is within noise.} The
+    fine-tuning rung is ACT$\times$aloha alone, and its $+0.040$ shift has
+    overlapping Wilson CIs and $h{=}0.11$ (below the $N{=}250$ MDE). We
+    cannot claim fine-tuning helps from this cell; we can only show the
+    contract reads a near-ceiling continued-FT as the non-result it is. A
+    multi-cell L1 sweep with a larger demo budget and a from-scratch
+    baseline is needed to say anything stronger.
+    \item \textbf{SmolVLA single-task scope.} Every SmolVLA cell is
+    \texttt{task\_id=0} only; the paper~\cite{shukor2025smolvla} averages
+    10~tasks $\times$ 10~trials. Our SmolVLA numbers are single-task
+    envelopes, not suite replications, and the cross-paradigm comparison
+    should not lean on them.
+    \item \textbf{Sparse matrix, multi-comparison, and episode budget.}
+    Cross-policy comparisons are valid only within shared envs; the ladder
+    rungs sit on \emph{different} envs (PushT, aloha), so L0/L1/L2 are
+    same-contract but not same-task and must be read as paradigm
+    snapshots, not a head-to-head. With several pairwise claims in play we
+    control family-wise error by Holm--Bonferroni, but the matrix is too
+    sparse for a fully crossed comparison. $N{=}250$ is a GPU-budget
+    choice; claims cite only deltas above the per-cell MDE.
     \item \textbf{Harness bugs and protocol-vs-paper.} Our own
     normalization bug (PR~\#51) shows a harness can be the dominant error
-    source; the SmolVLA scope and LIBERO cap mismatches make those cells
-    protocol-vs-paper, not replication failures. Cross-policy paired tests
-    defer to v1.1 when XVLA returns.
+    source; the LIBERO cap mismatches make those cells protocol-vs-paper,
+    not replication failures. Cross-policy paired tests defer to v1.1 when
+    XVLA returns.
 \end{itemize}
 
 \paragraph{Future work.}
-Close the audit caveats (PR~\#90's \texttt{--canonical} cap=600 LIBERO
-reruns); onboard the $\pi_0$ family via quantized/streaming load; add
-remaining LIBERO task variants and new Hub policies; and re-run on
-hardware for the sim-to-real gap.
+Deliver the L3 rung: run a contract-faithful world-model planner
+(DINO-WM~\cite{zhou2024dinowm}, V-JEPA-2-AC~\cite{assran2025vjepa2}) on a
+GPU that affords paper-faithful CEM, and report the
+success-recovered-per-compute number the instrument is built to measure.
+Broaden L1 to a multi-cell, larger-budget fine-tuning sweep with a
+from-scratch baseline so the rung can support a positive claim. Close the
+audit caveats (cap=600 LIBERO reruns); onboard the $\pi_0$ family via
+quantized/streaming load; and re-run on hardware for the sim-to-real gap.
 
 % ---------------------------------------------------------------- %
 % References                                                       %
 % ---------------------------------------------------------------- %
 
-{\small
+{\footnotesize
+\setlength{\itemsep}{0pt}
 \bibliographystyle{plain}
 \bibliography{references}
 }
