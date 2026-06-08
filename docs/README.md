@@ -99,6 +99,10 @@ For anyone running, resuming, or publishing the full benchmark sweep.
   shapes; run once when the sim environment is first installed.
 - [`ORCHESTRATION.md`](ORCHESTRATION.md) — how the sweep is dispatched and
   scheduled across cells: the cell-seed run units, queueing, and resume logic.
+- [`ORCHESTRATION_PLAYBOOK.md`](ORCHESTRATION_PLAYBOOK.md) — the versioned
+  catalog of reusable multi-agent workflows (council, repro-audit, gpu-task,
+  prepublish-gate, …) grouped by phase of work, each with its proven phases
+  and the real failure it exists to prevent.
 - [`MONITORING.md`](MONITORING.md) — the operator dashboard (progress, RAM
   watchdog, and the Failures tab that pre-distinguishes timeouts before labels).
 
