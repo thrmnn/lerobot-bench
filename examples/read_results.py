@@ -158,6 +158,14 @@ def main() -> None:
             "instead (no GPU, no download)."
         )
     df = pd.read_parquet(args.results)
+    if "success" not in df.columns:
+        raise SystemExit(
+            f"[read-results] {args.results} has no per-episode 'success' column "
+            f"(columns: {list(df.columns)}). This looks like an *aggregated* "
+            "leaderboard parquet (e.g. examples/results-mini.parquet); the "
+            "--results deep-dive needs a per-episode parquet. Run with no "
+            "--results to print the aggregated table instead."
+        )
     _print_single_cell(df, args.policy, args.env)
 
 

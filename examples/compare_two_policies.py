@@ -18,7 +18,7 @@ Run it::
 
     python examples/compare_two_policies.py
     python examples/compare_two_policies.py --results results/sweep-full/results.parquet \\
-        --env libero_spatial --policy-a smolvla_libero --policy-b xvla_libero
+        --env libero_spatial --policy-a smolvla_libero --policy-b random
 
 With no parquet on disk it falls back to a **synthetic** sample (clearly
 labelled) so the API call path still runs. Point ``--results`` at a real
@@ -52,10 +52,12 @@ def _synthetic_sample() -> pd.DataFrame:
 
     Illustrative Bernoulli draws (policy A ~0.62, policy B ~0.52) over
     the contracted 5 seeds × 50 episodes. NOT a real benchmark result.
+    Both policies are in the v1 leaderboard set so the default run stays
+    consistent with the published public surface.
     """
     rng = np.random.default_rng(7)
     rows = []
-    for policy, p in (("smolvla_libero", 0.62), ("xvla_libero", 0.52)):
+    for policy, p in (("smolvla_libero", 0.62), ("random", 0.52)):
         for seed in range(5):
             for ep in range(50):
                 rows.append(
@@ -75,7 +77,16 @@ def load_results(results_path: Path | None) -> tuple[pd.DataFrame, bool]:
     candidates = [results_path] if results_path else list(_DEFAULT_PARQUET_CANDIDATES)
     for candidate in candidates:
         if candidate and candidate.exists():
-            return pd.read_parquet(candidate), True
+            df = pd.read_parquet(candidate)
+            missing = {"seed", "episode_index", "success"} - set(df.columns)
+            if missing:
+                raise SystemExit(
+                    f"[compare] {candidate} is missing per-episode columns {sorted(missing)} "
+                    f"(has: {list(df.columns)}). Paired comparison needs a per-episode "
+                    "parquet; an aggregated leaderboard view (e.g. examples/results-mini.parquet) "
+                    "won't work. Point --results at the full per-episode parquet."
+                )
+            return df, True
     return _synthetic_sample(), False
 
 
@@ -104,7 +115,7 @@ def main() -> None:
     parser.add_argument("--results", type=Path, default=None, help="Path to results.parquet.")
     parser.add_argument("--env", default="libero_spatial", help="Shared env name.")
     parser.add_argument("--policy-a", default="smolvla_libero", help="First policy.")
-    parser.add_argument("--policy-b", default="xvla_libero", help="Second policy.")
+    parser.add_argument("--policy-b", default="random", help="Second policy.")
     args = parser.parse_args()
 
     df, is_real = load_results(args.results)

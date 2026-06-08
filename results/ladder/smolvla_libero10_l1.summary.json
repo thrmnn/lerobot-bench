@@ -1,0 +1,103 @@
+{
+  "policy": "smolvla_finetuned",
+  "env": "libero_10",
+  "rung": "L1_finetune",
+  "result": "NEGATIVE_fine_tune_collapse",
+  "base_checkpoint": {
+    "repo_id": "lerobot/smolvla_libero",
+    "revision_sha": "31d453f7edd78c839a8bbc39744a292686daf0de"
+  },
+  "train_dataset": "lerobot/libero_10",
+  "rename_map": {
+    "observation.images.image": "observation.images.camera1",
+    "observation.images.wrist_image": "observation.images.camera2"
+  },
+  "vram_feasibility": {
+    "verdict": "FITS",
+    "peak_vram_mib_batch1": 1332,
+    "peak_vram_mib_batch8": 2764,
+    "peak_vram_mib_batch16": 4404,
+    "gpu_total_gb": 8.0,
+    "trainable_params": 742656,
+    "total_params": 450788832,
+    "note": "PR #166's bigger-GPU routing was unnecessary for the LoRA path; it fits 8 GB with ~2x headroom even at batch=16."
+  },
+  "data_wiring_fix": {
+    "rename_map": "libero_10 names its 2nd camera wrist_image (not image2); map image->camera1, wrist_image->camera2",
+    "use_imagenet_stats": "set false to match the published smolvla_libero train_config.json AND to avoid a KeyError: libero_10's cached stats.json predates the image-stat keys; SmolVLA uses VISUAL:IDENTITY so image stats are never consumed",
+    "verified": "single training step runs clean; loss converges (1e-4/3000: 0.166->0.058; 1e-5/1000: ~0.078)"
+  },
+  "finetune_runs": [
+    {
+      "lr": 0.0001,
+      "steps": 3000,
+      "batch_size": 16,
+      "lora_r": 16,
+      "final_loss": 0.058,
+      "train_min": 36.6,
+      "eval_seed0": "0/50",
+      "verdict": "collapse"
+    },
+    {
+      "lr": 1e-05,
+      "steps": 1000,
+      "batch_size": 16,
+      "lora_r": 16,
+      "final_loss": 0.078,
+      "train_min": 12.3,
+      "eval_seed0": "0/20",
+      "verdict": "collapse"
+    },
+    {
+      "lr": 0.0001,
+      "steps": 1000,
+      "batch_size": 16,
+      "lora_r": 16,
+      "eval_seed0": "0/15",
+      "verdict": "collapse"
+    },
+    {
+      "lr": 1e-05,
+      "steps": 1000,
+      "load": "adapter-direct (no merge)",
+      "eval_seed0": "0/15",
+      "verdict": "collapse"
+    }
+  ],
+  "diagnosis": {
+    "eval_path_control": "published zero-shot smolvla_libero through the IDENTICAL eval path scores 8/20 on seed0 (pooled 0.252 across 5 seeds) -> the eval path + merge are correct; the 0% is a genuine fine-tune regression, not an artifact.",
+    "action_stats": "fine-tuned actions are sane in magnitude (absmax ~0.86, comparable to zero-shot ~1.0) but shifted, notably the gripper dim (-0.99 zero-shot -> +0.57 fine-tuned) -> closed-loop grasping fails while BC loss stays low.",
+    "lr_ruled_out": "both an aggressive (1e-4) and a gentle (1e-5) LR collapse, so it is structural, not a hyperparameter-tuning miss.",
+    "image_orientation_ruled_out": "eval flips env images 180 to match the dataset orientation (LiberoProcessorStep / _libero_obs_to_batch), identically for zero-shot and fine-tuned.",
+    "remaining_hypothesis": "a subtle train-vs-closed-loop observation/action distribution gap that the already-marginal smolvla_libero checkpoint tolerates zero-shot but a light LoRA fine-tune destabilizes (low open-loop BC loss, 0 closed-loop success). Not resolvable within the local time box; would need the upstream author's exact training-eval matched pipeline / a longer LR-warmup + more steps sweep on a bigger GPU.",
+    "merge_ruled_out": "the LoRA adapter loaded directly via PeftModel (NO merge_and_unload) also scores 0/15 on seed0 -> the merge is correct; the collapse is intrinsic to the fine-tune."
+  },
+  "zero_shot": {
+    "source": "results/sweep-full/results.parquet (smolvla_libero x libero_10, v1_legacy cap=520)",
+    "successes": 63,
+    "n": 250,
+    "pooled_success": 0.252,
+    "wilson_ci_95": [
+      0.2022119351253892,
+      0.3092941814243512
+    ]
+  },
+  "lift": {
+    "delta_success": "negative (fine-tuned ~0.0 vs zero-shot 0.252)",
+    "read": "This is a fine-tuning COLLAPSE on the weak cell, not a lift and not an ordering inversion. A clean negative: the VRAM + data-wiring blockers PR #166 cited are both solved locally, but a working fine-tune needs more than the rename-map fix."
+  },
+  "contract": {
+    "n_seeds_attempted": 5,
+    "n_episodes_per_seed": 50,
+    "success_metric": "final_reward_threshold",
+    "success_threshold": 1.0,
+    "max_steps": 520,
+    "criterion": "v1_legacy",
+    "note": "full 5x50 re-measure aborted: a 0% policy makes every episode run the full 520-step cap (~20 min/seed, ~100 min total) which exceeds the time box; seed-0 partials (0/50 at 1e-4, 0/20 and 0/15 at the gentler recipes) are conclusive."
+  },
+  "time_box": {
+    "limit_min": 90,
+    "train_min_final_recipe": 36.6,
+    "note": "training is well within box; the open-loop fine-tune is cheap, but a *working* closed-loop fine-tune was not achieved locally."
+  }
+}

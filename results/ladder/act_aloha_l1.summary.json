@@ -1,0 +1,57 @@
+{
+  "policy": "act_finetuned",
+  "env": "aloha_transfer_cube",
+  "rung": "L1_finetune",
+  "base_checkpoint": {
+    "repo_id": "lerobot/act_aloha_sim_transfer_cube_human",
+    "revision_sha": "ba73b2766f1371cdc133ca4efb97eb090d744625"
+  },
+  "train_dataset": "lerobot/aloha_sim_transfer_cube_human",
+  "finetune_config": {
+    "method": "full_finetune",
+    "steps": 6000,
+    "batch_size": 8,
+    "n_demo_episodes": 50,
+    "lora": false
+  },
+  "contract": {
+    "n_seeds": 5,
+    "n_episodes_per_seed": 50,
+    "n_pooled": 250,
+    "success_metric": "sticky_reward_eq",
+    "strict_reward_value": 4.0,
+    "max_steps": 400,
+    "criterion": "canonical"
+  },
+  "zero_shot": {
+    "source": "results/sweep-full/results-act-rerun.parquet (corrected canonical re-run)",
+    "successes": 206,
+    "n": 250,
+    "pooled_success": 0.824,
+    "wilson_ci_95": [
+      0.7719933833943993,
+      0.8662002385325525
+    ]
+  },
+  "finetuned": {
+    "successes": 216,
+    "n": 250,
+    "pooled_success": 0.864,
+    "wilson_ci_95": [
+      0.8159642285705384,
+      0.901018729396778
+    ],
+    "errored_rows": 0
+  },
+  "lift": {
+    "delta_success": 0.040000000000000036,
+    "cohens_h": 0.11044458127756984,
+    "note": "fine-tuned minus corrected zero-shot. ACT is already converged on its own training data, so a near-zero lift is the expected, honest result for this cell."
+  },
+  "wall_clock_s": {
+    "train": 1353.8444197970093,
+    "eval": 1697.1951086629997,
+    "total": 3051.039528460009
+  },
+  "timestamp_utc": "2026-06-06T02:22:10.870631+00:00"
+}

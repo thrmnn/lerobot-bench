@@ -23,12 +23,12 @@ leaderboard (``classical_pusht`` is gated out of ``V1_POLICIES``).
 
 from __future__ import annotations
 
+import argparse
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-import gym_pusht  # noqa: F401  (registers gym_pusht/PushT-v0)
-import gymnasium as gym
 import numpy as np
 import pandas as pd
 
@@ -51,6 +51,18 @@ SUCCESS_THRESHOLD = 0.95  # coverage > 0.95 (sticky_is_success / env's is_succes
 
 
 def run() -> None:
+    # Deferred so importing this module (and ``--help``) never requires the
+    # sim deps; fail loud with an actionable message if they are missing.
+    try:
+        import gym_pusht  # noqa: F401  (registers gym_pusht/PushT-v0)
+        import gymnasium as gym
+    except ImportError as exc:
+        sys.exit(
+            f"missing sim runtime: {exc}\n"
+            "L2 classical control runs on the PushT sim env. Install the sim "
+            'extras: pip install -e ".[sim]" (pulls gym-pusht + gymnasium).'
+        )
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     env = gym.make(GYM_ID, obs_type="state")
     rows: list[dict[str, object]] = []
@@ -147,5 +159,14 @@ def run() -> None:
     print(f"max-coverage histogram {edges}: {hist}")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    argparse.ArgumentParser(
+        prog="run-ladder-l2-classical",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    ).parse_args()
     run()
+
+
+if __name__ == "__main__":
+    main()

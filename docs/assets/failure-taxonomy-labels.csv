@@ -1,0 +1,8 @@
+labeled_by,date_iso,artifact,policy,env,observed_mode,canonical_label,notes
+opus-4.8,2026-06-08,loops/act-aloha-fail.mp4,act,aloha_transfer_cube,grasp_miss,gripper_slip,right arm reaches the red cube but never secures a stable grasp; cube stays on the table near the gripper; arms do not complete the transfer; short clip (37 frames)
+opus-4.8,2026-06-08,rollouts/act-aloha-fail.png,act,aloha_transfer_cube,grasp_miss,gripper_slip,both grippers framing the red cube but cube unsecured on the table surface at the captured still
+opus-4.8,2026-06-08,loops/random-aloha.mp4,random,aloha_transfer_cube,never_contacts,drift,arms execute large erratic uncontrolled motions; red cube never approached or contacted; degenerate action sequence
+opus-4.8,2026-06-08,rollouts/random-pusht.png,random,pusht,wrong_final_pose,timeout,T-block displaced but left mis-oriented relative to the green goal-T; no convergence to the goal pose
+opus-4.8,2026-06-08,loops/smolvla-10-fail.mp4,smolvla_libero,libero_10,no_decisive_progress,timeout,arm hovers and moves over the cluttered LIBERO-10 table; scene state essentially unchanged across the clip; long-horizon task not advanced
+opus-4.8,2026-06-08,rollouts/smolvla-10-fail.png,smolvla_libero,libero_10,no_decisive_progress,timeout,gripper poised above the bin and object clutter but no object manipulated in the captured still
+opus-4.8,2026-06-08,rollouts/xvla-fail.png,xvla,libero_goal,unmeasurable,unmeasurable,arm retracted away from the objects; xvla scores 0/10 attributed to a Hub-artifact wiring bug (see MODEL_CARDS / DEFERRED_POLICIES) NOT a policy-level mode; excluded from the distribution

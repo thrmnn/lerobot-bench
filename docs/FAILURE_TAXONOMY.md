@@ -1,237 +1,259 @@
-# Failure taxonomy — labeling template
+# Failure taxonomy — labeled from real rollouts
 
-Status: TEMPLATE (filled in on Day 7 of the sweep timeline, after the
-full sweep produces real rollouts).
-Owner: researcher-writeup agent + the human.
-Source: `docs/DESIGN.md` § Failure modes (six modes).
+Status: **LABELED (small honest sample).** This is no longer a template.
+The distribution below is hand-labeled from the rollout artifacts that
+actually ship in this repo. The sample is small and *curated* (not a
+random draw over all failures), and the doc says so loudly — see
+[Method, sample size, and limitations](#method-sample-size-and-limitations).
+
+Owner: researcher + the human (sanity-check pass owed, see end).
+Figure: [`assets/fig-failure-taxonomy.svg`](assets/fig-failure-taxonomy.svg)
+(generator: [`assets/make_failure_taxonomy_fig.py`](assets/make_failure_taxonomy_fig.py)).
+Labels: [`assets/failure-taxonomy-labels.csv`](assets/failure-taxonomy-labels.csv).
 
 ## Why this exists
 
 A leaderboard says *what* succeeds and *what* doesn't. A failure
-taxonomy says *how* a policy fails when it fails — and that is the
-diagnostic depth a HF Robotics reviewer reads for. The headline finding
-in the writeup is one sentence; the taxonomy bar chart is what makes
-that sentence specific. Without it the artifact is a benchmark; with it
-it's a benchmark with a thesis.
+taxonomy says *how* a policy fails when it fails — the diagnostic depth a
+reviewer reads for. The honest version of that, given what is on disk
+today, is a *small labeled set with disclosed provenance*, not a full
+per-policy stacked bar over thousands of episodes. We label what the
+evidence supports and we keep the claims proportional to it.
 
-The taxonomy folds into the writeup as a **horizontal stacked bar
-chart per policy** (one bar per `(policy, env)` cell, bar segments are
-the six failure modes proportionally normalized to the cell's failure
-count). A reviewer who reads only the chart should be able to say "this
-policy fails by overshoot, that one fails by drift" — and that
-statement should match the verbal description in the Discussion section.
+## What evidence exists (and what doesn't)
 
-## The six modes
+- **No per-episode failure data ships in this repo.** The only results
+  parquet on disk (`examples/results-mini.parquet`) is **cell-aggregated**:
+  one row per `(policy, env)` with `n_episodes`, `n_success`,
+  `success_rate`, and a Wilson interval. It has **no per-episode rows,
+  no `n_steps`, no `terminated`/`truncated` flags, and no `failure_label`
+  column.** So labeling *by episode record* — the protocol the old
+  template described — is **not possible from the shipped data**. The
+  per-episode schema exists in `src/embodimetry/eval.py`
+  (`EpisodeResult` / `CellResult.to_rows`), but no full-sweep
+  per-episode parquet is committed.
+- **The per-rollout evidence is the curated showcase media** under
+  [`docs/assets/rollouts/`](assets/rollouts/): ten short MP4 loops and a
+  handful of stills. These were selected to *illustrate* the writeup
+  (most are `*-success`), so they are **not a random sample of failures.**
+  Of them, the clearly-failed artifacts are: `act-aloha-fail.mp4` +
+  `act-aloha-fail.png`, `smolvla-10-fail.mp4` + `smolvla-10-fail.png`,
+  `random-aloha.mp4`, `random-pusht.png`, and `xvla-fail.png`.
 
-These are the canonical labels. Add new modes only if a rollout
-genuinely cannot be assigned to any of them; resist the urge to invent
-sub-categories — the chart legend has to stay readable on the Space.
+Given that, the responsible move is to **hand-label that handful of
+failed artifacts by visual inspection, disclose N and method exactly,
+and let the leaderboard carry the quantitative load.** A stats reviewer
+would (rightly) reject a per-policy stacked taxonomy inferred from six
+clips; we do not claim one.
+
+## The labeled sample
+
+**N = 6** failed rollout artifacts (xvla's `xvla-fail.png` is logged but
+**excluded** from the distribution — see below). Labels assigned by
+visual inspection of the MP4 frame sequence (extracted at ~8 fps) and the
+PNG stills. Each label is the **first-fit observed failure mode** in
+chronological order.
+
+| artifact | policy | env | observed mode | what the video/still shows |
+|---|---|---|---|---|
+| `loops/act-aloha-fail.mp4` | act | aloha_transfer_cube | **grasp miss** | right arm reaches the red cube but never secures a stable grasp; cube stays on the table; transfer never completes |
+| `rollouts/act-aloha-fail.png` | act | aloha_transfer_cube | **grasp miss** | both grippers frame the red cube but it is unsecured on the table at the captured still |
+| `loops/random-aloha.mp4` | random | aloha_transfer_cube | **never contacts object** | arms execute large erratic uncontrolled motions; the cube is never approached or contacted |
+| `rollouts/random-pusht.png` | random | pusht | **wrong final pose** | T-block displaced but left mis-oriented vs. the green goal-T; no convergence to the goal pose |
+| `loops/smolvla-10-fail.mp4` | smolvla_libero | libero_10 | **no decisive progress** | arm hovers/moves over the cluttered LIBERO-10 table; scene state essentially unchanged across the clip |
+| `rollouts/smolvla-10-fail.png` | smolvla_libero | libero_10 | **no decisive progress** | gripper poised above the clutter but no object is manipulated in the still |
+| `rollouts/xvla-fail.png` | xvla | libero_goal | **unmeasurable (excluded)** | arm retracted from objects; xvla's 0/10 is a Hub-artifact wiring bug, *not* a policy mode (see below) |
+
+## Distribution
+
+![Observed failure modes](assets/fig-failure-taxonomy.png)
+
+| observed mode | count (N=6) |
+|---|---|
+| Grasp miss (reaches, no secure grasp) | 2 |
+| No decisive progress (long-horizon stall) | 2 |
+| Never contacts object (random baseline) | 1 |
+| Wrong final pose (pushed, mis-oriented) | 1 |
+
+Read this as four *observed* modes, not as per-policy proportions: with
+one-to-two artifacts per cell there is no defensible per-policy
+breakdown, and the figure deliberately aggregates across policies rather
+than implying a per-policy stacked bar.
+
+### What the labeled sample does and does not support
+
+- **Supports** (qualitatively, from direct inspection): act's
+  aloha-transfer failure is a *grasp* failure (it reaches the object but
+  does not secure it), not a navigation or wrong-object failure; the
+  `random` baseline fails by *never contacting* (aloha) or *leaving the
+  object mis-posed* (pusht), which is the expected null-policy signature;
+  smolvla's worst cell (libero_10, leaderboard success 0.252) fails by
+  *stalling on the long horizon* rather than by an obvious grasp slip.
+- **Does NOT support**: any claim about the *rate* of a mode within a
+  cell, any per-policy stacked distribution, or any cross-policy "policy
+  X fails by overshoot, policy Y by drift" statement. The sample is too
+  small and too curated for that. Those claims need the per-episode
+  labeling pass below.
+
+### xvla is excluded by design
+
+`xvla-fail.png` is labeled `unmeasurable` and dropped from the
+distribution. xvla scores **0/10 across all four LIBERO suites**, and
+that 0% is attributed to an unresolved Hub-artifact / inference-pipeline
+wiring bug (see [`docs/MODEL_CARDS.md`](MODEL_CARDS.md) § xvla and
+[`docs/DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md)), **not** to a
+policy-level failure mode. Assigning overshoot/slip/drift labels to
+rollouts from a mis-wired loader would be meaningless, so the cell is
+left explicitly unmeasurable rather than back-filled.
+
+## Method, sample size, and limitations
+
+**Method.** Per-rollout visual inspection. For each MP4 we extracted
+frames at ~8 fps and read the trajectory start→mid→end; for each PNG we
+read the single still. The label is the first observed failure mode in
+chronological order. There is **no automated episode-record join** —
+the per-episode parquet needed for that is not in the repo.
+
+**Sample size.** N = 6 labeled artifacts (7 including the excluded xvla
+still). This is a *disclosed-small* set, not a powered sample.
+
+**Limitations** (a reviewer should weigh all of these):
+
+1. **Curated, not random.** The shipped rollouts were chosen to
+   illustrate the writeup; the failures among them are not a random draw
+   over each cell's failure set. The distribution above is therefore
+   *descriptive of these artifacts*, not an estimate of any cell's true
+   mode mix.
+2. **Single labeler, no agreement statistic.** One labeler, no second
+   pass, no Cohen's κ. Ambiguous cases (e.g. "no decisive progress" vs. a
+   slow-but-progressing attempt) were resolved conservatively but not
+   adjudicated.
+3. **No per-episode ground truth.** Without `n_steps` /
+   `terminated`/`truncated` per episode we cannot compute a **cap-hit
+   rate** (the timeout proxy) or separate timeout from drift
+   quantitatively. The mode names here are visual judgments.
+4. **Tiny per-cell N.** One-to-two artifacts per `(policy, env)` cell —
+   far below any threshold for per-policy proportions.
+5. **Observed modes ≠ the six-mode scheme.** What the artifacts actually
+   show (grasp miss, never-contacts, no-decisive-progress, wrong-final-pose)
+   does not map cleanly onto the abstract six modes below; the canonical
+   scheme over-specifies relative to the evidence. See the reconciliation
+   table.
+
+## How to upgrade this to a real per-policy taxonomy
+
+This needs the per-episode pass, which is a **future task gated on data**,
+not something inferable from current artifacts:
+
+1. Run (or locate) a full sweep that writes a **per-episode parquet**
+   (`CellResult.to_rows`, one row per episode with `n_steps`,
+   `errored`, `video_sha256`).
+2. Add a `failure_label` column (the Space's `compute_failure_counts`
+   already consumes it and drops non-canonical labels).
+3. Sample **≥5 failed episodes per `(policy, env)` cell, stratified
+   across seeds** (1 per seed before 5 from one seed), label each from
+   its per-episode MP4 joined on `(policy, env, seed, episode_index)`.
+4. Add a **second labeler on highlighted cells** and report Cohen's κ.
+
+Only after (1)–(4) does a per-policy stacked bar become defensible.
+
+## Reconciliation: observed modes → canonical six-mode scheme
+
+The six headings below are the **target** vocabulary (the Space's
+`parse_failure_taxonomy_md` and `tests/test_space.py` key on them, and
+the future per-episode CSV legend uses the snake labels). They are kept
+as the canonical reference. The mapping from what we *actually observed*
+to these labels is approximate and is stated here rather than silently
+applied:
+
+| observed mode (this sample) | nearest canonical label | caveat |
+|---|---|---|
+| grasp miss | `gripper_slip` | imperfect: the canonical "slip" assumes a *successful* grasp that is then lost; the observed act failures never secure the grasp at all. A dedicated `grasp_miss` mode is the honest fix in a future schema bump. |
+| never contacts object | `drift` | the random baseline's degenerate motion is closest to "drift" (no meaningful progress), but it is really a *never-engaged* failure. |
+| no decisive progress | `timeout` | long-horizon stall ending without completion; maps to timeout if the episode runs to the step cap, which we cannot verify without per-episode `n_steps`. |
+| wrong final pose | `timeout` | T pushed but mis-oriented at cap; distinct from `trajectory_overshoot`, which requires entering then leaving the success region. |
+
+`trajectory_overshoot`, `wrong_object`, and `premature_release` are **not
+observed** in the labeled artifacts. We do not claim they are absent in
+general — only that none of the six labeled artifacts exhibits them.
 
 ### 1. Trajectory overshoot
 
 **Definition.** Agent moves past the target object or zone and either
 fails to correct or corrects too late to satisfy the success threshold
 within `max_steps`. Most often manifests as the end-effector swinging
-through the target on a high-velocity motion.
-
-**Heuristic.** Look for the end-effector entering the success region,
-then leaving it without the env emitting a terminal reward. In the
-rendered MP4 this is visible as the gripper visibly passing through or
-beyond the goal position.
-
-**Example timestamp (hypothetical Aloha transfer cube).** Around step
-180 of a 400-step episode: the gripper closes on the cube successfully,
-moves toward the receptacle, but the lift trajectory carries it 3-5 cm
-past the receptacle's centre and the cube falls outside the success
-threshold's bounding box.
+through the target on a high-velocity motion. **Not observed in the
+current labeled sample.**
 
 ### 2. Gripper slip
 
 **Definition.** Agent grasps the target successfully but loses contact
 mid-trajectory before the success condition is met. Distinct from
-**premature release** in that the gripper is still commanded closed —
-the slip is a physics outcome, not a control decision.
-
-**Heuristic.** Look for a successful grasp event followed by the object
-falling out of the gripper while the gripper state remains "closed."
-In Aloha rollouts, watch for the cube dropping vertically while both
-arms are in motion.
-
-**Example timestamp (hypothetical Aloha transfer cube).** Around step
-220: gripper closed at step 150, lift initiated, but at step 220 the
-cube is visible falling toward the table while the gripper jaws are
-still in their commanded-closed pose.
+**premature release** in that the gripper is still commanded closed — the
+slip is a physics outcome, not a control decision. (In this sample the
+nearest observed failures are *grasp misses*, where the grasp is never
+secured — a related but distinct mode noted in the reconciliation table.)
 
 ### 3. Timeout
 
-**Definition.** Agent runs out of `env.max_steps` (PushT 300, Aloha
-400, LIBERO `{spatial=280, object=280, goal=300, libero_10=520}` per the
-v1 sweep's `configs/envs.yaml` — canonical LIBERO is 600 for every
-suite, flagged in `docs/DESIGN.md` § Methodology as a v1.0.1 audit
-caveat) without ever satisfying the success threshold. Includes
-both "still trying" and "stuck" — distinguish from **drift** (mode 6)
-by whether the agent is making non-zero progress toward the goal.
-
-**Heuristic.** Episode terminates with `truncated=True` and
-`final_reward < env.success_threshold`, AND the action sequence in the
-last 50 steps shows non-trivial variance (i.e. the agent is still
-issuing meaningful actions, just not reaching the goal in time).
-
-**Example timestamp (hypothetical PushT).** Episode terminates at step
-300 with reward 0.78 (below the 0.95 success threshold). The agent has
-been pushing the T-shape toward the goal region for the entire episode
-but cannot quite get the orientation right; the final 50 steps show the
-agent oscillating between two near-goal poses.
+**Definition.** Agent exhausts `env.max_steps` without ever satisfying
+the success threshold. Includes both "still trying" and "stuck";
+distinguish from **drift** by whether the agent is making non-zero
+progress toward the goal. Verifying timeout quantitatively needs
+per-episode `n_steps` (a cap-hit proxy), which is **not on disk** — so
+the smolvla long-horizon stall and the mis-posed PushT block are mapped
+here on visual grounds only.
 
 ### 4. Wrong object
 
-**Definition.** Agent interacts with a non-target object — picks up the
-wrong cube, pushes the wrong shape, or attends to a distractor. Most
-relevant for envs with multiple objects in the scene (Aloha, Libero);
-not applicable to PushT (single object).
-
-**Heuristic.** First grasp / push event in the rollout targets an
-object that is not the env's success-threshold target. In the Aloha
-transfer cube task, watch for the agent grasping the receptacle's
-indicator cube instead of the transfer cube.
-
-**Example timestamp (hypothetical Aloha multi-object task).** Step 90:
-the gripper closes on the red distractor block instead of the green
-target block specified by the language conditioning. Subsequent steps
-attempt to "transfer" the wrong block and the env never registers
-success.
+**Definition.** Agent interacts with a non-target object — picks the
+wrong cube, pushes the wrong shape, attends to a distractor. Relevant for
+multi-object scenes (Aloha, LIBERO); not applicable to PushT. **Not
+observed in the current labeled sample.**
 
 ### 5. Premature release
 
 **Definition.** Agent opens the gripper or releases the held object
 before the success zone is reached. Distinct from **gripper slip** in
-that the gripper command itself transitions to "open" while the agent
-is mid-trajectory — this is a control failure, not a physics failure.
-
-**Heuristic.** Look for a `gripper_open` action issued while the
-end-effector is outside the success region AND a held object is dropped
-as a result. In Libero rollouts, this often presents as the policy
-"giving up" on a long-horizon task halfway through.
-
-**Example timestamp (hypothetical Libero pick-and-place).** Step 340 of
-600: the policy issues `gripper.open=1` while the held mug is still 15
-cm above the target shelf; the mug drops to the table and the episode
-times out without success.
+that the gripper command itself transitions to "open" mid-trajectory —
+a control failure, not a physics failure. **Not observed in the current
+labeled sample.**
 
 ### 6. Drift
 
 **Definition.** Agent action collapses to a stationary or oscillatory
-mode that makes no progress toward the goal. Includes (a) actions
-collapsing to near-zero magnitude (the policy "freezes"), (b) actions
-oscillating between two poses without net displacement, and (c) the
-end-effector wandering away from the workspace entirely.
-
-**Heuristic.** In the last 100 steps of a failed episode, the
-end-effector position variance is near zero AND the cumulative reward
-delta is < 0.05. Distinguishes from **timeout** by the *quality* of the
-final actions: timeout = "trying but not getting there," drift = "no
-longer trying meaningfully."
-
-**Example timestamp (hypothetical SmolVLA on Aloha).** From step 150
-onward: the policy emits actions whose joint velocity norms collapse to
-near-zero. The arms remain in roughly the same pose for the remaining
-250 steps, and the episode ends with reward 0.0 and `truncated=True`.
-
-## Labeling protocol
-
-1. **Sample size:** **5 failed rollouts per `(policy, env)` cell** at
-   minimum, **10 if there is ambiguity** (i.e. if the first 5 rollouts
-   landed in 4 or more different modes — the cell needs more samples to
-   stabilise the proportions).
-2. **First-fit rule:** the six modes are *not* mutually exclusive — a
-   gripper slip can lead to a timeout, a wrong-object grasp can drift
-   into a premature release. Label each rollout with the **first mode
-   that fits in chronological order**. This keeps the per-cell mode
-   counts summing to the total failure count and the bar chart legible.
-   The trade-off is that rare composite modes (e.g. "slip then timeout")
-   collapse into the earlier label; document any cell where this matters
-   in the rollout's Notes column.
-3. **Sampling strategy:** stratify across seeds. If a cell has 5 seeds
-   with 10 failures each, draw 1 failure from each seed, not 5 failures
-   from one seed. This avoids one bad seed dominating the chart.
-4. **Render dependency:** labeling requires the per-episode MP4. The
-   labeler watches the video, scrubs to the failure event, assigns the
-   first-fit mode. The MP4 SHA-256 in the parquet's `video_sha256`
-   column is the canonical reference — labels are joined back to the
-   parquet on `(policy, env, seed, episode_index)`.
-5. **When in doubt, prefer the more diagnostic mode.** "Drift" and
-   "Timeout" can both fit a stuck rollout; pick "Drift" if the actions
-   are clearly degenerate, "Timeout" if the policy is still making
-   sensible attempts.
-6. **Two-labeler check (stretch):** for the cells the writeup
-   highlights, have a second pass on the same rollouts and report
-   inter-labeler agreement (Cohen's kappa) in the methods. This is a
-   stretch; v1 is single-labeler.
-
-## When this happens
-
-Day 7 of the sweep timeline. By that point the full
-sweep (Day 5-6) has produced real rollouts, the Space (Day 4) is live
-with the Browse-Rollouts tab so the labeler can scrub through MP4s
-quickly, and the writeup (Day 8) needs the labeled CSV to render the
-taxonomy bar chart. Path A (the work that ships before lerobot install)
-gets to this template; the actual labels land on Day 7.
-
-## Dashboard drill-down (before labels exist)
-
-The operator dashboard's **Failures** tab (see `docs/MONITORING.md`) is
-the on-ramp to this template. Because the per-episode parquet has **no
-`failure_mode` column yet** — a real one is a future schema bump owned
-by the eval writer, not the dashboard — the tab degrades gracefully and
-surfaces only the label-free signals already on disk for a selected
-`(policy, env)` cell:
-
-* success and episode-length (`n_steps`) distributions;
-* the **cap-hit rate** — the fraction of *failed* episodes whose
-  `n_steps` reached the env `max_steps`. This is a direct proxy for the
-  **Timeout** mode (mode 3): a cell whose failures are almost all
-  cap-hits is failing by timeout, whereas a low cap-hit rate means the
-  failures terminate early (overshoot, slip, premature release, …) and
-  warrant a closer look in the rollouts;
-* direct MP4 links to the failed episodes via the flat video naming
-  `{policy}__{env}__seed{seed}__ep{NNN}.mp4`, so the labeler can scrub
-  straight to a failure and assign one of the six modes below.
-
-In other words: the dashboard narrows *which* failures to watch and
-pre-distinguishes timeouts; the human still assigns the mode into the
-CSV template below. When the real `failure_mode` column lands, the
-Failures tab grows a per-mode bar chart fed from that column.
-
-## CSV template
-
-Fill this in as labels are produced. Append-only — never overwrite a
-row, edit the Notes column instead. The bar chart in the writeup reads
-straight from this CSV (no intermediate transformation).
-
-| labeled_by | date_iso | policy | env | seed | episode_index | video_sha256 | mode | notes |
-|---|---|---|---|---|---|---|---|---|
-| _example_ | 2026-05-09 | diffusion_policy | aloha_transfer_cube | 2 | 17 | _abcdef..._ | trajectory_overshoot | gripper closes around step 150, swings 4cm past receptacle |
-| _example_ | 2026-05-09 | diffusion_policy | aloha_transfer_cube | 2 | 23 | _123456..._ | gripper_slip | grasp at step 140, cube drops at step 210 mid-lift |
-| _example_ | 2026-05-09 | act | pusht | 0 | 8 | _789abc..._ | timeout | T-shape oscillates around 0.85 reward, never reaches 0.95 |
-| _example_ | 2026-05-09 | smolvla | aloha_transfer_cube | 1 | 4 | _def012..._ | drift | actions collapse to near-zero from step 150 onward |
-| _example_ | 2026-05-09 | pi0 | libero_object | 3 | 11 | _345678..._ | premature_release | gripper opens at step 340, mug drops 15cm above target |
-
-**Mode labels** (use exactly these strings — the bar chart's legend is
-keyed on them):
-
-* `trajectory_overshoot`
-* `gripper_slip`
-* `timeout`
-* `wrong_object`
-* `premature_release`
-* `drift`
+mode that makes no progress: actions collapse to near-zero ("freeze"),
+oscillate between two poses, or the end-effector wanders off entirely.
+Distinguished from **timeout** by the *quality* of the final actions
+(timeout = "trying but not getting there"; drift = "no longer trying").
+The `random` baseline's erratic aloha motion is the closest observed
+instance, though it is better described as *never engaging* the object.
 
 ## Cross-references
 
-* Failure modes catalogued in `docs/DESIGN.md` § Failure modes.
-* Per-policy entries in `docs/MODEL_CARDS.md` § Failure modes — the
-  per-policy section is populated from this taxonomy on Day 7.
-* The bar chart cell lives in `notebooks/01-write-finding.ipynb`
-  (placeholder until labels exist).
-* The writeup section that interprets the chart lives in
-  `paper/main.tex` § Results.
+- Per-policy notes: [`docs/MODEL_CARDS.md`](MODEL_CARDS.md) § Known
+  failure modes (xvla's unmeasurable status is documented there).
+- Deferred xvla wiring bug: [`docs/DEFERRED_POLICIES.md`](DEFERRED_POLICIES.md).
+- Space "Failures" tab parser: `space/_helpers.py`
+  (`parse_failure_taxonomy_md`, `compute_failure_counts`).
+- Per-episode schema (for the future labeling pass):
+  `src/embodimetry/eval.py` (`EpisodeResult`, `CellResult.to_rows`).
+
+---
+
+### Sanity-check owed (human)
+
+Re-watch the three failure MP4s and confirm the mode calls before any of
+this is quoted as a result:
+
+- `act-aloha-fail.mp4` → **grasp miss** (does the right gripper ever
+  close on and lift the cube? we read "no").
+- `random-aloha.mp4` → **never contacts** (confirm the cube is never
+  touched).
+- `smolvla-10-fail.mp4` → **no decisive progress** (confirm no object is
+  manipulated to completion).
+
+And confirm the two stills (`random-pusht.png` → wrong final pose;
+`smolvla-10-fail.png` → no decisive progress) read the same to a human
+eye. If any call flips, edit the CSV and re-run
+`python docs/assets/make_failure_taxonomy_fig.py`.

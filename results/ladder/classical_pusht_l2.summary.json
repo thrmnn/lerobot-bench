@@ -1,0 +1,45 @@
+{
+  "policy": "classical_pusht",
+  "env": "pusht_state",
+  "rung": "L2_classical_control",
+  "n_seeds": 5,
+  "n_episodes_per_seed": 50,
+  "n_pooled": 250,
+  "success_metric": "sticky_is_success",
+  "success_threshold": 0.95,
+  "pooled_success": 0.012,
+  "successes": 3,
+  "wilson_ci_95": [
+    0.0040893198805342975,
+    0.0346807804270196
+  ],
+  "errored_rows": 0,
+  "max_coverage": {
+    "mean": 0.5052176400582029,
+    "median": 0.5013700572153075,
+    "p90": 0.6988612655938007,
+    "p99": 0.948842650879282,
+    "max": 0.9880681376076825,
+    "min": 0.0,
+    "n_at_or_above_0.90": 5,
+    "n_at_or_above_0.95": 3,
+    "histogram_bins": [
+      0.0,
+      0.5,
+      0.7,
+      0.8,
+      0.9,
+      0.95,
+      1.0001
+    ],
+    "histogram_counts": [
+      123,
+      102,
+      9,
+      11,
+      2,
+      3
+    ]
+  },
+  "timestamp_utc": "2026-06-08T10:40:36.261030+00:00"
+}
