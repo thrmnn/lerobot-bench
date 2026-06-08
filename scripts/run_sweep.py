@@ -67,7 +67,9 @@ import os
 import random
 import subprocess
 import sys
+import threading
 from collections.abc import Callable, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -82,6 +84,11 @@ from embodimetry.checkpointing import (
 )
 from embodimetry.envs import EnvRegistry
 from embodimetry.policies import PolicyRegistry
+from embodimetry.vram_scheduler import (
+    DEFAULT_MAX_CONCURRENT,
+    CalibrationVramTable,
+    VramBudgetScheduler,
+)
 
 logger = logging.getLogger("run-sweep")
 
@@ -704,6 +711,7 @@ def _build_run_one_argv(
     config: SweepConfig,
     eval_run_id: str = "",
     python_executable: str | None = None,
+    per_cell_mem_cap: str | None = None,
 ) -> list[str]:
     """Build the argv that dispatches one cell via ``scripts/run_one.py``.
 
@@ -713,6 +721,15 @@ def _build_run_one_argv(
     ``python_executable`` defaults to ``sys.executable`` so the
     subprocess inherits the current venv (important on the dev box
     where lerobot is in a conda env, not the system python).
+
+    ``per_cell_mem_cap`` (e.g. ``"6G"``) wraps the cell in
+    ``scripts/run_capped.sh <cap> --`` so the cell runs inside its OWN
+    cgroup ``MemoryMax`` + ``MemorySwapMax=0``. This is the per-cell
+    host-freeze defense and is the default when dispatching concurrently
+    (where the outer single-cgroup cap would otherwise be shared across
+    cells). Leaving it ``None`` keeps the legacy direct invocation; the
+    serial sweep already runs inside the outer ``run_capped.sh`` from
+    ``launch_overnight_sweep.sh``.
     """
     py = python_executable or sys.executable
     repo_root = Path(__file__).resolve().parent.parent
@@ -745,6 +762,9 @@ def _build_run_one_argv(
         argv.append("--canonical")
     if eval_run_id:
         argv += ["--eval-run-id", eval_run_id]
+    if per_cell_mem_cap is not None:
+        run_capped = repo_root / "scripts" / "run_capped.sh"
+        argv = [str(run_capped), per_cell_mem_cap, "--", *argv]
     return argv
 
 
@@ -905,6 +925,304 @@ def _find_entry(manifest: SweepManifest, cell: PlannedCell) -> CellManifestEntry
     raise KeyError(f"no manifest entry for {cell.display}")
 
 
+def _record_cell_outcome(
+    entry: CellManifestEntry,
+    cell: PlannedCell,
+    outcome: SubprocessOutcome,
+) -> bool:
+    """Stamp a finished cell's outcome onto its manifest entry.
+
+    Returns True if the cell counts as completed, False if failed. Pure
+    bookkeeping -- no I/O, no locking; callers serialize manifest writes
+    themselves. exit 0 = full success; exit 2 = some episode errors but
+    rows still appended -- both are "completed" from the sweep's POV.
+    """
+    entry.exit_code = outcome.returncode
+    entry.finished_utc = _now_utc()
+    if outcome.returncode in {0, 2}:
+        entry.status = STATUS_COMPLETED
+        entry.stderr_tail = ""
+        return True
+    entry.status = STATUS_FAILED
+    entry.stderr_tail = _tail_lines(outcome.stderr, STDERR_TAIL_LINES)
+    return False
+
+
+@dataclass(frozen=True)
+class _DispatchTally:
+    """Aggregate result of a dispatch pass (serial or concurrent)."""
+
+    n_completed: int
+    n_failed: int
+    interrupted_at: PlannedCell | None = None  # set only on KeyboardInterrupt
+
+
+def _dispatch_serial(
+    to_dispatch: list[PlannedCell],
+    *,
+    config: SweepConfig,
+    manifest: SweepManifest,
+    manifest_path: Path,
+    timeout: float | None,
+) -> _DispatchTally:
+    """Strictly one-cell-at-a-time dispatch (legacy v1 default).
+
+    Unchanged behavior: torch/CUDA state is reset between cells because
+    each cell is its own subprocess; the implicit serialization is the
+    ``for`` loop itself.
+    """
+    n_completed = 0
+    n_failed = 0
+    for i, cell in enumerate(to_dispatch, start=1):
+        argv = _build_run_one_argv(cell, config=config, eval_run_id=manifest.eval_run_id)
+        entry = _find_entry(manifest, cell)
+        entry.started_utc = _now_utc()
+        entry.status = STATUS_PENDING  # explicit -- in case the entry was reused
+        write_manifest(manifest, manifest_path)
+
+        logger.info(
+            "[%d/%d] dispatch %s (n_episodes=%d, timeout_s=%s)",
+            i,
+            len(to_dispatch),
+            cell.display,
+            cell.n_episodes,
+            timeout,
+        )
+
+        try:
+            outcome = _run_subprocess(argv, timeout_s=timeout)
+        except KeyboardInterrupt:
+            return _DispatchTally(
+                n_completed=n_completed,
+                n_failed=n_failed,
+                interrupted_at=cell,
+            )
+
+        if _record_cell_outcome(entry, cell, outcome):
+            n_completed += 1
+            logger.info("    -> ok (exit=%d)", outcome.returncode)
+        else:
+            n_failed += 1
+            logger.warning(
+                "    -> FAILED (exit=%d). Continuing to next cell. "
+                "Resume this cell with: python scripts/run_one.py "
+                "--policy %s --env %s --seed %d --n-episodes %d",
+                outcome.returncode,
+                cell.policy,
+                cell.env,
+                cell.seed_idx,
+                cell.n_episodes,
+            )
+
+        write_manifest(manifest, manifest_path)
+
+    return _DispatchTally(n_completed=n_completed, n_failed=n_failed)
+
+
+def _dispatch_concurrent(
+    to_dispatch: list[PlannedCell],
+    *,
+    config: SweepConfig,
+    manifest: SweepManifest,
+    manifest_path: Path,
+    timeout: float | None,
+    scheduler: VramBudgetScheduler,
+    vram_table: CalibrationVramTable,
+    per_cell_mem_cap: str | None,
+) -> _DispatchTally:
+    """VRAM-budget-gated concurrent dispatch (opt-in via --vram-budget-mb).
+
+    Each worker thread admits its cell through ``scheduler`` (which
+    bounds concurrent calibrated VRAM to the budget and serializes
+    unknown-VRAM cells), then launches the same per-cell subprocess the
+    serial path uses -- still wrapped in ``run_capped.sh`` when
+    ``per_cell_mem_cap`` is set, so every concurrent cell keeps its own
+    cgroup RAM cap (the host-freeze defense). Cell-boundary checkpointing
+    is intact: each cell is still its own ``run_one`` subprocess that
+    writes whole-cell parquet rows; the scheduler only controls *when* a
+    cell is allowed to start.
+
+    Manifest writes and counters are guarded by a single lock so the JSON
+    on disk is always consistent for an operator tailing it. The
+    ``_run_subprocess`` call itself runs outside the lock -- that is where
+    the concurrency lives.
+    """
+    n_completed = 0
+    n_failed = 0
+    manifest_lock = threading.Lock()
+    submitted = len(to_dispatch)
+
+    def _run_cell(cell: PlannedCell, index: int) -> None:
+        nonlocal n_completed, n_failed
+        vram_mb = vram_table.vram_for(cell.policy, cell.env)
+        with manifest_lock:
+            entry = _find_entry(manifest, cell)
+            entry.started_utc = _now_utc()
+            entry.status = STATUS_PENDING
+            write_manifest(manifest, manifest_path)
+
+        with scheduler.admission(
+            policy=cell.policy,
+            env=cell.env,
+            seed=cell.seed_idx,
+            vram_mb=vram_mb,
+        ):
+            logger.info(
+                "[%d/%d] dispatch %s (n_episodes=%d, vram=%s MB, "
+                "reserved=%.0f/%.0f MB, running=%d, timeout_s=%s)",
+                index,
+                submitted,
+                cell.display,
+                cell.n_episodes,
+                f"{vram_mb:.0f}" if vram_mb is not None else "unknown(exclusive)",
+                scheduler.reserved_mb,
+                scheduler.budget_mb,
+                scheduler.running,
+                timeout,
+            )
+            argv = _build_run_one_argv(
+                cell,
+                config=config,
+                eval_run_id=manifest.eval_run_id,
+                per_cell_mem_cap=per_cell_mem_cap,
+            )
+            outcome = _run_subprocess(argv, timeout_s=timeout)
+
+        with manifest_lock:
+            if _record_cell_outcome(entry, cell, outcome):
+                n_completed += 1
+                logger.info("    -> ok %s (exit=%d)", cell.display, outcome.returncode)
+            else:
+                n_failed += 1
+                logger.warning(
+                    "    -> FAILED %s (exit=%d). Continuing. "
+                    "Resume this cell with: python scripts/run_one.py "
+                    "--policy %s --env %s --seed %d --n-episodes %d",
+                    cell.display,
+                    outcome.returncode,
+                    cell.policy,
+                    cell.env,
+                    cell.seed_idx,
+                    cell.n_episodes,
+                )
+            write_manifest(manifest, manifest_path)
+
+    # max_workers is the scheduler's backstop cap: threads beyond it would
+    # only block in admission anyway. Threads launch subprocesses and wait
+    # on them, so a thread pool (not a process pool) is correct here.
+    interrupted = False
+    with ThreadPoolExecutor(max_workers=scheduler.max_concurrent) as pool:
+        futures: dict[Future[None], PlannedCell] = {}
+        try:
+            for index, cell in enumerate(to_dispatch, start=1):
+                futures[pool.submit(_run_cell, cell, index)] = cell
+            # Surface worker exceptions (re-raise the first) once all done.
+            pending = set(futures)
+            while pending:
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    fut.result()
+        except KeyboardInterrupt:
+            interrupted = True
+
+    if interrupted:
+        # On SIGINT the pool's __exit__ already joined in-flight workers.
+        # Any cell still "pending" in the manifest is left as-is so the
+        # next --resume restarts it cleanly from episode 0.
+        return _DispatchTally(
+            n_completed=n_completed,
+            n_failed=n_failed,
+            interrupted_at=to_dispatch[0],
+        )
+
+    return _DispatchTally(n_completed=n_completed, n_failed=n_failed)
+
+
+def _latest_calibration_path(results_path: Path) -> Path | None:
+    """Find the newest ``calibration-*.json`` next to / under ``results/``.
+
+    Looks in the conventional ``results/`` dir (the calibrate.py default)
+    and in the sweep's own results directory. Returns the
+    lexicographically-largest match (dates sort correctly), or ``None``.
+    """
+    candidates: list[Path] = []
+    for base in {Path("results"), results_path.parent}:
+        if base.is_dir():
+            candidates.extend(base.glob("calibration-*.json"))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.name)
+
+
+def _build_scheduler(
+    *,
+    vram_budget_mb: float | None,
+    max_concurrent: int,
+    calibration_path: Path | None,
+    config: SweepConfig,
+) -> tuple[VramBudgetScheduler | None, CalibrationVramTable]:
+    """Decide serial vs concurrent dispatch and build the scheduler.
+
+    Returns ``(None, empty_table)`` to mean "dispatch serially" (legacy
+    default). Returns ``(scheduler, table)`` to mean "dispatch
+    concurrently under the VRAM budget".
+
+    Fail-safe rules (OOM-safety):
+
+    * ``vram_budget_mb is None`` -> concurrency NOT requested -> serial.
+    * budget requested but NO calibration JSON found, or it has zero
+      usable ``vram_peak_mb`` entries -> fall back to serial (1-at-a-time)
+      and warn. We never run concurrently blind.
+    * budget requested WITH calibration -> concurrent. Cells whose policy
+      was never calibrated still serialize (exclusive) inside the
+      scheduler -- the table simply returns ``None`` for them.
+    """
+    if vram_budget_mb is None:
+        return None, CalibrationVramTable.empty()
+
+    path = calibration_path or _latest_calibration_path(config.results_path)
+    if path is None or not path.exists():
+        logger.warning(
+            "vram-budget requested but no calibration JSON found "
+            "(looked for results/calibration-*.json); falling back to "
+            "serial 1-at-a-time dispatch (fail-safe)."
+        )
+        return None, CalibrationVramTable.empty()
+
+    try:
+        table = CalibrationVramTable.from_json_path(path)
+    except (OSError, ValueError, KeyError) as exc:
+        logger.warning(
+            "vram-budget requested but calibration JSON %s is unreadable "
+            "(%s); falling back to serial dispatch (fail-safe).",
+            path,
+            exc,
+        )
+        return None, CalibrationVramTable.empty()
+
+    if table.is_empty():
+        logger.warning(
+            "vram-budget requested but calibration JSON %s has no ok-status "
+            "vram_peak_mb entries; falling back to serial dispatch (fail-safe).",
+            path,
+        )
+        return None, CalibrationVramTable.empty()
+
+    scheduler = VramBudgetScheduler(
+        budget_mb=vram_budget_mb,
+        max_concurrent=max_concurrent,
+    )
+    logger.info(
+        "vram-budget dispatch: budget=%.0f MB, max_concurrent=%d, calibration=%s "
+        "(%d calibrated cells)",
+        vram_budget_mb,
+        max_concurrent,
+        path,
+        len(table.by_cell),
+    )
+    return scheduler, table
+
+
 def run_sweep(
     *,
     config: SweepConfig,
@@ -915,6 +1233,10 @@ def run_sweep(
     shuffle_seed: int | None = None,
     cell_timeout_s: float | None = None,
     dry_run: bool = False,
+    vram_budget_mb: float | None = None,
+    max_concurrent: int = DEFAULT_MAX_CONCURRENT,
+    calibration_path: Path | None = None,
+    per_cell_mem_cap: str | None = None,
 ) -> SweepOutcome:
     """End-to-end orchestration. Mirrors :func:`scripts.run_one.run_one` in shape.
 
@@ -931,11 +1253,18 @@ def run_sweep(
     4. Build + write the initial manifest.
     5. (Unless dry-run) Dispatch each pending cell via
        :data:`_run_subprocess`, updating the manifest atomically after
-       each.
+       each. Serial by default; concurrent under a VRAM budget when
+       ``vram_budget_mb`` is set (see :func:`_build_scheduler`).
 
     The ``cell_timeout_s`` kwarg overrides the YAML's value -- CLI
     wins. On expiry the child's whole process group is SIGTERM'd then
     SIGKILL'd to free VRAM; see :func:`_default_run_subprocess`.
+
+    ``vram_budget_mb`` opts into concurrent dispatch: small cells whose
+    calibrated ``vram_peak_mb`` sum stays under the budget run at once;
+    a cell that would exceed it WAITS; an un-calibrated policy runs
+    exclusively. With ``vram_budget_mb is None`` (the default) dispatch
+    is the legacy strictly-serial loop -- unchanged.
     """
     p_yaml = policies_yaml if policies_yaml is not None else config.policies_yaml
     e_yaml = envs_yaml if envs_yaml is not None else config.envs_yaml
@@ -1046,74 +1375,63 @@ def run_sweep(
 
     # 5. dispatch loop
     timeout = cell_timeout_s if cell_timeout_s is not None else config.cell_timeout_s
-    n_completed = 0
-    n_failed = 0
 
-    for i, cell in enumerate(to_dispatch, start=1):
-        argv = _build_run_one_argv(cell, config=config, eval_run_id=manifest.eval_run_id)
-        entry = _find_entry(manifest, cell)
-        entry.started_utc = _now_utc()
-        entry.status = STATUS_PENDING  # explicit -- in case the entry was reused
-        write_manifest(manifest, manifest_path)
+    # Concurrency is opt-in: a VRAM budget builds a scheduler + calibration
+    # table. With no budget, dispatch is the legacy strictly-serial loop --
+    # default behavior is UNCHANGED. The OOM-safety stack (per-cell
+    # run_capped cgroup cap, with_gpu_lock flock fallback) is independent
+    # of this choice; the scheduler only adds an admission gate on top.
+    scheduler, vram_table = _build_scheduler(
+        vram_budget_mb=vram_budget_mb,
+        max_concurrent=max_concurrent,
+        calibration_path=calibration_path,
+        config=config,
+    )
 
-        logger.info(
-            "[%d/%d] dispatch %s (n_episodes=%d, timeout_s=%s)",
-            i,
-            len(to_dispatch),
-            cell.display,
-            cell.n_episodes,
-            timeout,
+    if scheduler is not None:
+        tally = _dispatch_concurrent(
+            to_dispatch,
+            config=config,
+            manifest=manifest,
+            manifest_path=manifest_path,
+            timeout=timeout,
+            scheduler=scheduler,
+            vram_table=vram_table,
+            per_cell_mem_cap=per_cell_mem_cap,
+        )
+    else:
+        tally = _dispatch_serial(
+            to_dispatch,
+            config=config,
+            manifest=manifest,
+            manifest_path=manifest_path,
+            timeout=timeout,
         )
 
-        try:
-            outcome = _run_subprocess(argv, timeout_s=timeout)
-        except KeyboardInterrupt:
-            # Mid-cell SIGINT: leave this cell at "pending" so the next
-            # resume picks it up cleanly. Earlier cells stay at
-            # "completed". Stamp finished_utc on the manifest so the
-            # operator can see when the sweep was interrupted.
-            manifest = replace(manifest, finished_utc=_now_utc())
-            write_manifest(manifest, manifest_path)
-            log = (
-                f"[run-sweep] interrupted at cell {i}/{len(to_dispatch)} ({cell.display}); "
-                f"resume: python scripts/run_sweep.py --config {config_path} --resume"
-            )
-            return SweepOutcome(
-                exit_code=2,
-                n_planned=len(cells),
-                n_completed=n_completed,
-                n_failed=n_failed,
-                n_skipped=n_skipped_plan,
-                n_already_done=n_already_done,
-                manifest_path=manifest_path,
-                log_message=log,
-            )
+    n_completed = tally.n_completed
+    n_failed = tally.n_failed
 
-        entry.exit_code = outcome.returncode
-        entry.finished_utc = _now_utc()
-        # exit 0 = full success; exit 2 = some episode errors but rows
-        # still appended -- both are "completed" from the sweep's POV.
-        if outcome.returncode in {0, 2}:
-            entry.status = STATUS_COMPLETED
-            entry.stderr_tail = ""
-            n_completed += 1
-            logger.info("    -> ok (exit=%d)", outcome.returncode)
-        else:
-            entry.status = STATUS_FAILED
-            entry.stderr_tail = _tail_lines(outcome.stderr, STDERR_TAIL_LINES)
-            n_failed += 1
-            logger.warning(
-                "    -> FAILED (exit=%d). Continuing to next cell. "
-                "Resume this cell with: python scripts/run_one.py "
-                "--policy %s --env %s --seed %d --n-episodes %d",
-                outcome.returncode,
-                cell.policy,
-                cell.env,
-                cell.seed_idx,
-                cell.n_episodes,
-            )
-
+    if tally.interrupted_at is not None:
+        # Mid-cell SIGINT: in-flight cells are left at "pending" so the
+        # next resume restarts them cleanly from episode 0. Earlier
+        # completed cells keep their status. Stamp finished_utc so the
+        # operator sees when the sweep was interrupted.
+        manifest = replace(manifest, finished_utc=_now_utc())
         write_manifest(manifest, manifest_path)
+        log = (
+            f"[run-sweep] interrupted ({tally.interrupted_at.display}); "
+            f"resume: python scripts/run_sweep.py --config {config_path} --resume"
+        )
+        return SweepOutcome(
+            exit_code=2,
+            n_planned=len(cells),
+            n_completed=n_completed,
+            n_failed=n_failed,
+            n_skipped=n_skipped_plan,
+            n_already_done=n_already_done,
+            manifest_path=manifest_path,
+            log_message=log,
+        )
 
     # All cells dispatched.
     manifest = replace(manifest, finished_utc=_now_utc())
@@ -1227,6 +1545,55 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="v1: must be 1 (serial dispatch). Param exists for forward compat.",
     )
     parser.add_argument(
+        "--vram-budget-mb",
+        type=float,
+        default=None,
+        metavar="MB",
+        help=(
+            "Opt-in concurrent dispatch. Run small cells at once while the sum "
+            "of their CALIBRATED vram_peak_mb stays <= this budget (try ~7000 "
+            "on an 8 GB card). A cell that would exceed the budget WAITS; an "
+            "un-calibrated policy runs EXCLUSIVELY. Each cell is still wrapped "
+            "in run_capped.sh (cgroup RAM cap) -- this is an additive VRAM gate, "
+            "not a replacement. Omit this flag for legacy 1-at-a-time dispatch."
+        ),
+    )
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=DEFAULT_MAX_CONCURRENT,
+        metavar="N",
+        help=(
+            f"Backstop cap on concurrent cells under --vram-budget-mb "
+            f"(default {DEFAULT_MAX_CONCURRENT}). Ignored when --vram-budget-mb "
+            "is unset."
+        ),
+    )
+    parser.add_argument(
+        "--calibration-json",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Calibration JSON supplying per-cell vram_peak_mb for --vram-budget-mb "
+            "(default: newest results/calibration-*.json). If none is found, "
+            "dispatch falls back to serial (fail-safe)."
+        ),
+    )
+    parser.add_argument(
+        "--per-cell-mem-cap",
+        type=str,
+        default=None,
+        metavar="CAP",
+        help=(
+            "Wrap each concurrently-dispatched cell in scripts/run_capped.sh with "
+            "this cgroup MemoryMax (e.g. '6G'). REQUIRED for safe concurrency: under "
+            "--vram-budget-mb the outer single cgroup cap is shared across N cells, "
+            "so per-cell caps keep one cell's RAM spike from starving the others / "
+            "freezing the host. Ignored without --vram-budget-mb."
+        ),
+    )
+    parser.add_argument(
         "--canonical",
         action="store_true",
         help=(
@@ -1257,6 +1624,17 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 3
+
+    if args.vram_budget_mb is not None and args.per_cell_mem_cap is None:
+        # Concurrency without per-cell cgroup caps means N cells share the
+        # outer single cap -- one cell's RAM spike could starve the others
+        # or (without the outer launcher) freeze the host. Loud, not fatal:
+        # the cgroup is still the primary defense; we just want it per cell.
+        logger.warning(
+            "--vram-budget-mb set without --per-cell-mem-cap: concurrent cells "
+            "will share the outer cgroup cap. Strongly recommend "
+            "--per-cell-mem-cap (e.g. 6G) so each cell gets its own RAM cap."
+        )
 
     # Load + validate config first -- any schema problem exits 3.
     try:
@@ -1295,6 +1673,10 @@ def main(argv: list[str] | None = None) -> int:
             shuffle_seed=args.shuffle,
             cell_timeout_s=args.cell_timeout_s,
             dry_run=args.dry_run,
+            vram_budget_mb=args.vram_budget_mb,
+            max_concurrent=args.max_concurrent,
+            calibration_path=args.calibration_json,
+            per_cell_mem_cap=args.per_cell_mem_cap,
         )
     except (KeyError, ValueError) as exc:
         # expand_cells raises ValueError for unknown policy/env names.
