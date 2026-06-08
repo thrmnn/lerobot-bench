@@ -21,15 +21,51 @@ before re-running them, and flushes each completed cell with
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _parquet_write_lock(parquet_path: Path) -> Iterator[None]:
+    """Hold a cross-process advisory lock for the duration of a write.
+
+    Concurrent cell dispatch (the VRAM-budget scheduler) means several
+    ``run_one`` *subprocesses* may append to the same ``results.parquet``
+    at once. ``append_cell_rows`` is a load-modify-write, so without
+    serialization two appends race: a lost update (both read the same
+    base, each replaces) or a clobbered ``.tmp.parquet`` sibling. An
+    in-process ``threading.Lock`` cannot help across subprocesses, so we
+    take an OS-level ``flock`` on a sidecar ``<parquet>.lock`` file.
+
+    The lock is keyed on the parquet path and uncontended in the legacy
+    serial sweep (zero behavior change there). On platforms without
+    ``fcntl`` (non-POSIX) it degrades to a no-op -- the sweep only runs
+    on WSL2/Linux, and serial dispatch never contends anyway.
+    """
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - WSL2/Linux always has fcntl
+        yield
+        return
+
+    lock_path = parquet_path.with_suffix(parquet_path.suffix + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 # Columns required in every results.parquet row. This is the strict
@@ -280,45 +316,50 @@ def append_cell_rows(parquet_path: Path, new_rows: pd.DataFrame) -> int:
         if col not in actual:
             new_rows[col] = OPTIONAL_DEFAULTS[col]
 
-    existing = load_results(parquet_path)
+    # The whole load-modify-write is serialized cross-process so concurrent
+    # cell subprocesses (VRAM-budget scheduler) cannot lose-update each
+    # other's rows or clobber the shared .tmp.parquet sibling. Uncontended
+    # (zero cost) in the legacy serial sweep.
+    with _parquet_write_lock(parquet_path):
+        existing = load_results(parquet_path)
 
-    if len(new_rows) == 0:
-        return len(existing)
+        if len(new_rows) == 0:
+            return len(existing)
 
-    # Duplicate-key guard. Build a set of tuples from existing, then
-    # check membership for each new row. Faster than a merge for the
-    # row counts we expect (≤ 250 per cell).
-    existing_keys: set[tuple[str, str, int, int]] = {
-        (str(p), str(e), int(s), int(i))
+        # Duplicate-key guard. Build a set of tuples from existing, then
+        # check membership for each new row. Faster than a merge for the
+        # row counts we expect (≤ 250 per cell).
+        existing_keys: set[tuple[str, str, int, int]] = {
+            (str(p), str(e), int(s), int(i))
+            for p, e, s, i in zip(
+                existing["policy"],
+                existing["env"],
+                existing["seed"],
+                existing["episode_index"],
+                strict=True,
+            )
+        }
+        duplicates: list[tuple[str, str, int, int]] = []
         for p, e, s, i in zip(
-            existing["policy"],
-            existing["env"],
-            existing["seed"],
-            existing["episode_index"],
+            new_rows["policy"],
+            new_rows["env"],
+            new_rows["seed"],
+            new_rows["episode_index"],
             strict=True,
-        )
-    }
-    duplicates: list[tuple[str, str, int, int]] = []
-    for p, e, s, i in zip(
-        new_rows["policy"],
-        new_rows["env"],
-        new_rows["seed"],
-        new_rows["episode_index"],
-        strict=True,
-    ):
-        key = (str(p), str(e), int(s), int(i))
-        if key in existing_keys:
-            duplicates.append(key)
-    if duplicates:
-        raise ValueError(f"duplicate (policy, env, seed, episode_index) keys: {duplicates}")
+        ):
+            key = (str(p), str(e), int(s), int(i))
+            if key in existing_keys:
+                duplicates.append(key)
+        if duplicates:
+            raise ValueError(f"duplicate (policy, env, seed, episode_index) keys: {duplicates}")
 
-    # Reorder new_rows to canonical column order before concat so the
-    # resulting parquet schema is stable.
-    new_rows_ordered = new_rows[list(RESULT_SCHEMA)]
-    combined = pd.concat([existing, new_rows_ordered], ignore_index=True)
+        # Reorder new_rows to canonical column order before concat so the
+        # resulting parquet schema is stable.
+        new_rows_ordered = new_rows[list(RESULT_SCHEMA)]
+        combined = pd.concat([existing, new_rows_ordered], ignore_index=True)
 
-    _atomic_write_parquet(parquet_path, combined)
-    return len(combined)
+        _atomic_write_parquet(parquet_path, combined)
+        return len(combined)
 
 
 def drop_partial_cells(parquet_path: Path, cells: Iterable[CellKey]) -> int:
@@ -332,27 +373,28 @@ def drop_partial_cells(parquet_path: Path, cells: Iterable[CellKey]) -> int:
     if not cells_list or not parquet_path.exists():
         return 0
 
-    df = load_results(parquet_path)
-    if len(df) == 0:
-        return 0
-
     cell_tuples = {(c.policy, c.env, c.seed) for c in cells_list}
-    # Build the per-row cell tuple via zip — avoids a MultiIndex round trip
-    # and keeps dtypes intact across the boolean mask.
-    keep_mask = pd.Series(
-        [
-            (str(p), str(e), int(s)) not in cell_tuples
-            for p, e, s in zip(df["policy"], df["env"], df["seed"], strict=True)
-        ],
-        index=df.index,
-    )
-    removed = int((~keep_mask).sum())
-    if removed == 0:
-        return 0
+    with _parquet_write_lock(parquet_path):
+        df = load_results(parquet_path)
+        if len(df) == 0:
+            return 0
 
-    remaining = df[keep_mask].reset_index(drop=True)
-    _atomic_write_parquet(parquet_path, remaining)
-    return removed
+        # Build the per-row cell tuple via zip — avoids a MultiIndex round
+        # trip and keeps dtypes intact across the boolean mask.
+        keep_mask = pd.Series(
+            [
+                (str(p), str(e), int(s)) not in cell_tuples
+                for p, e, s in zip(df["policy"], df["env"], df["seed"], strict=True)
+            ],
+            index=df.index,
+        )
+        removed = int((~keep_mask).sum())
+        if removed == 0:
+            return 0
+
+        remaining = df[keep_mask].reset_index(drop=True)
+        _atomic_write_parquet(parquet_path, remaining)
+        return removed
 
 
 def _atomic_write_parquet(path: Path, df: pd.DataFrame) -> None:
