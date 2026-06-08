@@ -1,4 +1,4 @@
-# The Capability-Ladder Audit: when does planning substitute for learning?
+# The Capability-Ladder Audit: an instrument that catches its own bugs (and an open question about when planning substitutes for learning)
 
 *A builder's note on what falls out when you put pretrained policies, fine-tunes,
 classical control, and world-model planning on one measurement contract — and read
@@ -111,8 +111,9 @@ planning beats learning, when it doesn't, and what it costs — is the one we're
 chasing next. It is **pending**, and we won't quote it until it clears the same gate
 as everything above.
 
-When does planning substitute for learning? We built the ruler to answer it
-honestly. Ask us again when the L3 cells are green.
+When does planning substitute for learning? That stays an **open question / an
+in-flight hypothesis** — we built the ruler to answer it honestly, and we won't
+claim it until the de-confounded L3 cells are green. Ask us again then.
 
 ---
 
