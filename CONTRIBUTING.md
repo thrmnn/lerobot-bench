@@ -170,6 +170,26 @@ If it calibrates cleanly the policy is included in the next sweep and
 appears on the leaderboard. The pinned `revision_sha` guarantees the
 admitted checkpoint is the one that was reviewed.
 
+## Add an environment
+
+Adding a simulated env to the matrix follows the same eval/seeding contract
+as a policy — register it, satisfy the `GymLikeEnv` protocol
+(`reset(seed)` / `step(action)` / `render()`), and declare its
+`success_threshold` and step cap. The full walkthrough, with the
+[`thrmnn/lerobot-env-so100-pickplace`](https://github.com/thrmnn/lerobot-env-so100-pickplace)
+worked exemplar, is in
+[`docs/ENV_CONTRIBUTION_GUIDE.md`](docs/ENV_CONTRIBUTION_GUIDE.md).
+
+## Running a multi-agent wave
+
+Larger changes are often built by several authoring agents in parallel. The
+mechanics (worktree isolation, disjoint file ownership, the serial
+squash-merge drain into strict `main`) are in
+[`docs/ORCHESTRATION.md`](docs/ORCHESTRATION.md); the catalog of reusable
+workflows — which named pattern to reach for in which phase, and the real
+failure each one exists to prevent — is in
+[`docs/ORCHESTRATION_PLAYBOOK.md`](docs/ORCHESTRATION_PLAYBOOK.md).
+
 ## Reporting issues
 
 Please use the [issue forms](https://github.com/thrmnn/embodimetry/issues/new/choose):

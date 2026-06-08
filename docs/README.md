@@ -1,12 +1,14 @@
 # Documentation index
 
-`embodimetry` is a public, reproducible benchmark of pretrained LeRobot
-manipulation policies — a 6×6 policy×env matrix of 22 cells (18 published)
-× 5 seeds = 110 cell-seed runs dispatched, 0 failures; with 5 policies on
-the public leaderboard and xvla deferred to v1.1, run under a multi-seed
-contract with Wilson and bootstrap confidence intervals, minimum detectable
-difference (MDE) bounds, paired comparisons, and a hand-labeled failure
-taxonomy.
+`embodimetry` is a public, reproducible **instrument** that scores every
+robot-policy paradigm — pretrained imitation, fine-tuning, classical control,
+and a gated world-model-planning rung — as the same `obs → action` callable on
+shared LeRobot tasks. The v1 public leaderboard is the L0 rung: a 6×6
+policy×env matrix of 22 cells (18 published) × 5 seeds = 110 cell-seed runs
+dispatched, 0 failures, with 5 policies published and xvla deferred to v1.1.
+Every number is a binary-outcome rate with a Wilson + bootstrap confidence
+interval, a minimum-detectable-effect (MDE) bound, paired comparisons, and a
+hand-labeled failure taxonomy.
 
 This page is the map of the `docs/` directory. Find the group that matches
 why you are here, then follow the link. If you only want to *look* at results,
@@ -113,6 +115,10 @@ want the *why* behind the project or are preparing a release.
 
 - [`DESIGN.md`](DESIGN.md) — the technical design doc: scope, methodology, and
   reviewer concerns; the *what* and *why* of the benchmark.
+- [`blog/capability-ladder-audit.md`](blog/capability-ladder-audit.md) — the
+  narrative walk-through of the ladder (L0–L3) and the honest negatives:
+  the self-caught norm bug, the within-noise L1 lift, the SmolVLA collapse,
+  the L2 controller ceiling, and the gated L3 open question.
 - [`PIPELINE_ROADMAP.md`](PIPELINE_ROADMAP.md) — how the benchmark evolves past
   v1.0: the publish chain, the methodology-audit gate, coverage breadth, the
   sim-to-real bridge, and the world-model research track (§6).

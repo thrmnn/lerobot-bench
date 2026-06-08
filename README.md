@@ -2,9 +2,9 @@
 
 <img src="docs/assets/logo.svg" alt="Embodimetry" width="440">
 
-### Measuring embodied intelligence — from pretraining to provable control.
+### One measurement contract for embodied-AI policies, from pretrained models to world-model planners.
 
-A public, reproducible **instrument** for embodied-AI policies. v1 is a multi-seed benchmark of pretrained LeRobot manipulation policies with Wilson + bootstrap CIs, MDE bounds, paired comparisons, and a failure taxonomy — the first rung of a ladder that reaches up to world-model planning and provable control.
+A public, reproducible **instrument** that scores every robot-policy paradigm — pretrained imitation, fine-tuning, classical control, world-model planning — as the *same* `obs → action` callable, on shared LeRobot tasks, with Wilson + bootstrap CIs, minimum-detectable-effect bounds, paired comparisons, and a hand-labeled failure taxonomy. Credibility comes from what it caught in its own harness: a normalization bug that pinned ACT × aloha at **0.016**, below the random floor; a clean 2×2 ablation attributes the full **0.016 → 0.824** recovery to the fix. An instrument that audits the auditor.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -56,7 +56,7 @@ A public, reproducible **instrument** for embodied-AI policies. v1 is a multi-se
 
 ---
 
-> **What it is.** Embodimetry is an instrument for *measuring embodied intelligence* under a single, auditable eval contract. Every leaderboard number is a binary-outcome estimate with a confidence interval, anchored to a pinned `lerobot` release and per-policy checkpoint SHAs, and reproducible from a seed triple. v1 measures pretrained policies zero-shot; the same contract is designed to carry up the [capability ladder](#capability-ladder) — fine-tuning, classical control, world-model MPC, and ultimately safety guarantees.
+> **What it is.** Embodimetry measures embodied-AI policies under one auditable eval contract. Every number is a binary-outcome estimate with a confidence interval, anchored to a pinned `lerobot` release and per-policy checkpoint SHAs, and reproducible from a seed triple. v1's public leaderboard measures pretrained policies zero-shot (L0); the same contract already carries up the [capability ladder](#capability-ladder) — fine-tuning, classical control, and a *gated, in-flight* world-model-planning rung — so a controller and a transformer are scored on the same ruler. The lead is not a leaderboard ranking; it is the self-caught normalization bug (0.016 → 0.824) that demonstrates the instrument bites on the surface it exists to protect.
 
 **Status: v1 finalized** (dataset version `v1.0.0`, with the v1.0.1 methodology audit folded into framing). Sweep complete — **22 cells (18 published) × 5 seeds = 110 cell-seed runs dispatched, 0 failures** across 6 policies × 6 envs (a cell is one `(policy, env)` pair). The pi0 family and `xvla_libero` are deferred to v1.1 (see [v1 scope](#v1-scope)).
 
@@ -130,19 +130,21 @@ v1 is the bottom rung. The point of building an *instrument* rather than a one-o
 
 </div>
 
-- **L0 — zero-shot eval** _(shipped, v1)_: pretrained policies measured out of the box.
-- **L1 — fine-tune** _(roadmap)_: adapt + re-measure under the same contract.
-- **L2 — classical control** _(roadmap)_: model-based baselines as a reference floor.
-- **L3 — world-model MPC** _(research track)_: planners evaluated *as policies*, in a [separate research repo](docs/WM_RESEARCH_TRACK.md) on its own clock.
+The rungs below the in-flight one are **measured and honest about their negatives** — that is the spine that earns the instrument its credibility:
+
+- **L0 — pretrained, zero-shot** _(shipped, v1 leaderboard)_: Diffusion Policy × PushT **0.816** [0.739, 0.874]; ACT × aloha **0.824** [0.772, 0.866]; the four SmolVLA × LIBERO cells (0.252–0.928). Strong rungs, no task-specific tuning.
+- **L1 — fine-tune** _(measured, off-leaderboard)_: continuing to fine-tune the already-converged ACT moves 0.824 → 0.864, a **+0.040 shift whose CIs overlap** (Cohen's _h_ = 0.11, below the N=250 MDE) — reported as within noise, not an improvement. An attempted SmolVLA LoRA fine-tune **collapses, 0.252 → ~0** (a gripper-sign data-wiring bug the closed-loop number caught while every offline metric smiled; the 0.252 baseline is single-task and step-cap-truncated, so the collapse is real within that scope).
+- **L2 — classical control** _(measured, off-leaderboard)_: a competent scripted PushT controller reaches ~0.50 mean coverage but clears the strict success bar only **0.012** [0.004, 0.035] of the time — learning buys the last fraction of precision a hand-tuned controller cannot.
+- **L3 — world-model MPC** _(in-flight hypothesis, gated off the leaderboard)_: a *hypothesis*, not a result. We are probing a **dynamics-complexity gradient** — when a zero-training latent planner (DINO-WM CEM) can substitute for learning. PushT (contact-rich) is the endpoint where it does **not** (~0). The supporting Wall-navigation cell is an existence-proof (9/24 = 0.375, Wilson [0.21, 0.57] — spans chance), and the Wall-vs-PushT contrast is **confounded** (env, checkpoint, and CEM budget co-vary). It is framed as a gradient to be measured de-confounded, in a [separate research repo](docs/WM_RESEARCH_TRACK.md), and never quoted as a finding.
 - **L4 — RL + guarantees** _(vision)_: the bridge from learning to provable control.
 
-The world-model track runs in its own [research repo](https://github.com/thrmnn/lerobot-wm-research) and does **not** touch the production leaderboard; the only write-path is a gated adapter PR, held off the board until a planner is explicitly promoted. The two-speed operating model is documented in [`docs/TWO_SPEED.md`](docs/TWO_SPEED.md).
+The world-model track runs in its own [research repo](https://github.com/thrmnn/lerobot-wm-research) and does **not** touch the production leaderboard; the only write-path is a gated adapter PR, held off the board until a planner is explicitly promoted. The two-speed operating model is documented in [`docs/TWO_SPEED.md`](docs/TWO_SPEED.md), the full ladder write-up in [`docs/blog/capability-ladder-audit.md`](docs/blog/capability-ladder-audit.md).
 
 ---
 
 ## Quickstart
 
-**First, just look at the data — no GPU, no download.** A fresh clone already ships a tiny, committed view of the leaderboard headline cells. Read a real number in under a minute:
+**60 seconds, no GPU, no download.** A fresh clone ships a tiny committed view of the leaderboard headline cells. Read a real number with a confidence interval before installing anything heavy:
 
 ```bash
 git clone https://github.com/thrmnn/embodimetry.git && cd embodimetry
@@ -299,7 +301,7 @@ embodimetry/
 ├── space/                 # public HF Space app (Gradio)
 ├── notebooks/             # 01-write-finding.ipynb (every paper figure)
 ├── paper/                 # main.tex + references.bib (4-page arxiv writeup)
-├── tests/                 # 570+ tests (lint + mypy + pytest, all green on CI)
+├── tests/                 # 690+ tests (lint + mypy + pytest, all green on CI)
 ├── docs/                  # DESIGN, ARCHITECTURE, MDE_TABLE, FAILURE_TAXONOMY, RUNBOOK
 └── results/               # gitignored — pushed to HF Hub dataset on publish
 ```
