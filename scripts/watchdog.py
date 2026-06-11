@@ -10,6 +10,13 @@ Defaults trigger at:
 - VRAM free < 200 MB
 - Load > 2× CPU count for 3 consecutive samples
 
+Optional (off by default) `--vram-ceiling-pct` adds a SUSTAINED VRAM-use
+guard: if VRAM used stays above the ceiling (e.g. 90%) for longer than
+`--vram-ceiling-seconds`, the run is aborted. Sustained near-OOM VRAM is
+the WSL2 GPU-PV-desync / TDR trigger (2026-06-09 incident: ~96% sustained
+froze the host). This is distinct from the instant `--vram-free-mb-min`
+floor and is additive to the cgroup RAM cap (the primary RAM defense).
+
 Writes JSONL samples to `--out` for post-mortem.
 """
 
@@ -59,6 +66,36 @@ def read_vram_mb() -> tuple[int, int] | None:
         return used, total
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return None
+
+
+def vram_used_pct(used_mb: int, total_mb: int) -> float:
+    """VRAM used as a percent of total. 0.0 if total is non-positive."""
+    if total_mb <= 0:
+        return 0.0
+    return 100.0 * used_mb / total_mb
+
+
+def vram_ceiling_breached(
+    used_mb: int,
+    total_mb: int,
+    *,
+    ceiling_pct: float | None,
+    elapsed_over_s: float,
+    ceiling_seconds: float,
+) -> bool:
+    """Sustained-VRAM-ceiling predicate (pure; unit-tested).
+
+    True iff a ceiling is configured AND current VRAM use is above it AND
+    it has already been above it for at least ``ceiling_seconds``. This is
+    the desync guard: sustained near-OOM VRAM, not a transient peak.
+    ``elapsed_over_s`` is how long use has *already* been continuously over
+    the ceiling (the caller tracks the streak; 0 on the first sample over).
+    """
+    if ceiling_pct is None:
+        return False
+    if vram_used_pct(used_mb, total_mb) < ceiling_pct:
+        return False
+    return elapsed_over_s >= ceiling_seconds
 
 
 def signal_target(pid: int | None, pgid: int | None, sig: int) -> None:
@@ -144,6 +181,31 @@ def main() -> int:
         help="Breach if free VRAM drops below this many MB (default: 200).",
     )
     ap.add_argument(
+        "--vram-ceiling-pct",
+        type=float,
+        default=None,
+        metavar="PCT",
+        help=(
+            "Optional VRAM ceiling: if VRAM USED stays above this percent of "
+            "total for --vram-ceiling-seconds, treat it as a breach and abort "
+            "the target. Sustained near-OOM VRAM is the WSL2 GPU-PV-desync / "
+            "TDR trigger (2026-06-09 incident: ~96%% sustained). Disabled by "
+            "default; try 90. Distinct from --vram-free-mb-min, which is an "
+            "INSTANT free-MB floor."
+        ),
+    )
+    ap.add_argument(
+        "--vram-ceiling-seconds",
+        type=float,
+        default=120.0,
+        metavar="SECONDS",
+        help=(
+            "How long VRAM use must stay above --vram-ceiling-pct before it "
+            "counts as a breach (default: 120). Tolerates brief peaks; only "
+            "SUSTAINED near-OOM trips it."
+        ),
+    )
+    ap.add_argument(
         "--load-mult-max",
         type=float,
         default=2.0,
@@ -180,11 +242,18 @@ def main() -> int:
     cpu_count = os.cpu_count() or 1
     load_breach_streak = 0
     breach_start_ts: float | None = None
+    vram_over_ceiling_since: float | None = None
     breached = False
 
+    vram_ceiling_desc = (
+        f"{args.vram_ceiling_pct}%/{args.vram_ceiling_seconds:.0f}s"
+        if args.vram_ceiling_pct is not None
+        else "off"
+    )
     print(
         f"watchdog: pid={args.pid} pgid={args.pgid} interval={args.interval}s "
         f"ram_max={args.ram_used_pct_max}% vram_min={args.vram_free_mb_min}MB "
+        f"vram_ceiling={vram_ceiling_desc} "
         f"load_max={args.load_mult_max}×{cpu_count}={args.load_mult_max * cpu_count:.1f} "
         f"out={out_path}",
         flush=True,
@@ -207,14 +276,16 @@ def main() -> int:
             vram = read_vram_mb()
             vram_free_mb = (vram[1] - vram[0]) if vram else None
 
+            now = time.time()
             sample = {
-                "ts": time.time(),
+                "ts": now,
                 "ram_used_pct": round(ram_used_pct, 2),
                 "ram_avail_kb": mem_avail,
                 "swap_used_kb": mi.get("SwapTotal", 0) - mi.get("SwapFree", 0),
                 "vram_used_mb": vram[0] if vram else None,
                 "vram_total_mb": vram[1] if vram else None,
                 "vram_free_mb": vram_free_mb,
+                "vram_used_pct": round(vram_used_pct(vram[0], vram[1]), 2) if vram else None,
                 "load1": la1,
                 "load5": la5,
                 "load15": la15,
@@ -229,15 +300,43 @@ def main() -> int:
             load_breach_streak = load_breach_streak + 1 if load_breach else 0
             sustained_load = load_breach_streak >= args.load_consec
 
+            # Sustained VRAM-ceiling guard (desync prevention). Track how long
+            # VRAM use has been continuously above the ceiling; trip only once
+            # that streak reaches --vram-ceiling-seconds.
+            over_ceiling = (
+                args.vram_ceiling_pct is not None
+                and vram is not None
+                and vram_used_pct(vram[0], vram[1]) >= args.vram_ceiling_pct
+            )
+            if over_ceiling:
+                if vram_over_ceiling_since is None:
+                    vram_over_ceiling_since = now
+                elapsed_over = now - vram_over_ceiling_since
+            else:
+                vram_over_ceiling_since = None
+                elapsed_over = 0.0
+            sustained_vram_ceiling = vram is not None and vram_ceiling_breached(
+                vram[0],
+                vram[1],
+                ceiling_pct=args.vram_ceiling_pct,
+                elapsed_over_s=elapsed_over,
+                ceiling_seconds=args.vram_ceiling_seconds,
+            )
+
             reasons = []
             if ram_breach:
                 reasons.append(f"RAM used {ram_used_pct:.1f}% > {args.ram_used_pct_max}%")
             if vram_breach:
                 reasons.append(f"VRAM free {vram_free_mb}MB < {args.vram_free_mb_min}MB")
+            if sustained_vram_ceiling and vram is not None:
+                reasons.append(
+                    f"VRAM used {vram_used_pct(vram[0], vram[1]):.1f}% >= "
+                    f"{args.vram_ceiling_pct}% sustained {elapsed_over:.0f}s "
+                    f">= {args.vram_ceiling_seconds:.0f}s (desync risk)"
+                )
             if sustained_load:
                 reasons.append(f"load1 {la1:.1f} sustained over threshold")
 
-            now = sample["ts"]
             if reasons:
                 if breach_start_ts is None:
                     breach_start_ts = now

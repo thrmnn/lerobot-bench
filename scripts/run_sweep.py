@@ -1551,8 +1551,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="MB",
         help=(
             "Opt-in concurrent dispatch. Run small cells at once while the sum "
-            "of their CALIBRATED vram_peak_mb stays <= this budget (try ~7000 "
-            "on an 8 GB card). A cell that would exceed the budget WAITS; an "
+            "of their CALIBRATED vram_peak_mb stays <= this budget (~6000 "
+            "recommended on an 8 GB card -- >=25% headroom keeps live VRAM off "
+            "the WSL2 GPU-PV-desync / TDR cliff). A cell that would exceed the "
+            "budget WAITS; an "
             "un-calibrated policy runs EXCLUSIVELY. Each cell is still wrapped "
             "in run_capped.sh (cgroup RAM cap) -- this is an additive VRAM gate, "
             "not a replacement. Omit this flag for legacy 1-at-a-time dispatch."

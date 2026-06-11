@@ -6,6 +6,7 @@ companion to `docs/DESIGN.md` (the *what* and *why*).
 
 ## Contents
 
+0. [GPU health & WSL2 GPU-PV desync (phase-0)](#gpu-health--wsl2-gpu-pv-desync-phase-0)
 1. [Day 0 — calibration spike](#day-0--calibration-spike)
 2. [Running a sweep](#running-a-sweep)
 3. [Resume drill (cell-boundary)](#resume-drill-cell-boundary)
@@ -15,6 +16,87 @@ companion to `docs/DESIGN.md` (the *what* and *why*).
 7. [Verify reproducibility of a published cell](#verify-reproducibility-of-a-published-cell)
 8. [Release a new embodimetry version](#release-a-new-embodimetry-version)
 9. [Prune stale agent worktrees](#prune-stale-agent-worktrees)
+
+---
+
+## GPU health & WSL2 GPU-PV desync (phase-0)
+
+**Run this before any GPU task.** It is phase-0 of the gpu-task workflow:
+no CUDA dispatch happens until the preflight is green.
+
+```bash
+scripts/gpu_preflight.sh                       # default 1500 MB headroom
+scripts/gpu_preflight.sh --required-headroom-mb 2000
+# or wrap a capped GPU launch so it fails fast on a dead GPU:
+scripts/run_capped.sh --gpu-preflight 18G -- python scripts/run_one.py --policy act --env pusht --seed 0
+```
+
+### What it checks (and the exit codes)
+
+| exit | check | meaning / action |
+|------|-------|------------------|
+| `0`  | all pass | healthy — dispatch is safe |
+| `10` | `nvidia-smi -L` unreachable | driver channel down — **likely GPU-PV desync**; `wsl --shutdown` |
+| `11` | `torch.cuda` unusable | nvidia-smi up but CUDA runtime crashed/saw no device — treat as desync; `wsl --shutdown` |
+| `12` | free VRAM < headroom | another process holds the card — wait / free it before dispatching |
+
+The torch check runs **in a subprocess** on purpose: a desynced adapter
+SIGSEGVs inside the CUDA runtime, and out-of-process that crash is a
+nonzero exit code here instead of taking down the caller. This converts
+the cryptic ~30-min diagnosis from the 2026-06-09 incident into a
+2-second clear error.
+
+### Symptoms of a GPU-PV desync (incident 2026-06-09)
+
+- `nvidia-smi` → "couldn't communicate with the NVIDIA driver".
+- `torch.cuda.is_available()` / raw `cuInit(0)` **SIGSEGV** even in a
+  fresh child process.
+- `dmesg` spams `misc dxg: dxgk: dxgkio_query_adapter_info: Ioctl failed:
+  -22` (and `dxgkio_destroy_paging_queue: Ioctl failed: -22`). `/dev/dxg`
+  still exists, but the guest↔host channel returns `-22 EINVAL`.
+
+### Root cause: near-OOM TDR
+
+The host-side WSL2 virtual GPU adapter lost sync with Windows. The trigger
+here was a JEPA-WM run pinning the 8 GB RTX 4060 to **~96% VRAM with
+allocator thrash** — sustained near-OOM VRAM is a known WSL2 GPU TDR /
+GPU-PV-desync trigger. (Other triggers: a mid-session Windows NVIDIA
+driver auto-update, host sleep/resume.)
+
+### VRAM headroom rule (prevention)
+
+Keep **≥25% of the 8 GB card free** at all times. Concretely:
+
+- The VRAM-budget scheduler default is **6000 MB** (lowered from 7000 on
+  2026-06-11) — `embodimetry.vram_scheduler.DEFAULT_VRAM_BUDGET_MB`. 7000
+  of 8192 MB is ~85% reserved *before* the CUDA context and allocator
+  fragmentation, which is into the TDR danger band.
+- Optionally run the watchdog with the **VRAM-ceiling guard**, which
+  aborts a run that stays near-OOM too long:
+
+  ```bash
+  python scripts/watchdog.py --out results/watchdog.jsonl --pgid <PGID> \
+    --vram-ceiling-pct 90 --vram-ceiling-seconds 120
+  ```
+
+  cgroup `MemoryMax` (see `scripts/run_capped.sh`) stays the **primary RAM
+  defense**; this ceiling is an *additive* VRAM defense, not a replacement.
+
+### Recovery (the only fix)
+
+A GPU-PV desync is **not recoverable in-guest** (no GPU sysfs reset in
+WSL; dxgkrnl is built-in; killing guest processes won't re-handshake). The
+only fix is restarting the WSL2 VM:
+
+```text
+# from Windows (PowerShell/cmd):
+wsl --shutdown          # ~8s, then reopen WSL and reconnect
+```
+
+⚠️ WSL2 runs all distros in one VM, so this also kills any parallel
+SSH/work in the same distro — **checkpoint first; do not run it
+autonomously.** After restart, re-run `scripts/gpu_preflight.sh`; it
+should be green before you resume GPU work.
 
 ---
 
