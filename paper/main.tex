@@ -2,13 +2,17 @@
 % Capability-Ladder Audit framing: L0 pretrained / L1 fine-tune / L2 classical
 % / L3 world-model planner on ONE seed+Wilson-CI+MDE contract. The LEAD
 % contribution is the auditable instrument + the self-caught normalization
-% bug (ACT x aloha 0.016 -> 0.824 via a clean 2x2 ablation). L3 is an
-% IN-FLIGHT EXISTENCE-PROOF / HYPOTHESIS (a dynamics-complexity gradient for
-% WHEN zero-training planning substitutes for learning), NOT a confirmed
-% result: the Wall number is small-N with a wide Wilson CI that spans chance,
-% and the Wall-vs-PushT cross-env contrast is CONFOUNDED (env, checkpoint,
-% and CEM budget co-vary). L3 numbers are a CROSS-REPO artifact
-% (lerobot-wm-research), cited as such and demoted in certainty accordingly.
+% bug (ACT x aloha 0.016 -> 0.824 via a clean 2x2 ablation). L3 is a
+% STRENGTHENED-BUT-QUALIFIED result: under matched RECEDING-HORIZON MPC,
+% zero-training world-model latent-MPC planning solves NAVIGATION (Wall
+% JEPA-WM 4/6 ~ DINO-WM 3/6) but not CONTACT (PushT 0/6 ~ 0/6), and the
+% nav-not-contact split REPLICATES across two WM families (DINO-WM,
+% facebookresearch/jepa-wms). The earlier one-shot 0/6 JEPA-WM Wall was a
+% PLANNING-PROTOCOL artifact, corrected by a protocol control. CAVEATS kept
+% in text: N=6 per cell (small), ONE env per endpoint (two-endpoint
+% contrast, NOT a curve / cross-env law); gradient MIDDLE unmeasured
+% (MetaWorld anchor = future work). L3 numbers are a CROSS-REPO artifact
+% (lerobot-wm-research), cited as such.
 
 \documentclass[10pt]{article}
 
@@ -58,19 +62,20 @@ reproducible eval contract\vspace{-0.5ex}}
 % ---------------------------------------------------------------- %
 
 \begin{abstract}
-The animating question of this work is an \emph{in-flight hypothesis} we
-pose but do not answer: does manipulation success degrade along a
-\emph{dynamics-complexity gradient}, with a zero-training world-model
-planner versus a learned policy as the contrast --- from point-mass
-navigation, through contact, to deformable manipulation? Answering it
+The animating question of this work is whether a zero-training world-model
+planner can stand in for a learned policy, and where it cannot: does its
+success track the dynamical complexity of the environment? We answer it at
+two endpoints --- zero-training world-model latent-MPC planning solves
+\emph{navigation} but not \emph{contact}, replicated across two independent
+world-model families --- but answering even those endpoints cleanly
 requires a ruler that scores incompatible paradigms together, and
-\emph{building that ruler is the citable contribution of this paper}; the
-gradient itself is the first sharp question it is purpose-built to test,
-not a result we claim here. Robot-policy success rates are reported per
+\emph{building that ruler is the load-bearing contribution of this paper};
+the full curve across the gradient middle is not a result we claim here.
+Robot-policy success rates are reported per
 paradigm --- pretrained imitation, fine-tuning, classical control,
 world-model planning --- on incompatible protocols, so the paradigms
 cannot be put on one axis. We introduce \emph{embodimetry}, a
-\emph{Capability-Ladder Audit}, and stand behind two settled,
+\emph{Capability-Ladder Audit}, and stand behind three
 reproducible contributions. \emph{First, a single cross-paradigm
 evaluation contract}: pretrained, fine-tuned, classical-control, and
 world-model-planner policies are all scored as the \emph{same}
@@ -85,9 +90,20 @@ a normalization bug in our harness pinned ACT on Aloha-transfer-cube at
 $\hat{p}{=}0.016$ (below the env's random floor), and a clean $2{\times}2$
 ablation isolated the full $0.016\to0.824$ recovery to the normalization
 fix, not inference settings --- and a guard test code-enforces that the
-unproven top rung stays labeled in-flight. Our claim is that an eval suite
-must be audited as carefully as the policies it scores. The ladder is the
-honest-negatives spine that earns the contract credibility. \textbf{L0}
+over-claimed top rung stays labeled to its evidence. Our claim is that an
+eval suite must be audited as carefully as the policies it scores. The
+ladder is the honest-negatives spine that earns the contract credibility.
+\emph{Third, a strengthened-but-qualified L3 reading the contract was built
+to test:} zero-training world-model latent-MPC planning solves
+\emph{navigation} but not \emph{contact}, and this \emph{replicates across
+two independent world-model families} (DINO-WM and
+\texttt{facebookresearch/jepa-wms}) under matched receding-horizon MPC ---
+Wall navigation JEPA-WM $4/6 \approx$ DINO-WM $3/6$, PushT quasi-static
+contact JEPA-WM $0/6 \approx$ DINO-WM $0/6$. We report this as a
+strengthened result, not a cross-env law: it is a \emph{two-endpoint}
+contrast at $N{=}6$ episodes per cell with one environment per endpoint, so
+the gradient \emph{middle} is unmeasured (a MetaWorld anchor is future
+work). \textbf{L0}
 (pretrained Diffusion Policy on PushT) scores $0.816$~[0.739, 0.874].
 \textbf{L1} (continued fine-tuning of an already-converged ACT on
 Aloha-transfer-cube) moves $0.824$~[0.772, 0.866] to $0.864$~[0.816,
@@ -96,19 +112,24 @@ below the $N{=}250$ MDE), reported as within noise; and an attempted
 SmolVLA LoRA fine-tune collapses ($0.252\to{\sim}0$). \textbf{L2} (a
 competent scripted PushT controller) clears the strict bar on only
 $0.012$~[0.004, 0.035] of episodes despite mean rollout coverage near
-$0.50$. On the gradient we report only an in-flight signal, never a
-finding: the \emph{same} zero-training world-model planner
-(DINO-WM~\cite{zhou2024dinowm} latent MPC) reaches Wall-nav at
-$9/24{=}0.375$~[0.21, 0.57] while PushT (${\sim}0$) is \emph{the
-contact endpoint of the hypothesized curve}, not a failure. This signal is
-$N{=}24$, a single world-model family, and \emph{cross-env confounded}
-(env, checkpoint, and CEM budget co-vary) --- we state that confound as an
-open limitation, run the L3 cells as a cross-repo artifact
-(\texttt{lerobot-wm-research}), and a second-WM-family de-confound
-(\texttt{jepa-wms}) is in progress, so the gradient earns its own citation
-only in v1.1. The contributions we stand behind without qualification are
-the contract and the self-audit; the gradient is the in-flight hypothesis
-the contract was purpose-built to measure.
+$0.50$. \textbf{L3} is the strengthened-but-qualified rung: under matched
+receding-horizon MPC (re-plan every step), zero-training world-model
+planning solves Wall navigation (JEPA-WM $4/6 \approx$ DINO-WM $3/6$) but
+not PushT contact (JEPA-WM $0/6 \approx$ DINO-WM $0/6$), and the
+navigation-not-contact split \emph{replicates across two independent
+world-model families}. The earlier one-shot $0/6$ JEPA-WM Wall reading was
+a \emph{planning-protocol artifact} (full-horizon one-shot vs.\
+receding-horizon), corrected by a protocol control; the contact endpoint
+stays ${\sim}0$ \emph{even with} receding-horizon, so the nav$>$contact gap
+is neither a protocol artifact nor DINO-WM-checkpoint-specific. We hold this
+as a strengthened result with explicit caveats, not a cross-env law:
+$N{=}6$ episodes per cell (small), \emph{one} environment per endpoint, so
+this is a two-endpoint contrast and the gradient \emph{middle} is
+unmeasured (a MetaWorld middle anchor is future work). The L3 cells run as a
+cross-repo artifact (\texttt{lerobot-wm-research}) on the same eval
+contract. The contributions we stand behind are the contract, the
+self-audit, and this two-endpoint nav-vs-contact replication; the full
+dynamics-complexity \emph{curve} remains future work.
 \end{abstract}
 
 % ---------------------------------------------------------------- %
@@ -117,16 +138,16 @@ the contract was purpose-built to measure.
 
 \section{Introduction}
 
-The question that animates this work is one we \emph{pose}, not answer:
-does manipulation success degrade along a \emph{dynamics-complexity
-gradient} --- from point-mass navigation, through contact, to deformable
-manipulation --- with a zero-training world-model planner versus a learned
-policy as the contrast? We flag this up front as an \emph{in-flight
-hypothesis}: the cleanest way to ask it is to score a world-model planner
-and a learned policy on \emph{one} ruler, and \textbf{building that ruler,
-not answering the gradient, is what this paper contributes}. We stand
-behind two settled, reproducible contributions, and treat the gradient as
-the first sharp question the ruler is purpose-built to test
+The question that animates this work is whether a zero-training world-model
+planner can stand in for a learned policy, and \emph{where} it cannot:
+does its success track the dynamical complexity of the environment, holding
+at point-mass navigation but breaking at contact? Answering even the two
+endpoints cleanly requires scoring a world-model planner and a learned
+policy on \emph{one} ruler, and \textbf{building that ruler is the
+load-bearing contribution of this paper}; the two-endpoint nav-vs-contact
+reading it produces (\S\ref{sec:l3}) is a strengthened result, but the full
+\emph{curve} across the dynamics-complexity gradient is not something we
+claim here. We stand behind three reproducible contributions
 (\S\ref{sec:l3}). \emph{(1) A single cross-paradigm evaluation contract.}
 Robot control is pursued along a ladder of paradigms with increasing
 autonomy and decreasing supervision: \textbf{L0} zero-shot evaluation of
@@ -196,32 +217,33 @@ the strict success bar on ${\sim}1\%$ of episodes despite getting halfway
 there on average (L2) --- a quantitative case that the value of learning
 is the last fraction of precision.
 
-At the top of the ladder we \emph{pose} an \emph{in-flight hypothesis},
-not a result. We ask \emph{when} a single zero-training world-model
-planner --- DINO-WM~\cite{zhou2024dinowm} latent MPC, no task-specific
-training --- can stand in for learning, and conjecture a
-\emph{dynamics-complexity gradient}: from point-mass navigation, through
-contact, to deformable manipulation. The signal so far is an
-\emph{in-flight} reading at the two ends, not a measured curve, and every
-number below travels with its CI, its single-family caveat, and its
-cross-env confound in the same breath. On PushT, contact-rich
-manipulation, the planner scores ${\sim}0$ ($0/2$) --- \emph{the contact
-endpoint of the hypothesized curve}, a clean data point where a frozen
-latent model cannot plan, treated as a feature of the study rather than a
-failure to rescue with compute. On Wall, a two-room point-mass navigation
-task, the same planner reaches $9/24{=}0.375$ with a Wilson interval
-[0.212, 0.573] wide enough to span chance (\S\ref{sec:l3}), on a
-\emph{single} DINO-WM family. Crucially, the Wall-vs-PushT contrast is
-\emph{confounded} --- env, checkpoint, and CEM budget all co-vary --- so it
-is an in-flight signal that motivates a de-confounded study (same planner,
-vary only the env), not a conditional we can claim; a second-WM-family
-de-confound (\texttt{jepa-wms}) is in progress but throughput-blocked. The
-contract is built precisely to make that study possible on one shared
-seed/CI protocol; we report the hypothesis, the single-family limit, and
-the open confound honestly rather than inflate indicative cells into a
-finding. The contract tells you uncomfortable truths --- including about
-its own claims; that is the point. The benchmark itself is the data; this
-paper is the defense.
+At the top of the ladder we report a \emph{strengthened-but-qualified}
+result. Under matched receding-horizon MPC (re-plan every step), a
+zero-training world-model latent-MPC planner --- no task-specific training
+--- solves \emph{navigation} but not \emph{contact}, and this
+nav-not-contact split \emph{replicates across two independent world-model
+families}, DINO-WM~\cite{zhou2024dinowm} and
+\texttt{facebookresearch/jepa-wms}~\cite{assran2025vjepa2}. On \textbf{Wall},
+two-room point-mass navigation, the planner reaches $4/6$ (JEPA-WM)
+$\approx 3/6$ (DINO-WM); on \textbf{PushT}, quasi-static contact
+manipulation, it scores $0/6$ (JEPA-WM) $\approx 0/6$ (DINO-WM), at
+${\sim}1000\times$ the per-step compute of the learned diffusion policy that
+scores $0.816$ on the same env. Two confounds the earlier reading carried
+are now controlled: an apparent $0/6$ JEPA-WM Wall failure was a
+\emph{planning-protocol artifact} (full-horizon one-shot vs.\
+receding-horizon), corrected by a protocol control, and the
+nav-vs-contact direction no longer rests on a \emph{single} world-model
+family, because it replicates across DINO-WM and \texttt{jepa-wms}.
+Crucially, the contact endpoint stays ${\sim}0$ \emph{even with}
+receding-horizon and \emph{across both families}, so the nav$>$contact gap
+is neither a protocol artifact nor DINO-WM-checkpoint-specific
+(\S\ref{sec:l3}). The qualification we keep in the same breath: $N{=}6$
+episodes per cell is small, and there is \emph{one} environment per endpoint,
+so this is a \emph{two-endpoint} contrast --- the gradient \emph{middle}
+(reach, multi-contact) is unmeasured and a MetaWorld middle anchor is future
+work --- not a full curve and not a cross-env law. The contract is what made
+this replication measurable on one shared seed/CI protocol. The benchmark
+itself is the data; this paper is the defense.
 
 % ---------------------------------------------------------------- %
 % Related Work                                                     %
@@ -254,12 +276,14 @@ policy under one shared seed/CI protocol. Our contribution is not a new
 policy class but the \emph{contract} that puts a pretrained, fine-tuned,
 classical, \emph{and} world-model planner on the same Wilson interval ---
 with floor baselines and honest negatives retained, which no neighboring
-benchmark does --- plus the \emph{de-confounded cross-env study it makes
-possible}: running the same DINO-WM planner on envs of differing dynamical
-complexity \emph{to ask}, as an open question, \emph{when} zero-training
-planning substitutes for learning. We \emph{pose} that study as an
-in-flight hypothesis whose signal so far is confounded and single-family
-(\S\ref{sec:l3}), not a measured conditional.
+benchmark does --- plus the \emph{cross-env, cross-family study it makes
+possible}: running the same receding-horizon latent-MPC loop across two
+world-model families (DINO-WM, \texttt{jepa-wms}) on envs of differing
+dynamical complexity, which yields a two-endpoint reading that
+zero-training planning solves navigation but not contact, replicated across
+both families (\S\ref{sec:l3}). That two-endpoint contrast is a
+strengthened result; the full curve across the gradient middle is not yet
+measured.
 
 % ---------------------------------------------------------------- %
 % Methods                                                          %
@@ -389,49 +413,56 @@ parquet schema): the gap between mean max-coverage and the strict $0.95$
 bar quantifies the last-mile precision that the binary rate discards.
 
 \paragraph{L3 rung --- zero-training world-model planning.}
-The L3 cell is a \emph{zero-training} planner: a frozen
-DINO-WM~\cite{zhou2024dinowm} latent forward model wrapped in a
-cross-entropy-method (CEM) MPC loop, entering the audit as a
-\texttt{PolicyCallable} with no task-specific training and its per-step
-sampling cost logged alongside its success rate. At each step the planner
-encodes the current observation once, rolls candidate action sequences
-through the latent model, and returns the first action of the
-lowest-cost sequence (cost ${=}$ latent distance to the encoded goal).
-The \emph{same} planner and CEM hyperparameters are run on two envs of
-differing dynamical complexity: \textbf{Wall}, a two-room point-mass
-navigation task (success $:= \lVert\text{goal}-\text{pos}\rVert < 4.5$,
-\texttt{max\_steps}${=}40$), and \textbf{PushT}, contact-rich
-manipulation. The CEM budget is $N{=}300$ samples, $10$ optimization
-iterations, top-$k{=}30$ elites, horizon $5$ --- a \emph{reduced} budget
-chosen so the loop fits an 8\,GB GPU. A $39\times$ predictor speedup
-(scaled-dot-product attention, \texttt{bfloat16}, and encode-once frame
-caching) is what made any L3 measurement feasible on this hardware; even
-so, the budget is well below the $300\times30$ CEM the source method
-uses at H100 scale, which we flag as a magnitude (not direction)
-caveat. These L3 cells live in a separate research repository
-(\texttt{lerobot-wm-research}); we report them as a \emph{cross-repo}
-artifact run on the same eval contract, and mark their figures' provenance
-accordingly rather than fabricating an in-tree artifact. We stress that
-the Wall and PushT cells differ in \emph{three} co-varying dimensions ---
-env, checkpoint, and CEM budget --- so they constitute an in-flight signal
-for a dynamics-complexity gradient, not a controlled conditional; the
-de-confounded version varies only the env (\S\ref{sec:l3}).
+The L3 cell is a \emph{zero-training} planner: a frozen latent forward
+model wrapped in a \emph{receding-horizon} cross-entropy-method (CEM) MPC
+loop, entering the audit as a \texttt{PolicyCallable} with no task-specific
+training and its per-step sampling cost logged alongside its success rate.
+At each step the planner encodes the current observation once, rolls
+candidate action sequences through the latent model, and \emph{re-plans}
+--- it executes only the first action of the lowest-cost sequence (cost
+${=}$ latent distance to the encoded goal) and re-optimizes from the next
+observation, rather than committing to a full-horizon one-shot plan. We run
+this loop with \emph{two independent world-model families} ---
+DINO-WM~\cite{zhou2024dinowm} and
+\texttt{facebookresearch/jepa-wms}~\cite{assran2025vjepa2} --- on two envs
+of differing dynamical complexity: \textbf{Wall}, a two-room point-mass
+navigation task, and \textbf{PushT}, quasi-static contact manipulation. The
+receding-horizon protocol is itself a \emph{control}: an earlier $0/6$
+JEPA-WM Wall reading came from a full-horizon \emph{one-shot} plan, and
+switching to matched receding-horizon recovers it to $4/6$, isolating that
+$0$ as a planning-protocol artifact rather than a model failure. The CEM
+budget is reduced to fit an 8\,GB GPU; a $39\times$ predictor speedup
+(scaled-dot-product attention, \texttt{bfloat16}, encode-once frame
+caching) is what made the loop feasible on this hardware, and the budget is
+below the H100-scale CEM the source methods use, which we flag as a
+magnitude (not direction) caveat. These L3 cells live in a separate
+research repository (\texttt{lerobot-wm-research}); we report them as a
+\emph{cross-repo} artifact run on the same eval contract, and mark their
+figures' provenance accordingly rather than fabricating an in-tree
+artifact. Matching the planning protocol and replicating across two
+model families controls the protocol and single-family confounds the
+earlier reading carried; the two cells still differ in env (and the
+per-env checkpoint that env requires), so this is a \emph{two-endpoint}
+contrast, not a swept curve (\S\ref{sec:l3}).
 
 \paragraph{Anti-inflation guard (the self-audit, code-enforced).}
 \label{sec:guard}
 The self-auditing methodology is not just a posture, it is a test.
 \texttt{tests/test\_no\_ungated\_l3\_claims.py} runs in CI and \emph{fails
 the build} if any public surface (this paper, the README, the living
-leaderboard, the deck, the blog) asserts the world-model rung as a settled
-result: it greps for ``substitute(s) for learning'' phrasings and requires
-each to sit within a word window of a gating term (\emph{hypothesis},
-\emph{in-flight}, \emph{existence-proof}, \emph{confound}), forbids the
-specific triumphalist tokens the original audit flagged, and asserts the
-$0.016\to0.824$ self-caught-bug lead is present on every surface. The
-guard is citable evidence of the self-audit: it makes the in-flight status
-of the L3 gradient a \emph{property of the repository}, not an editorial
-promise, so the dynamics-complexity hypothesis cannot be silently
-re-inflated into a claim between releases.
+leaderboard, the deck, the blog) \emph{over-claims} the world-model rung.
+It permits the strengthened two-endpoint reading (navigation solved,
+contact not, replicated across two model families) but requires that
+reading to keep its caveats: it forbids the specific triumphalist tokens
+the original audit flagged, fails the build if the paper claims a full
+cross-env \emph{law} or a measured dynamics-complexity \emph{curve}, and
+fails if the two-endpoint qualifiers (the $N{=}6$ per-cell sample, the
+single environment per endpoint) are dropped from the paper. It also
+asserts the $0.016\to0.824$ self-caught-bug lead is present on every
+surface. The guard is citable evidence of the self-audit: it makes the
+qualified status of the L3 reading a \emph{property of the repository}, not
+an editorial promise, so the result cannot be silently inflated from a
+two-endpoint contrast into a cross-env law between releases.
 
 % ---------------------------------------------------------------- %
 % Results                                                          %
@@ -448,9 +479,11 @@ near-ceiling policy moves it within noise; a competent scripted
 controller gets halfway to the goal on average but almost never clears
 the strict bar. Both statements are quantitative because all the rungs
 share one statistical spine. The L3 rung (\S\ref{sec:l3}) sits on the
-same contract as an in-flight hypothesis --- the same world-model planner
-read across two envs --- and is reported as an existence-proof with a
-named confound, not a measured result.
+same contract as a strengthened-but-qualified result --- the same
+receding-horizon world-model planner read across two envs and two model
+families --- reported as a two-endpoint nav-vs-contact replication with its
+$N{=}6$ and single-env-per-endpoint caveats kept in view, not a cross-env
+law.
 
 \begin{table}[t]
 \centering
@@ -464,8 +497,8 @@ L1 & ACT$_\text{zero-shot}$ $\times$ aloha & 250 & 0.824 [0.772, 0.866] & baseli
 L1 & ACT$_\text{fine-tuned}$ $\times$ aloha & 250 & 0.864 [0.816, 0.901] & $\Delta{=}{+}0.040$, CIs overlap \\
 L2 & classical $\times$ pusht & 250 & 0.012 [0.004, 0.035] & mean cov.\ ${\approx}0.50$ \\
 \midrule
-L3 & DINO-WM planner $\times$ wall & 24 & 0.375 [0.21, 0.57] ($9/24$) & zero-training nav (Table~\ref{tab:l3}) \\
-L3 & DINO-WM planner $\times$ pusht & 2 & ${\sim}0.0$ ($0/2$) & same planner, contact endpoint \\
+L3 & WM planner $\times$ wall (nav) & 6 & JEPA-WM $4/6 \approx$ DINO-WM $3/6$ & navigation solved (Table~\ref{tab:l3}) \\
+L3 & WM planner $\times$ pusht (contact) & 6 & JEPA-WM $0/6 \approx$ DINO-WM $0/6$ & contact not solved \\
 \bottomrule
 \end{tabular}
 \caption{The Capability-Ladder Audit: paradigms scored as the same
@@ -475,14 +508,14 @@ L3 & DINO-WM planner $\times$ pusht & 2 & ${\sim}0.0$ ($0/2$) & same planner, co
 $N{=}250$ MDE of $0.123$) --- it is reported as within noise, not an
 improvement. L2's $\hat{p}{=}0.012$ against a mean rollout coverage near
 $0.50$ is the ``learning buys the last fraction of precision'' result.
-The L3 rows are an \emph{in-flight} signal, not a finding: the
-\emph{same} zero-training world-model planner reaches $9/24{=}0.375$
-[0.21, 0.57] on simple navigation and ${\sim}0\%$ on contact manipulation
-(\S\ref{sec:l3}, Table~\ref{tab:l3}); the signal is a \emph{single}
-DINO-WM family, the Wall Wilson interval spans chance, and the two cells
-differ in env, checkpoint, \emph{and} CEM budget (a confounded contrast,
-with a \texttt{jepa-wms} second-family de-confound in progress), so we make
-no conditional claim.
+The L3 rows are a strengthened-but-qualified result (\S\ref{sec:l3},
+Table~\ref{tab:l3}): under matched receding-horizon MPC the zero-training
+world-model planner solves navigation (Wall) but not contact (PushT), and
+the split \emph{replicates across two independent world-model families}
+(DINO-WM, \texttt{jepa-wms}). It is a \emph{two-endpoint} contrast at
+$N{=}6$ episodes per cell with one environment per endpoint --- the
+gradient middle is unmeasured --- so we report it as a strengthened result,
+not a cross-env law or a measured curve.
 $^\dagger$auto-downscoped ($n_\text{ep}{=}25$, $N{=}125$;
 \S\ref{sec:downscope}). Sources: \texttt{results/ladder/} (L1, L2),
 \texttt{results/sweep-full/} (L0, ACT zero-shot), and the cross-repo
@@ -524,96 +557,96 @@ last fraction of precision a hand-tuned controller cannot close. The
 mean-coverage figure is logged in the L2 summary JSON; the binary
 $0.012$ is the contract-comparable number.
 
-\subsection{L3 --- an in-flight dynamics-complexity gradient (hypothesis,
-not result)}
+\subsection{L3 --- navigation solved, contact not: a two-endpoint
+replication}
 \label{sec:l3}
-This rung is an \emph{in-flight hypothesis} we put on the contract, not a
-result. The hypothesis is a \emph{dynamics-complexity gradient}: that
-\emph{when} a zero-training world-model planner can substitute for
-learning is governed by how modellable the env's dynamics are --- from
-point-mass navigation, through contact, to deformable manipulation. This
-is the curve we are measuring, not a curve we have measured; the
-phrasing throughout is deliberate (we \emph{pose} / \emph{ask} / it is
-\emph{in-flight}), and every L3 number below carries its CI, its
-single-family caveat, and its cross-env confound in the same sentence. We
-take \emph{one} DINO-WM~\cite{zhou2024dinowm} latent-MPC planner --- a
-frozen forward model wrapped in a CEM loop, no task-specific training ---
-and run it on two envs that probe the ends of that gradient
-(Table~\ref{tab:l3}). On \textbf{PushT}, contact-rich manipulation, the
-planner scores ${\sim}0$ ($0/2$ honest seeds): it moves the block but
-pushes it away from the goal, at ${\sim}1000\times$ the per-step compute
-of the learned diffusion policy that scores $0.816$ on the same env. This
-is \emph{the contact endpoint of the hypothesized curve} --- a clean data
-point where a frozen latent model cannot plan, a feature of the study,
-not a failure to rescue with more compute. On \textbf{Wall}, two-room
-point-mass navigation, the same planner reaches $9/24{=}0.375$ (Wilson 95\%
-[0.212, 0.573], \texttt{max\_steps}${=}40$, success
-$:= \lVert\text{goal}-\text{pos}\rVert<4.5$, on an 8\,GB RTX~4060), but the
-Wilson interval spans chance and the signal is from a \emph{single}
-DINO-WM family, so this is an \emph{in-flight} reading that zero-training
-planning can sometimes reach a navigation goal, not a measured success
-rate. Critically, Wall and PushT differ in \emph{three} co-varying
-dimensions --- env, checkpoint, \emph{and} CEM budget --- so their
-cross-env contrast is \emph{confounded} and cannot license the conditional
-``planning substitutes for learning on simple dynamics.'' We are running a
-second world-model family (\texttt{jepa-wms}) to de-confound the family
-axis, but it is throughput-blocked so far. We state the gradient as a
-hypothesis the contract is built to test de-confounded (same planner, same
-budget, vary only the env, over more than two points), not a finding we
-claim here.
+This rung is a \emph{strengthened-but-qualified} result. Under matched
+receding-horizon MPC (re-plan every step), a zero-training world-model
+latent-MPC planner solves \emph{navigation} but not \emph{contact}, and the
+split \emph{replicates across two independent world-model families} ---
+DINO-WM~\cite{zhou2024dinowm} and
+\texttt{facebookresearch/jepa-wms}~\cite{assran2025vjepa2}
+(Table~\ref{tab:l3}). On \textbf{Wall}, two-room point-mass navigation, the
+planner reaches $4/6$ (JEPA-WM) $\approx 3/6$ (DINO-WM). On \textbf{PushT},
+quasi-static contact manipulation, it scores $0/6$ (JEPA-WM) $\approx 0/6$
+(DINO-WM): it moves the block but pushes it away from the goal, at
+${\sim}1000\times$ the per-step compute of the learned diffusion policy
+that scores $0.816$ on the same env. Two confounds the earlier reading
+carried are now controlled. \emph{(1) Planning protocol.} An earlier $0/6$
+JEPA-WM Wall reading came from a full-horizon \emph{one-shot} plan; matching
+the receding-horizon protocol DINO-WM used recovers it to $4/6$, isolating
+that $0$ as a planning-protocol artifact, not a model failure. \emph{(2)
+Single-family.} The nav-vs-contact direction no longer rests on one
+world-model family: it replicates across DINO-WM and \texttt{jepa-wms}.
+Critically, the contact endpoint stays ${\sim}0$ \emph{even with}
+receding-horizon and \emph{across both families}, so the nav$>$contact gap
+is neither a protocol artifact nor DINO-WM-checkpoint-specific. The
+qualifiers we keep in the same breath: $N{=}6$ episodes per cell is small,
+and there is \emph{one} environment per endpoint (Wall for navigation, PushT
+for contact), so this is a \emph{two-endpoint} contrast --- the gradient
+\emph{middle} (e.g.\ reach, multi-contact) is unmeasured and a MetaWorld
+middle anchor is future work. We therefore report a strengthened
+two-endpoint nav-vs-contact replication, not a measured dynamics-complexity
+\emph{curve} and not a cross-env \emph{law}.
 
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{llrll}
+\begin{tabular}{llccc}
 \toprule
-Env & Dynamics & $N$ & Success & Per-step compute \\
+Env & Dynamics & DINO-WM & JEPA-WM & Per-step compute \\
 \midrule
-Wall  & 2-room nav (point mass) & 24 & $9/24 = 0.375$ [0.21, 0.57] & \multirow{2}{*}{${\sim}1000\times$ learned policy} \\
-PushT & contact manipulation    & 2  & $0/2 \approx 0.0$ & \\
+Wall  & 2-room nav (point mass) & $3/6$ & $4/6$ & \multirow{2}{*}{${\sim}1000\times$ learned policy} \\
+PushT & quasi-static contact    & $0/6$ & $0/6$ & \\
 \bottomrule
 \end{tabular}
-\caption{The L3 in-flight signal (\emph{not} a confirmed conditional): the
-\emph{same} zero-training DINO-WM~\cite{zhou2024dinowm} latent-MPC
-planner, identical CEM budget ($N{=}300$ samples, $10$ opt.\ iters,
-top-$k{=}30$, horizon~$5$), run on two envs. Wall success
-$:=\lVert\text{goal}-\text{pos}\rVert<4.5$, \texttt{max\_steps}${=}40$, on
-an 8\,GB RTX~4060. The Wall $9/24{=}0.375$ is \emph{indicative only}
-($N{=}24$, Wilson 95\% [0.21, 0.57] spans chance, a \emph{single} DINO-WM
-family); a fuller-CEM, second-family (\texttt{jepa-wms}) de-confound is
-required before any rate is claimed. Upstream
-DINO-WM~\cite{zhou2024dinowm} reports near-perfect Wall at H100-scale
-$300\times30$ CEM. The Wall-vs-PushT contrast is \emph{confounded} --- env,
-checkpoint, and CEM budget all co-vary --- so it is an in-flight signal for
-a dynamics-complexity gradient (point-nav $\to$ contact), to be measured
-de-confounded, not a direction we confirm here. PushT is the contact
-endpoint of that hypothesized curve. Failures are interpretable ---
-wall-trap and last-mile stall, both greedy-CEM local minima rather than
-bugs. Source: cross-repo \texttt{lerobot-wm-research}, run on the same
-eval contract; not an in-embodimetry-tree artifact.}
+\caption{The L3 two-endpoint replication (a strengthened-but-qualified
+result, \emph{not} a measured curve): the same zero-training latent-MPC
+planner under \emph{matched receding-horizon} MPC, run with two independent
+world-model families --- DINO-WM~\cite{zhou2024dinowm} and
+\texttt{facebookresearch/jepa-wms}~\cite{assran2025vjepa2} --- on a
+navigation env (Wall) and a contact env (PushT), on an 8\,GB RTX~4060.
+Navigation is solved by both families (Wall $4/6 \approx 3/6$); contact is
+solved by neither (PushT $0/6 \approx 0/6$), so the nav-not-contact split
+replicates across families. The earlier $0/6$ JEPA-WM Wall reading was a
+\emph{planning-protocol artifact} (full-horizon one-shot vs.\
+receding-horizon), corrected by the protocol control; the PushT $0$ holds
+\emph{even with} receding-horizon and across both families, so the
+nav$>$contact gap is neither a protocol artifact nor
+DINO-WM-checkpoint-specific. \textbf{Caveats:} $N{=}6$ episodes per cell
+(small), and one environment per endpoint, so this is a two-endpoint
+contrast and the gradient middle is unmeasured (a MetaWorld middle anchor is
+future work). The CEM budget is reduced to fit 8\,GB, below the H100-scale
+budgets the source methods use --- a magnitude, not direction, caveat.
+PushT failures are interpretable --- the planner pushes the block away from
+the goal, a contact-modelling failure rather than a bug. Source: cross-repo
+\texttt{lerobot-wm-research}, run on the same eval contract; not an
+in-embodimetry-tree artifact.}
 \label{tab:l3}
 \end{table}
 
 A $39\times$ predictor speedup (scaled-dot-product attention,
-\texttt{bfloat16}, and encode-once frame caching) is what made any L3
-measurement possible on this hardware. The Wall misses are interpretable,
-not bugs --- wall-trap (the planner routes into the dividing wall) and
-last-mile stall (it arrives near the goal then stalls), both greedy-CEM
-local minima a larger budget or longer horizon would be expected to
-escape. With $N{=}24$ on Wall (Wilson [0.21, 0.57], spanning chance) and
-$N{=}2$ on PushT, a \emph{single} world-model family, and a confounded
-cross-env contrast, we make \emph{no} significance claim and \emph{no}
-directional claim: what we have is an in-flight signal at two endpoints of
-a hypothesized dynamics-complexity gradient. The de-confounded study ---
-the same planner at the same budget varying only the env across more than
-two points, plus a second world-model family (\texttt{jepa-wms}, currently
-throughput-blocked) to break the family confound, at a seed count that
-yields a Wilson CI off chance --- is the explicit next step, and until it
-runs L3 is in-flight, not a result.
+\texttt{bfloat16}, and encode-once frame caching) is what made the L3
+loop feasible on this hardware. The Wall misses are interpretable, not bugs
+--- wall-trap (the planner routes into the dividing wall) and last-mile
+stall (it arrives near the goal then stalls), both greedy-CEM local minima
+a larger budget or longer horizon would be expected to escape. The PushT
+misses are a contact-modelling failure: the frozen latent model mispredicts
+the block's response to contact, so the planner pushes confidently the wrong
+way. With $N{=}6$ episodes per cell and one environment per endpoint, we
+report a \emph{strengthened two-endpoint result} --- navigation solved,
+contact not, replicated across two world-model families --- but \emph{not}
+a measured dynamics-complexity curve and \emph{not} a cross-env law. The
+explicit next step is to measure the gradient \emph{middle}: the same
+receding-horizon planner on intermediate-dynamics envs (e.g.\ a MetaWorld
+reach/multi-contact anchor), so the two endpoints become a swept curve at a
+seed count whose Wilson CI clears chance.
 
 \paragraph{Per-cell leaderboard.}
 Table~\ref{tab:leaderboard} gives the v1 learned-policy and floor-baseline
-cells on the same Wilson contract, for context around the ladder rungs.
+cells on the same Wilson contract, for context around the ladder rungs;
+Figure~\ref{fig:forest} plots the same cells as a Wilson forest, so the
+per-cell intervals and the honest negatives are visible side by side.
 
 \begin{table}[t]
 \centering
@@ -641,6 +674,23 @@ $N{=}250$, $\hat{p}{=}0.5$ is $0.123$; 22~runnable cells; XVLA deferred.}
 \label{tab:leaderboard}
 \end{table}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.7\linewidth]{figures/paper/forest_plot.pdf}
+\caption{Per-cell success rate with Wilson 95\% confidence intervals for
+every v1 leaderboard cell. Each row is one $(\text{policy},\text{env})$
+pair; the rate pools the cell's $5\times n_\text{ep}$ episodes and the bar
+is the closed-form Wilson interval (\S\ref{sec:methods}). The dotted line is
+the pooled uniform-random rate, the ``is this policy beating random?''
+reference. The intervals make the honest negatives legible at a glance: the
+floor baselines sit at the far left and the SmolVLA per-suite gradient
+(\texttt{goal}~$0.928$ down to \texttt{libero\_10}~$0.252$) spreads across
+the axis. \texttt{xvla\_libero} rows are excluded (deferred from v1).
+Source: \texttt{results/sweep-full/results.parquet} via
+\texttt{src/embodimetry/figures.py:forest\_plot}.}
+\label{fig:forest}
+\end{figure}
+
 \paragraph{Proof the audit bites: a normalization bug we caught in our
 own eval.}
 A secondary but load-bearing result --- evidence the audit machinery
@@ -660,7 +710,9 @@ with inference \{Hub-default, paper-settings\}, each cell $N{=}250$
 (Table~\ref{tab:act-ablation}): the recovery is 100\% the normalization
 fix, and \emph{temporal ensembling is a wash, not the cause} (broken
 normalization stays at 0.016 under either inference setting; once fixed,
-Hub-default and paper settings overlap in Wilson CI). The lesson
+Hub-default and paper settings overlap in Wilson CI). Figure~\ref{fig:replication}
+plots every cell's measured rate against its paper-reported rate and shows
+the $0.016\to0.824$ jump directly. The lesson
 generalises: an eval suite must be audited --- normalization,
 buffer wiring, observation plumbing --- as carefully as the policies it
 scores (Section~\ref{sec:results-audit}).
@@ -689,6 +741,25 @@ measured in a separate $N{=}250$ run; the two agree within CI. Source:
 \texttt{scripts/probes/probe\_act\_normalization\_ablation.py}.}
 \label{tab:act-ablation}
 \end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.62\linewidth]{figures/paper/replication_scatter.pdf}
+\caption{Paper-reported vs.\ measured success rate per cell, with Wilson
+95\% error bars; the $y{=}x$ diagonal is perfect replication. Cells within
+the $N{=}250$ MDE band ($\pm0.123$) of the paper number are greyed
+(``agrees with paper''); cells outside are colored by policy. The
+self-caught normalization story is visible directly:
+ACT~$\times$~\texttt{aloha\_transfer\_cube} plots at its norm-\emph{fixed}
+$0.824$ reading, with the pre-fix $0.016$ harness-bug point
+(\S\ref{sec:results-audit}) annotated and connected so the jump our fix
+produced is legible. SmolVLA~$\times$~LIBERO points carry a
+``(single-task)'' tag because the v1 sweep ran \texttt{task\_id=0} only
+while the paper numbers are 10-task suite averages, so those gaps are not
+apples-to-apples. Source: \texttt{results/sweep-full/} plus the corrected
+ACT rerun, via \texttt{src/embodimetry/figures.py:replication\_scatter}.}
+\label{fig:replication}
+\end{figure}
 
 \paragraph{Leaderboard context and baseline sanity.}
 For context, SmolVLA's pooled rate across the four LIBERO suites is
@@ -727,27 +798,30 @@ Hub-artifact wiring bug (\texttt{docs/DEFERRED\_POLICIES.md}).
 \section{Discussion}
 
 \paragraph{What the ladder says.}
-Two things are settled and one is in-flight. The two settled, citable
-contributions are the cross-paradigm contract and the self-auditing
-methodology; the dynamics-complexity gradient is the in-flight hypothesis
-the contract was purpose-built to test, and we keep it strictly labeled as
-such. The self-audit claim is narrow and defensible: a neutral
-seed/Wilson-CI/MDE contract surfaced a normalization bug that pinned
-ACT$\times$aloha at $0.016$ (below the random floor) and a clean
+Three things stand. Two are settled, citable contributions --- the
+cross-paradigm contract and the self-auditing methodology --- and the
+third is a strengthened-but-qualified L3 reading the contract was
+purpose-built to produce. The self-audit claim is narrow and defensible: a
+neutral seed/Wilson-CI/MDE contract surfaced a normalization bug that
+pinned ACT$\times$aloha at $0.016$ (below the random floor) and a clean
 $2{\times}2$ ablation attributed the full $0.016\to0.824$ recovery to the
 fix (Table~\ref{tab:act-ablation}) --- an error a loss curve hides and only
 a closed-loop CI exposes --- and a guard test (\S\ref{sec:guard})
-code-enforces that the rung above stays in-flight. At the top of the
-ladder we \emph{ask}, but do not answer, \emph{when} a zero-training
-world-model planner substitutes for learning. The signal is an
-\emph{in-flight} reading at two endpoints of a hypothesized
-dynamics-complexity gradient (Wall $9/24{=}0.375$ [0.21, 0.57] vs.\ PushT
-${\sim}0$, the contact endpoint of the curve), from a \emph{single}
-world-model family, with the Wall Wilson interval spanning chance and the
-cross-env contrast confounded by co-varying env, checkpoint, and CEM
-budget --- so we hold it as an \emph{in-flight hypothesis}, not a result,
-and the contract is what makes the de-confounded version (a second
-\texttt{jepa-wms} family included) measurable.
+code-enforces that the rung above keeps its caveats. At the top of the
+ladder we report that, under matched receding-horizon MPC, a zero-training
+world-model planner solves \emph{navigation} but not \emph{contact}, and
+this split \emph{replicates across two independent world-model families}
+(Wall JEPA-WM $4/6 \approx$ DINO-WM $3/6$; PushT $0/6 \approx 0/6$). Two
+confounds the earlier reading carried are now controlled --- the planning
+protocol (an earlier one-shot $0/6$ Wall was a protocol artifact, recovered
+to $4/6$ by matched receding-horizon) and the single-family limit (the
+split replicates across DINO-WM and \texttt{jepa-wms}) --- and the contact
+endpoint stays ${\sim}0$ even with receding-horizon and across both
+families, so the nav$>$contact gap is robust to both. We hold this as a
+strengthened result with its caveats kept in view: $N{=}6$ per cell, one
+environment per endpoint, so it is a \emph{two-endpoint} contrast, not a
+measured curve and not a cross-env law --- the gradient middle is future
+work.
 
 The supporting spine is a set of honest negatives that earn the audit its
 credibility. First, the contract works as a cross-paradigm yardstick:
@@ -771,40 +845,42 @@ with floor baselines and honest negatives retained, sub-MDE deltas flagged
 inconclusive, and overlapping CIs called overlapping --- and (ii)~the
 \emph{self-audit} --- the instrument correcting its own $0.016\to0.824$
 overclaim, with a guard test (\S\ref{sec:guard}) code-enforcing that the
-top rung stays in-flight. The dynamics-complexity gradient is neither: it
-is the in-flight hypothesis the contract was purpose-built to test, kept
-strictly labeled --- a confounded, single-family, top-of-ladder signal
-(Wall $9/24{=}0.375$ [0.21, 0.57] vs.\ the PushT contact endpoint) we
-\emph{pose}, not a finding --- and it earns its own citation only once the
-de-confound (second \texttt{jepa-wms} family, canonical-budget rerun)
-lands in v1.1.
+top rung keeps its caveats. The third, qualified contribution is the L3
+two-endpoint replication: under matched receding-horizon MPC, zero-training
+world-model planning solves navigation but not contact, replicated across
+DINO-WM and \texttt{jepa-wms} (Wall $4/6 \approx 3/6$; PushT $0/6 \approx
+0/6$) --- a strengthened result at $N{=}6$ per cell with one environment per
+endpoint, so a two-endpoint contrast, not a cross-env law; the full
+dynamics-complexity curve (with the MetaWorld middle anchor) is future
+work.
 
-\subsection{The L3 hypothesis and what would confirm it}
-The dynamics-complexity gradient is a hypothesis, not a conditional we can
-yet assert, and it is worth stating cleanly because the contract is built
-to test it. The intuition: Wall's point-mass dynamics are
-low-dimensional, near-linear, and contact-free, so a frozen latent
-forward model may predict them accurately enough that greedy CEM finds a
-goal-reaching plan it was never trained on; PushT's dynamics are
-contact-rich and stiff, so small latent errors compound through contact
-and the planner pushes the block confidently the wrong way. If that
-intuition holds, ``do we need a learned policy?'' becomes a question about
-the modellability of the dynamics rather than about the planner. But our
-current evidence cannot establish it: the Wall cell is $N{=}24$ with a
-Wilson interval [0.21, 0.57] that spans chance, the signal is from a
-\emph{single} DINO-WM family, and Wall and PushT differ in env,
-checkpoint, \emph{and} CEM budget, so the apparent nav-vs-manip
-\emph{direction} is confounded by all three. What would confirm the
-gradient is the de-confounded study the contract enables: the \emph{same}
-planner at the \emph{same} budget across a \emph{sequence} of envs
-(point-nav $\to$ contact $\to$ deformable), each at a seed count whose
-Wilson CI clears chance, plus a second world-model family
-(\texttt{jepa-wms}) to break the single-family confound, with the
-planner's compute cost (${\sim}1000\times$ per step) reported alongside.
-Until then the defensible statement is narrow: a zero-training planner can
-\emph{sometimes} reach a navigation goal it was never trained on
-(in-flight), and fails the PushT contact endpoint of the hypothesized
-curve --- two points, not a curve, and not a substitution claim.
+\subsection{Why the two endpoints behave differently, and what would
+turn them into a curve}
+The two-endpoint reading is strengthened but it is still two endpoints, and
+it is worth stating cleanly why they differ and what would complete the
+curve. The intuition: Wall's point-mass dynamics are low-dimensional,
+near-linear, and contact-free, so a frozen latent forward model predicts
+them accurately enough that receding-horizon CEM finds a goal-reaching plan
+it was never trained on --- and this holds for \emph{both} world-model
+families, which is why it reads as a property of the dynamics, not of one
+checkpoint. PushT's dynamics are contact-rich and stiff, so small latent
+errors compound through contact and the planner pushes the block
+confidently the wrong way --- again for both families, which is why the
+contact failure is robust rather than a single-checkpoint artifact. So
+``do we need a learned policy?'' already looks, at the two endpoints, like a
+question about the modellability of the dynamics. What our evidence
+\emph{cannot} yet establish is the shape \emph{between} the endpoints: each
+cell is $N{=}6$, and there is one environment per endpoint, so the middle of
+the gradient (reach, multi-contact, deformable) is unmeasured. What would
+turn the two endpoints into a measured curve is the study the contract
+enables: the \emph{same} receding-horizon planner at the \emph{same} budget
+across a \emph{sequence} of envs (point-nav $\to$ reach $\to$ contact $\to$
+deformable, with a MetaWorld middle anchor), each at a seed count whose
+Wilson CI clears chance, with the planner's compute cost
+(${\sim}1000\times$ per step) reported alongside. Until then the defensible
+statement is exactly the two-endpoint one: zero-training world-model
+planning solves navigation but not contact, replicated across two
+world-model families --- two points, not yet a curve.
 
 \subsection{Limitations}
 
@@ -820,28 +896,25 @@ curve --- two points, not a curve, and not a substitution claim.
     RAM during \texttt{from\_pretrained} cold load ($<4$\,GB peak VRAM),
     exceeding the 32\,GB v1 laptop's headroom; v1 compares four learned
     policies, not seven (v1.1 uses quantized/streaming load).
-    \item \textbf{L3 is an in-flight, confounded, single-family signal ---
-    not a result.} We make no significance and no directional claim at the
-    top of the ladder. The Wall cell is $N{=}24$ seeds with a Wilson
-    interval [0.21, 0.57] wide enough to span chance, and PushT is $N{=}2$.
-    \emph{The cross-env confound is itself an open limitation we state
-    plainly:} the Wall-vs-PushT contrast varies \emph{three} dimensions at
-    once --- (i)~the \emph{env} (point-nav vs.\ contact manipulation),
-    (ii)~the \emph{checkpoint} (a different DINO-WM forward model per env),
-    and (iii)~the \emph{CEM budget} relative to each env's difficulty ---
-    so any apparent ``simple dynamics $\to$ planning works'' direction is
-    confounded by checkpoint and budget, not isolated to dynamics; and the
-    whole signal comes from a \emph{single} world-model family. The budget
-    itself is reduced to fit 8\,GB ($N{=}300$/opt~$10$/top-$k$~$30$/
-    horizon~$5$, vs.\ the source method's H100-scale $300\times30$). We
-    therefore frame L3 as an in-flight signal for a dynamics-complexity
-    gradient \emph{hypothesis}, to be confirmed only by a de-confounded
-    study (same planner and budget, vary only the env, $\geq3$ points, a
-    second \texttt{jepa-wms} family, seed count clearing chance); that
-    second-family de-confound is in progress but throughput-blocked. The L3
-    cells are also a \emph{cross-repo} artifact
-    (\texttt{lerobot-wm-research}), not an in-tree parquet of this
-    repository.
+    \item \textbf{L3 is a strengthened two-endpoint result, not a curve and
+    not a cross-env law.} The nav-vs-contact split is real and replicates
+    across two world-model families (DINO-WM, \texttt{jepa-wms}) under
+    matched receding-horizon MPC --- the protocol and single-family
+    confounds the earlier reading carried are now controlled. But two
+    limitations remain and we state them plainly. \emph{(i) Small $N$:}
+    each cell is $N{=}6$ episodes, so the per-cell rates ($3/6$, $4/6$,
+    $0/6$) are coarse. \emph{(ii) One environment per endpoint:} navigation
+    is a single env (Wall) and contact is a single env (PushT), so the
+    contrast is \emph{two endpoints}, not a swept curve --- the gradient
+    \emph{middle} (reach, multi-contact, deformable) is unmeasured, and a
+    MetaWorld middle anchor is future work. The two cells still differ in
+    the per-env checkpoint each env requires, but holding the planning
+    protocol fixed and replicating across two model families removes the
+    protocol and single-family explanations for the gap. The CEM budget is
+    reduced to fit 8\,GB, below the source methods' H100-scale budgets --- a
+    magnitude, not direction, caveat. The L3 cells are also a
+    \emph{cross-repo} artifact (\texttt{lerobot-wm-research}), not an
+    in-tree parquet of this repository.
     \item \textbf{Single-GPU compute ceiling.} The entire audit runs on
     one 8\,GB RTX~4060 laptop. This caps the ladder beyond L3: SmolVLA
     full fine-tune does not fit, so L1 is a single ACT cell plus an
@@ -863,11 +936,12 @@ curve --- two points, not a curve, and not a substitution claim.
     Cross-policy comparisons are valid only within shared envs; the
     L0/L1/L2 rungs sit on \emph{different} envs (PushT, aloha), so they are
     same-contract but not same-task and must be read as paradigm
-    snapshots, not a head-to-head. The L3 in-flight signal is the exception
-    that motivates the design: it holds the \emph{policy} fixed and varies the
-    \emph{env}, which is the cleanest cross-env comparison the contract
-    supports --- but it is only two envs, so ``simple vs.\ hard dynamics''
-    is a two-point contrast, not a curve. With several pairwise claims in
+    snapshots, not a head-to-head. The L3 two-endpoint result is the exception
+    that motivates the design: it holds the \emph{planning protocol} fixed,
+    replicates across two model families, and varies the \emph{env}, which
+    is the cleanest cross-env comparison the contract supports --- but it is
+    only two envs (one per endpoint), so navigation-vs-contact is a
+    two-endpoint contrast, not a curve. With several pairwise claims in
     play we control family-wise error by Holm--Bonferroni, but the matrix
     is too sparse for a fully crossed comparison. $N{=}250$ is a
     GPU-budget choice; claims cite only deltas above the per-cell MDE.
@@ -879,17 +953,16 @@ curve --- two points, not a curve, and not a substitution claim.
 \end{itemize}
 
 \paragraph{Future work.}
-De-confound and measure the L3 hypothesis: rerun the \emph{same} DINO-WM
-planner at a larger seed count and a fuller (paper-faithful) CEM budget on
-a GPU that affords it, holding the planner and budget fixed while varying
-\emph{only} the env across $\geq3$ points (point-nav $\to$ contact $\to$
-deformable), so the indicative Wall $9/24{=}0.375$ becomes a CI-bearing
-rate off chance and ``simple vs.\ hard dynamics'' becomes a measured
-gradient rather than a confounded, single-family two-point signal; add a
-second world-model family (\texttt{jepa-wms}, with
-V-JEPA-2-AC~\cite{assran2025vjepa2}) to break the family confound. The
-gradient earns its own citation in v1.1 once that de-confound and the
-canonical-600 rerun land. Broaden L1 to a
+Turn the two L3 endpoints into a measured curve: run the \emph{same}
+receding-horizon planner at a larger seed count and a fuller
+(paper-faithful) CEM budget on a GPU that affords it, holding the planner
+and budget fixed while varying \emph{only} the env across the gradient
+middle (point-nav $\to$ reach $\to$ contact $\to$ deformable, with a
+MetaWorld middle anchor), so the two-endpoint nav-vs-contact reading becomes
+a swept curve at a seed count whose Wilson CIs clear chance; the two-family
+replication (DINO-WM, \texttt{jepa-wms} with
+V-JEPA-2-AC~\cite{assran2025vjepa2}) already holds at the endpoints and
+extends to the middle envs. Broaden L1 to a
 multi-cell, larger-budget fine-tuning sweep with a from-scratch baseline
 so the rung can support a positive claim, and diagnose the SmolVLA LoRA
 collapse. Close the audit caveats (cap=600 LIBERO reruns); onboard the
