@@ -181,12 +181,22 @@ agent's stdout summary has, more than once, disagreed with the parquet it
 wrote. The verdict is the disk number; stdout is discarded.
 
 **Phases**
+0. **gpu-health (phase-0)** — `scripts/gpu_preflight.sh` BEFORE any CUDA
+   dispatch: `nvidia-smi -L` reachable, `torch.cuda` OK (probed in a
+   subprocess so a desynced-GPU SIGSEGV is a nonzero exit, not a crash),
+   and free VRAM ≥ headroom. Exit 10/11 ⇒ likely WSL2 GPU-PV desync ⇒
+   `wsl --shutdown` (checkpoint first; do NOT run autonomously). Exit 12
+   ⇒ another process holds the card; wait. Wired into `run_capped.sh` as
+   `--gpu-preflight`. See `docs/RUNBOOK.md` → "GPU health & WSL2 GPU-PV
+   desync". Keep VRAM ≥25% free (budget default 6000 MB on the 8 GB card)
+   — near-OOM is the desync trigger.
 1. **acquire-lock** — `scripts/with_gpu_lock.sh` on the machine-global
    `/tmp/embodimetry-gpu.lock` (honored by both repos); a VRAM-budget
    semaphore keyed on calibration `vram_peak_mb`, not a blunt
    `max_parallel==1`.
 2. **cap** — wrap in `scripts/run_capped.sh` (`systemd-run --user --scope`
-   `MemoryMax` / `MemorySwapMax=0`), sized from calibration.
+   `MemoryMax` / `MemorySwapMax=0`), sized from calibration; add
+   `--gpu-preflight` to fold phase-0 into the same launch.
 3. **dispatch** — run the CUDA job to completion (background-bash for long
    jobs; `watchdog.py` observing, **no breach-grace**).
 4. **ground-truth-read** — MANDATORY re-read of the written

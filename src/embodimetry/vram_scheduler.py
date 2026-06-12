@@ -12,7 +12,8 @@ small policies barely touch the 8 GB card -- measured peaks:
 so a 1-at-a-time policy leaves ~3-4x of the card idle. This module adds
 an **admission gate** that lets several small cells run at once as long
 as the *sum of their calibrated peaks* stays under a configurable
-budget (default ~7000 MB of the 8 GB card).
+budget (default ~6000 MB of the 8 GB card -- >=25% headroom; lowered
+from 7000 after the 2026-06-09 near-OOM GPU-PV desync).
 
 OOM-safety (read before changing anything)
 ------------------------------------------
@@ -63,10 +64,25 @@ from typing import Any
 
 logger = logging.getLogger("vram-scheduler")
 
-# Default budget: ~7 GB of the 8 GB card, leaving ~1 GB of headroom for
-# the CUDA context / driver overhead that the calibrated peak does not
-# include. Configurable via ``--vram-budget-mb``.
-DEFAULT_VRAM_BUDGET_MB = 7000.0
+# Default budget: ~6 GB of the 8 GB card, leaving >=25% (~2 GB) headroom.
+#
+# WHY 6000, not 7000 (lowered 2026-06-11): the 2026-06-09 incident was a
+# WSL2 GPU-PV desync (host-side ``dxgkio ... Ioctl -22``) triggered by
+# sustained ~96% VRAM with allocator thrash on this 8 GB card. Near-OOM
+# VRAM is a known TDR / GPU-PV-desync trigger on WSL2, and 7000 MB of an
+# 8192 MB card is ~85% reserved BEFORE the CUDA context (~300-600 MB) and
+# allocator fragmentation are counted -- comfortably into the danger band.
+# A >=25% headroom keeps live use off the TDR cliff. The calibrated peak
+# is also only the 20-step probe worst case, so a fragmenting long run can
+# overshoot it; the bigger margin absorbs that too. Configurable via
+# ``--vram-budget-mb`` for the rare case you truly need the extra GB.
+DEFAULT_VRAM_BUDGET_MB = 6000.0
+
+# A hard ceiling on the fraction of total VRAM that should be in use at
+# any instant. Sustained use above this is the desync trigger; the
+# optional VRAM-ceiling monitor in ``scripts/watchdog.py`` aborts a run
+# that stays above it for too long. 0.90 == 90% of the card.
+VRAM_CEILING_PCT = 90.0
 
 # Backstop cap on how many cells may run at once regardless of how small
 # they are. Bounds CPU / RAM / file-descriptor pressure from many

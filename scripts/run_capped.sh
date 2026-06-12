@@ -8,20 +8,26 @@
 #   2. Pre-flight gate: refuse to launch if used RAM is already above
 #        $LAUNCH_MAX_USED_PCT% of total (default 55%). Protects parallel
 #        workloads (browser, IDE, solar pipeline) from starvation.
-#   3. (Optional) Observational watchdog set by the caller, attached to
+#   3. (Optional) --gpu-preflight: fail-fast GPU-health check BEFORE the
+#        launch (nvidia-smi reachable, torch.cuda OK in a subprocess, free
+#        VRAM >= headroom). On a dead/desynced GPU this exits with a clear
+#        message instead of letting the command SIGSEGV cryptically.
+#   4. (Optional) Observational watchdog set by the caller, attached to
 #        the PID returned in /tmp/last-capped-target-pid. Configure with
 #        a low threshold + zero grace; cgroup is the primary defense.
 #
 # Usage:
-#   scripts/run_capped.sh <mem-cap-bytes-or-suffixed> -- <cmd> [args...]
+#   scripts/run_capped.sh [--gpu-preflight] <mem-cap-bytes-or-suffixed> -- <cmd> [args...]
 #
 # Examples:
 #   scripts/run_capped.sh 18G -- python scripts/calibrate.py --policy act --env pusht
+#   scripts/run_capped.sh --gpu-preflight 18G -- python scripts/run_one.py --policy act --env pusht --seed 0
 #   MEM_CAP=12G scripts/run_capped.sh -- python -c "..."
 #
 # Environment:
 #   MEM_CAP                fallback cap if no positional given (e.g. 18G)
 #   LAUNCH_MAX_USED_PCT    refuse launch if RAM used > this% (default 55)
+#   GPU_HEADROOM_MB        free-VRAM headroom for --gpu-preflight (default 1500)
 
 set -euo pipefail
 
@@ -33,21 +39,28 @@ usage:
   scripts/run_capped.sh <mem-cap> -- <cmd> [args...]
   MEM_CAP=<mem-cap> scripts/run_capped.sh -- <cmd> [args...]
 
+  --gpu-preflight  run scripts/gpu_preflight.sh BEFORE launching; abort with a
+             clear message if the GPU is unreachable/desynced or VRAM is low.
   <mem-cap>  a memory ceiling, e.g. 18G or 12000M. The command is run in a
              systemd cgroup with MemoryMax/MemoryHigh set to this and swap
              disabled; the kernel OOM-kills it inside the cgroup if exceeded.
 
 examples:
   scripts/run_capped.sh 18G -- python scripts/calibrate.py --policy act --env pusht
+  scripts/run_capped.sh --gpu-preflight 18G -- python scripts/run_one.py --policy act --env pusht --seed 0
   MEM_CAP=12G scripts/run_capped.sh -- python scripts/run_one.py --policy act --env pusht --seed 0
 
 environment:
   MEM_CAP              fallback cap when no positional <mem-cap> is given (e.g. 18G)
   LAUNCH_MAX_USED_PCT  refuse to launch if RAM already used > this percent (default 55)
+  GPU_HEADROOM_MB      free-VRAM headroom required by --gpu-preflight (default 1500)
 
 exit codes:
-  2  bad invocation (missing cap, missing '--', or no command)
-  3  pre-flight refusal -- RAM already above LAUNCH_MAX_USED_PCT
+  2   bad invocation (missing cap, missing '--', or no command)
+  3   pre-flight refusal -- RAM already above LAUNCH_MAX_USED_PCT
+  10  --gpu-preflight: nvidia-smi unreachable (likely WSL2 GPU-PV desync)
+  11  --gpu-preflight: torch.cuda unusable (CUDA runtime crashed / no device)
+  12  --gpu-preflight: insufficient free VRAM (another process holds the card)
 EOF
 }
 
@@ -56,12 +69,21 @@ usage() {
     exit 2
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GPU_PREFLIGHT=0
+
 case "${1:-}" in
     -h | --help)
         print_help
         exit 0
         ;;
 esac
+
+# Optional leading --gpu-preflight (consumed before cap parsing).
+if [ "${1:-}" = "--gpu-preflight" ]; then
+    GPU_PREFLIGHT=1
+    shift
+fi
 
 if [ "${1:-}" = "--" ]; then
     if [ -z "${MEM_CAP:-}" ]; then
@@ -103,6 +125,19 @@ if [ "${USED_PCT}" -gt "${LAUNCH_MAX_USED_PCT}" ]; then
     echo "pre-flight: or raise the gate for one launch: LAUNCH_MAX_USED_PCT=70 $0 ..." >&2
     echo "pre-flight: see docs/TROUBLESHOOTING.md -> run_capped.sh pre-flight refusal" >&2
     exit 3
+fi
+
+# --- Optional GPU-health preflight (fail fast on a dead/desynced GPU) --------
+if [ "${GPU_PREFLIGHT}" = "1" ]; then
+    echo "pre-flight: GPU-health check (nvidia-smi + torch.cuda subprocess + VRAM headroom)"
+    if ! "${SCRIPT_DIR}/gpu_preflight.sh" --required-headroom-mb "${GPU_HEADROOM_MB:-1500}"; then
+        rc=$?
+        echo "pre-flight: REFUSE — GPU-health preflight failed (exit ${rc})." >&2
+        echo "pre-flight: not launching CUDA work onto an unhealthy GPU." >&2
+        echo "pre-flight: see docs/RUNBOOK.md -> 'GPU health & WSL2 GPU-PV desync'." >&2
+        exit "${rc}"
+    fi
+    echo "----"
 fi
 
 echo "pre-flight: OK — launching under cgroup MemoryMax=${CAP}"
