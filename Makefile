@@ -51,6 +51,9 @@ all: lint typecheck test  ## Lint + typecheck + test
 
 .PHONY: calibrate sweep-mini sweep-full publish space-deploy worktree-prune dashboard probe-act probe-smolvla probes
 
+# Sweep dir whose artifacts get published; override for a dated sweep.
+SWEEP ?= results/sweep-full
+
 # Slug for the HF Space git remote; override if the Space lives elsewhere.
 HF_SPACE_REMOTE ?= hf-space
 HF_SPACE_URL    ?= https://huggingface.co/spaces/thrmnn/embodimetry
@@ -80,8 +83,12 @@ sweep-full:  ## Full benchmark sweep (overnight)
 review-results:  ## Sanity-check the partial sweep results.parquet for anomalies
 	$(PYTHON) scripts/review_results.py
 
-publish:  ## Push results to HF Hub dataset: pass `ARGS="--results-path ... --manifest-path ... --videos-dir ..."`
-	$(PYTHON) scripts/publish_results.py $(ARGS)
+publish:  ## Push a sweep's artifacts to the HF Hub dataset: pass `SWEEP=results/sweep-full` (default) and `DRY_RUN=1` for a no-network staging pass
+	$(PYTHON) scripts/publish_results.py \
+		--results-path $(SWEEP)/results.parquet \
+		--manifest-path $(SWEEP)/sweep_manifest.json \
+		--videos-dir $(SWEEP)/videos \
+		$(if $(DRY_RUN),--dry-run,) $(ARGS)
 
 space-deploy:  ## Deploy space/ to the HF Space via subtree push (create the Space + remote first; see docs/RUNBOOK.md)
 	@git remote get-url $(HF_SPACE_REMOTE) >/dev/null 2>&1 || { \
