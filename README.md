@@ -68,7 +68,7 @@ Three artifacts, all open:
 
 1. **Public leaderboard** — Hugging Face Space + Hub dataset `thrmnn/embodimetry-v1` (v1.0.0, 110 cell-seed runs, 0 failures; 18 published cells). Every per-episode outcome and every rollout MP4, queryable by `(policy, env, seed, episode)`. _Space is **deploying** — see [Live demo](#live-demo)._
 2. **4-page arxiv writeup** — [`paper/main.tex`](paper/main.tex). Methodology, related work, results, limitations. Every figure regenerated from [`notebooks/01-write-finding.ipynb`](notebooks/01-write-finding.ipynb).
-3. **Upstream-ready eval pipeline** — [`src/embodimetry/eval.py`](src/embodimetry/eval.py), extractable as `lerobot.eval.multi_seed` for a follow-up PR to [`huggingface/lerobot`](https://github.com/huggingface/lerobot).
+3. **Upstream-ready eval pipeline** — [`src/embodimetry/eval.py`](src/embodimetry/eval.py), extractable as `lerobot.eval.multi_seed` for a follow-up PR to [`huggingface/lerobot`](https://github.com/huggingface/lerobot); the module ships a closed-form (scipy-free) Wilson 95% CI on the pooled success rate.
 
 Two tools for running and inspecting it:
 
