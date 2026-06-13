@@ -17,21 +17,21 @@ This document plans how `embodimetry` evolves past the v1.0 sweep. It is organis
 2. **Publish** artifacts from `results/sweep-full/` (parquet + manifest + 5247 videos) with `scripts/publish_results.py`.
 3. Create + **deploy the Space** `thrmnn/embodimetry` (renders non-empty only after step 2 lands the parquet).
 4. **README URL unblock** — drop the dataset-TODO comment once the parquet is live.
-5. **v1.0.0 git tag + GitHub release** (release.yml auto-creates the release on tag push).
+5. **v1.0.2 git tag + GitHub release** (release.yml auto-creates the release on tag push).
 
 **Triage of the work that remains:**
 
 - **Gated on user (author-side, one-time):** arXiv submission + category lock (fills the README/deck/site arXiv links + BibTeX); driving any interactive HF auth. The publish chain itself is runnable now (`huggingface-cli whoami` = `thrmnn`, write token live).
 - **Gated on external resources:** §1.4 independent replication (external lab), §1.5 cross-hardware probe (second GPU, e.g. RTX A6000), the full v1.1 10-task LIBERO sweep (multi-day GPU), XVLA bug-3 (upstream `huggingface/lerobot#3674` + open-ended debug), pi-family quantization if no quantized Hub checkpoint exists.
-- **Autonomous-doable now:** the publish chain (steps 1–5, modulo the two broken Make targets flagged in the runbook); §1.6 negative-control probe (cheap, local GPU) or its waiver; flipping CLAIM_AUDIT / SUCCESS_CRITERION `Status: Open` headers to closed; the #125 probe-override→config refactor; merging the SO-100 env repo PR #1 + adding CI; the v1.1 calibration probe to size the 10-task sweep; a `device_map="auto"` load spike for pi-family.
+- **Autonomous-doable now:** the publish chain (steps 1–5, via `make publish` / `make space-deploy`); §1.6 negative-control probe (cheap, local GPU) or its waiver; flipping CLAIM_AUDIT / SUCCESS_CRITERION `Status: Open` headers to closed; the #125 probe-override→config refactor; merging the SO-100 env repo PR #1 + adding CI; the v1.1 calibration probe to size the 10-task sweep; a `device_map="auto"` load spike for pi-family.
 
-**Decision to surface before the tag (step 5):** the CHANGELOG `[Unreleased]` section holds **v1.0.1 + v1.0.2** work, but the version triple (`VERSION` / `__version__` / `pyproject`) reads `1.0.0`. release.yml gates on `tag == VERSION`, so either bump the triple to `1.0.2` and tag `v1.0.2`, or tag `v1.0.0` and treat the audit cascade as a later release. Resolve this before tagging.
+**Numbering (resolved):** the version triple (`VERSION` / `__version__` / `pyproject`) reads `1.0.2`, and the `[1.0.2]` CHANGELOG section is dated and complete — that is what the tag references. The L1/L2 capability-ladder rungs in `[Unreleased]` ship as **v1.1.0**, not folded into the v1.0.2 tag. release.yml gates on `tag == VERSION`, so push `v1.0.2`.
 
 ---
 
 ## Publish runbook
 
-Exact commands for the chain above. **Two Make targets are broken as written — use the explicit forms here, not `make publish` / `make space-deploy`.**
+Exact commands for the chain above. Steps 2 and 3 wrap `make publish` / `make space-deploy`; the explicit forms below are what each target runs under the hood.
 
 ### Step 1 — Create the Hub dataset repo (gates everything)
 
@@ -45,28 +45,33 @@ huggingface-cli repo create embodimetry-v1 --type dataset
 
 ### Step 2 — Publish artifacts
 
-`make publish SWEEP=…` is **broken** (the target ignores `SWEEP`; the three `--*-path` flags are `required=True`, so argparse errors). Invoke directly:
+`make publish` derives the three `--*-path` flags from `SWEEP` (default `results/sweep-full`) and adds `--dry-run` when `DRY_RUN=1`:
 
 ```
-# dry-run first: stages + writes _provenance.json, no network
+make publish DRY_RUN=1     # dry-run: stages + writes _provenance.json, no network
+make publish               # upload for real
+```
+
+Under the hood that runs:
+
+```
 python scripts/publish_results.py \
   --results-path results/sweep-full/results.parquet \
   --manifest-path results/sweep-full/sweep_manifest.json \
   --videos-dir results/sweep-full/videos \
-  --dry-run
-# then drop --dry-run to upload
+  [--dry-run]
 ```
 
 Only `results.parquet` / `sweep_manifest.json` / `videos/*.mp4` are staged (the `results-act-rerun` / `results-xvla-sanity*` parquets in the same dir are ignored). The raw parquet ships with the `xvla_libero` rows intact **by design** (`leaderboard_filter.py` — reproducibility); the Space filters xvla on read. Exit codes: `0` ok / `2` partial (oversized MP4 skipped) / `3` bad inputs / `4` auth-or-repo-missing / `5` mid-upload fail.
 
 ### Step 3 — Create + deploy the Space
 
-`make space-deploy` is **insufficient** — there is no `hf-space` remote and `space/` is not a standalone repo (it's part of the parent monorepo), so a flat `git push hf-space main` would nest `app.py` under `space/` where the Space can't find it. Create the Space, add the remote, and push the **subtree** so `space/`'s contents land at the Space root:
+`space/` is not a standalone repo (it's part of the parent monorepo), so a flat `git push hf-space main` would nest `app.py` under `space/` where the Space can't find it. `make space-deploy` does a **subtree** push so `space/`'s contents land at the Space root, and aborts with a clear message if the `hf-space` remote is missing. Create the Space + add the remote first (one-time), then deploy:
 
 ```
 huggingface-cli repo create embodimetry --type space --space_sdk gradio
 git remote add hf-space https://huggingface.co/spaces/thrmnn/embodimetry
-git subtree push --prefix space hf-space main
+make space-deploy          # runs: git subtree push --prefix space hf-space main
 ```
 
 The Space reads the dataset purely by URL (`…/embodimetry-v1/resolve/main/results.parquet`, videos via `resolve/main/…mp4`), so it renders non-empty only after step 2. `requirements.txt` pins the project at a GitHub SHA — confirm that SHA is still an ancestor of `main` before deploy.
@@ -75,12 +80,12 @@ The Space reads the dataset purely by URL (`…/embodimetry-v1/resolve/main/resu
 
 Once the parquet is live, drop the dataset-TODO comment in `README.md` (the HF Dataset badge + Quick-links dataset URL already point at the final location). The HF Space badge + live-leaderboard links go live after step 3. The BibTeX `<!-- TODO -->` stays blocked on the arXiv ID (out of the publish chain). Land via a normal PR to main.
 
-### Step 5 — v1.0.0 git tag + GitHub release
+### Step 5 — v1.0.2 git tag + GitHub release
 
-After resolving the CHANGELOG-vs-tag numbering decision and moving `[Unreleased]` under the chosen version on main:
+The `[1.0.2]` CHANGELOG section is already dated and complete (the L1/L2 ladder in `[Unreleased]` is held for v1.1.0). Tag and push:
 
 ```
-git tag v1.0.0          # or v1.0.2 per the decision above
+git tag v1.0.2
 git push origin main --tags
 ```
 
