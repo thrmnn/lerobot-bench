@@ -240,11 +240,51 @@ policies:
 
   - name: smolvla_libero
     is_baseline: false
+    # v1.1 all-10-task LIBERO expansion: task 0 keeps the bare suite name
+    # (v1 join compatibility); tasks 1..9 are <suite>_t<N>. All 40 specs
+    # live in configs/envs.yaml and share the same observation contract,
+    # so smolvla runs on every one. Swept by configs/sweep_v11_libero.yaml.
     env_compat:
       - libero_spatial
+      - libero_spatial_t1
+      - libero_spatial_t2
+      - libero_spatial_t3
+      - libero_spatial_t4
+      - libero_spatial_t5
+      - libero_spatial_t6
+      - libero_spatial_t7
+      - libero_spatial_t8
+      - libero_spatial_t9
       - libero_object
+      - libero_object_t1
+      - libero_object_t2
+      - libero_object_t3
+      - libero_object_t4
+      - libero_object_t5
+      - libero_object_t6
+      - libero_object_t7
+      - libero_object_t8
+      - libero_object_t9
       - libero_goal
+      - libero_goal_t1
+      - libero_goal_t2
+      - libero_goal_t3
+      - libero_goal_t4
+      - libero_goal_t5
+      - libero_goal_t6
+      - libero_goal_t7
+      - libero_goal_t8
+      - libero_goal_t9
       - libero_10
+      - libero_10_t1
+      - libero_10_t2
+      - libero_10_t3
+      - libero_10_t4
+      - libero_10_t5
+      - libero_10_t6
+      - libero_10_t7
+      - libero_10_t8
+      - libero_10_t9
     repo_id: lerobot/smolvla_libero
     revision_sha: 31d453f7edd78c839a8bbc39744a292686daf0de
     fp_precision: bf16

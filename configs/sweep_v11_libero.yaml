@@ -1,0 +1,92 @@
+# v1.1 all-10-task LIBERO sweep. Loaded by scripts/run_sweep.py.
+#
+# Schema is the same SweepConfig as configs/sweep_full.yaml (see that
+# file's header). This sweep covers the smolvla_libero policy across all
+# 10 tasks of each of the 4 LIBERO suites = 40 (policy, env) cells x 5
+# seeds = 200 planned cells.
+#
+# v1_legacy success criterion (default). Per-suite step caps are the
+# v1_legacy contract, carried on each env spec in configs/envs.yaml:
+# libero_spatial=280, libero_object=280, libero_goal=300, libero_10=520.
+# Decision is LOCKED to v1_legacy, NOT the canonical cap=600 overlay --
+# do NOT pass --canonical when launching this sweep.
+#
+# Env naming: task 0 keeps its bare suite name (libero_spatial,
+# libero_object, libero_goal, libero_10) so v1 result joins stay intact;
+# tasks 1..9 are <suite>_t<N> (e.g. libero_10_t7). All 40 are defined in
+# configs/envs.yaml (4 base task-0 specs + 36 new _t1.._t9 specs).
+#
+# Policy: smolvla_libero ONLY. xvla_libero is blocked upstream (#3674)
+# and is deliberately absent. The pi0 family is out of scope for this
+# LIBERO-task-expansion sweep.
+#
+# VRAM-budget semaphore (#181) is a run_sweep.py CLI flag, NOT a sweep-
+# YAML field -- the SweepConfig schema has no vram key. This sweep is a
+# single-policy serial sweep (max_parallel: 1), so concurrency is not
+# needed and the conservative single-cell-at-a-time default already fits
+# the 8 GB RTX 4060. If you ever want overlapped dispatch on this box,
+# add `--vram-budget-mb 7000 --max-concurrent 2 --per-cell-mem-cap 6G`
+# at the CLI (requires a results/calibration-*.json); without it the
+# dispatch is strictly serial regardless.
+
+policies:
+- smolvla_libero
+
+envs:
+# libero_spatial (10 tasks)
+- libero_spatial
+- libero_spatial_t1
+- libero_spatial_t2
+- libero_spatial_t3
+- libero_spatial_t4
+- libero_spatial_t5
+- libero_spatial_t6
+- libero_spatial_t7
+- libero_spatial_t8
+- libero_spatial_t9
+# libero_object (10 tasks)
+- libero_object
+- libero_object_t1
+- libero_object_t2
+- libero_object_t3
+- libero_object_t4
+- libero_object_t5
+- libero_object_t6
+- libero_object_t7
+- libero_object_t8
+- libero_object_t9
+# libero_goal (10 tasks)
+- libero_goal
+- libero_goal_t1
+- libero_goal_t2
+- libero_goal_t3
+- libero_goal_t4
+- libero_goal_t5
+- libero_goal_t6
+- libero_goal_t7
+- libero_goal_t8
+- libero_goal_t9
+# libero_10 (10 tasks)
+- libero_10
+- libero_10_t1
+- libero_10_t2
+- libero_10_t3
+- libero_10_t4
+- libero_10_t5
+- libero_10_t6
+- libero_10_t7
+- libero_10_t8
+- libero_10_t9
+
+seeds: [0, 1, 2, 3, 4]
+
+episodes_per_seed: 50
+
+results_path: results/sweep-v11-libero/results.parquet
+videos_dir: results/sweep-v11-libero/videos
+record_video: true
+device: cuda
+
+criterion: v1_legacy
+cell_timeout_s: 14400  # 4h soft cap per cell
+max_parallel: 1

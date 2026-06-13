@@ -134,6 +134,16 @@ envs:
   # bit-equivalent to v1 (`final_reward >= 1.0` on a binary-reward env
   # is the same as sticky `any(is_success)` — see audit §5.1), so only
   # max_steps is overridden.
+  #
+  # v1.1 all-10-task expansion. The eval loader enforces ONE (suite,
+  # task_id) per env cell, so a 10-task sweep needs one env spec per
+  # (suite, task_id). Task 0 keeps its bare suite name (`libero_spatial`,
+  # …) so v1 result joins don't break; tasks 1..9 get `<suite>_t<N>`
+  # specs below (36 new = 4 suites × 9). Each `_t<N>` spec is byte-for-byte
+  # identical to its suite's task-0 spec EXCEPT for `name` and the single
+  # `task_ids` value, including the v1_legacy `max_steps` cap
+  # (libero_spatial=280, libero_object=280, libero_goal=300, libero_10=520)
+  # and the canonical max_steps=600 overlay.
   # ------------------------------------------------------------------
 
   - name: libero_spatial
@@ -143,6 +153,141 @@ envs:
       env_type: libero
       task: libero_spatial
       task_ids: [0]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t1
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [1]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t2
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [2]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t3
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [3]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t4
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [4]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t5
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [5]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t6
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [6]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t7
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [7]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t8
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [8]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_spatial_t9
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_spatial
+      task_ids: [9]
       obs_type: pixels_agent_pos
       camera_name: agentview_image,robot0_eye_in_hand_image
     max_steps: 280
@@ -166,6 +311,141 @@ envs:
     canonical:
       max_steps: 600
 
+  - name: libero_object_t1
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [1]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_object_t2
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [2]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_object_t3
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [3]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_object_t4
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [4]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_object_t5
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [5]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_object_t6
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [6]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_object_t7
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [7]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_object_t8
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [8]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_object_t9
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_object
+      task_ids: [9]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 280
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
   - name: libero_goal
     family: libero
     factory: lerobot.envs.factory
@@ -181,6 +461,141 @@ envs:
     canonical:
       max_steps: 600
 
+  - name: libero_goal_t1
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [1]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_goal_t2
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [2]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_goal_t3
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [3]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_goal_t4
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [4]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_goal_t5
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [5]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_goal_t6
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [6]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_goal_t7
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [7]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_goal_t8
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [8]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_goal_t9
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_goal
+      task_ids: [9]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 300
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
   - name: libero_10
     family: libero
     factory: lerobot.envs.factory
@@ -188,6 +603,141 @@ envs:
       env_type: libero
       task: libero_10
       task_ids: [0]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t1
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [1]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t2
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [2]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t3
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [3]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t4
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [4]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t5
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [5]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t6
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [6]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t7
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [7]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t8
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [8]
+      obs_type: pixels_agent_pos
+      camera_name: agentview_image,robot0_eye_in_hand_image
+    max_steps: 520
+    success_threshold: 1.0
+    lerobot_module: lerobot.envs.libero
+    canonical:
+      max_steps: 600
+
+  - name: libero_10_t9
+    family: libero
+    factory: lerobot.envs.factory
+    factory_kwargs:
+      env_type: libero
+      task: libero_10
+      task_ids: [9]
       obs_type: pixels_agent_pos
       camera_name: agentview_image,robot0_eye_in_hand_image
     max_steps: 520
